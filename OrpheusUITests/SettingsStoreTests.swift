@@ -1,0 +1,174 @@
+import XCTest
+@testable import OrpheusUI
+
+final class SettingsStoreTests: XCTestCase {
+    func testRoundTripPreservesUnknownTopLevelFields() throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let settingsURL = temp.appendingPathComponent("settings.json")
+        let original = """
+        {
+          "global": {
+            "general": {
+              "download_path": "./downloads/",
+              "download_quality": "hifi",
+              "search_limit": 10
+            },
+            "advanced": {
+              "codec_conversions": {"alac": "flac"}
+            }
+          },
+          "extensions": {
+            "custom": {
+              "unknown": true
+            }
+          },
+          "modules": {
+            "qobuz": {
+              "app_id": "app",
+              "app_secret": "secret",
+              "quality_format": "{bit_depth}B",
+              "user_id": "user",
+              "auth_token": "token"
+            }
+          },
+          "future_field": {
+            "nested": [1, "two", false]
+          }
+        }
+        """
+        try original.data(using: .utf8)!.write(to: settingsURL)
+
+        var document = try SettingsStore.load(from: settingsURL)
+        document.downloadQuality = "lossless"
+        document.qobuzAuthToken = "new-token"
+        try SettingsStore.save(document, to: settingsURL)
+
+        let reloaded = try SettingsStore.load(from: settingsURL)
+        XCTAssertEqual(reloaded.downloadQuality, "lossless")
+        XCTAssertEqual(reloaded.qobuzAuthToken, "new-token")
+        XCTAssertEqual(reloaded[path: ["modules", "qobuz", "quality_format"]]?.stringValue, "{bit_depth}B")
+        XCTAssertNotNil(reloaded[path: ["extensions", "custom", "unknown"]])
+        XCTAssertNotNil(reloaded[path: ["future_field", "nested"]])
+    }
+
+    func testPrepareRuntimeSanitizesCopiedTemplateSettingsAndPreservesUserSettingsOnRelaunch() throws {
+        let temp = try makeTempDirectory()
+        let template = temp.appendingPathComponent("Template", isDirectory: true)
+        let support = temp.appendingPathComponent("Support", isDirectory: true)
+        let downloads = temp.appendingPathComponent("Downloads", isDirectory: true)
+        try writeTemplateSettings(
+            under: template,
+            authToken: "template-token",
+            userID: "template-user",
+            downloadPath: "./downloads"
+        )
+
+        let runtime = RuntimeLocator(
+            applicationSupportRoot: support,
+            defaultDownloadURL: downloads,
+            templateURL: template
+        )
+
+        try runtime.prepareRuntime()
+
+        var copied = try SettingsStore.load(from: runtime.settingsURL)
+        XCTAssertEqual(copied.qobuzAuthToken, "")
+        XCTAssertEqual(copied.qobuzUserID, "")
+        XCTAssertEqual(copied.downloadPath, downloads.path)
+
+        copied.qobuzAuthToken = "user-token"
+        copied.qobuzUserID = "user-id"
+        try SettingsStore.save(copied, to: runtime.settingsURL)
+
+        try runtime.prepareRuntime()
+
+        let preserved = try SettingsStore.load(from: runtime.settingsURL)
+        XCTAssertEqual(preserved.qobuzAuthToken, "user-token")
+        XCTAssertEqual(preserved.qobuzUserID, "user-id")
+    }
+
+    func testPrepareRuntimeDoesNotDeleteExistingRuntimeWhenTemplateResolutionFails() throws {
+        let temp = try makeTempDirectory()
+        let support = temp.appendingPathComponent("Support", isDirectory: true)
+        let runtimeProject = support.appendingPathComponent("OrpheusDL", isDirectory: true)
+        let marker = runtimeProject.appendingPathComponent("keep.txt")
+        try FileManager.default.createDirectory(at: runtimeProject, withIntermediateDirectories: true)
+        try Data("keep me".utf8).write(to: marker)
+
+        let runtime = RuntimeLocator(
+            applicationSupportRoot: support,
+            defaultDownloadURL: temp.appendingPathComponent("Downloads", isDirectory: true),
+            templateURL: temp.appendingPathComponent("MissingTemplate", isDirectory: true)
+        )
+
+        XCTAssertThrowsError(try runtime.prepareRuntime())
+        XCTAssertEqual(try String(contentsOf: marker), "keep me")
+    }
+
+    func testPrepareRuntimeReplacesIncompleteExistingRuntimeAfterStagingSucceeds() throws {
+        let temp = try makeTempDirectory()
+        let template = temp.appendingPathComponent("Template", isDirectory: true)
+        let support = temp.appendingPathComponent("Support", isDirectory: true)
+        let runtimeProject = support.appendingPathComponent("OrpheusDL", isDirectory: true)
+        try FileManager.default.createDirectory(at: runtimeProject, withIntermediateDirectories: true)
+        try Data("stale".utf8).write(to: runtimeProject.appendingPathComponent("old.txt"))
+        try writeTemplateSettings(
+            under: template,
+            authToken: "template-token",
+            userID: "template-user",
+            downloadPath: "./downloads"
+        )
+
+        let runtime = RuntimeLocator(
+            applicationSupportRoot: support,
+            defaultDownloadURL: temp.appendingPathComponent("Downloads", isDirectory: true),
+            templateURL: template
+        )
+
+        try runtime.prepareRuntime()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runtimeProject.appendingPathComponent("old.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runtime.settingsURL.path))
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeTemplateSettings(
+        under template: URL,
+        authToken: String,
+        userID: String,
+        downloadPath: String
+    ) throws {
+        let config = template.appendingPathComponent("config", isDirectory: true)
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        let settings = """
+        {
+          "global": {
+            "general": {
+              "download_path": "\(downloadPath)",
+              "download_quality": "hifi"
+            },
+            "advanced": {
+              "codec_conversions": {"alac": "flac"}
+            }
+          },
+          "modules": {
+            "qobuz": {
+              "app_id": "app",
+              "app_secret": "secret",
+              "user_id": "\(userID)",
+              "auth_token": "\(authToken)"
+            }
+          }
+        }
+        """
+        try Data(settings.utf8).write(to: config.appendingPathComponent("settings.json"))
+    }
+}
