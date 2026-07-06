@@ -9,13 +9,14 @@ struct InputBarView: View {
                 Image(systemName: "link")
                     .foregroundStyle(.secondary)
 
-                TextField("Paste a Qobuz link or search Qobuz", text: $vm.linkInput)
+                TextField("Paste link or search Qobuz", text: $vm.linkInput)
                     .textFieldStyle(.plain)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.body)
                     .onSubmit(vm.addLinkInput)
 
                 Button(action: vm.addLinkInput) {
                     Image(systemName: "arrow.right.circle.fill")
+                        .foregroundStyle(vm.linkInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor)
                 }
                 .buttonStyle(.plain)
                 .disabled(vm.linkInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -31,7 +32,7 @@ struct InputBarView: View {
             }
 
             Button(action: vm.toggleBatchInput) {
-                Label("Multiple", systemImage: "text.badge.plus")
+                Label("Paste Many", systemImage: "text.badge.plus")
             }
             .buttonStyle(.bordered)
             .help("Paste multiple links")
@@ -58,6 +59,7 @@ struct InputBarView: View {
                 vm.selectedQualityChanged()
             }
         }
+        .controlSize(.regular)
     }
 }
 
@@ -129,14 +131,13 @@ struct QueuePaneView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Queue")
+                Label("Queue", systemImage: "text.line.first.and.arrowtriangle.forward")
                     .font(.headline)
-                Text("\(vm.queuedLinks.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+                CountBadge(value: vm.queuedLinks.count)
                 Spacer()
                 Button(action: vm.clearQueue) {
-                    Label("Clear", systemImage: "trash")
+                    Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
                 .disabled(vm.queuedLinks.isEmpty)
@@ -151,8 +152,11 @@ struct QueuePaneView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                     .padding(.horizontal, 14)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 10)
             }
 
             Divider()
@@ -164,11 +168,6 @@ struct QueuePaneView: View {
                         .foregroundStyle(.secondary)
                     Text("Queue is empty")
                         .font(.subheadline.weight(.medium))
-                    Text("Paste a Qobuz link above, import a text file, or use Multiple.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 220)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -185,6 +184,20 @@ struct QueuePaneView: View {
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+private struct CountBadge: View {
+    let value: Int
+
+    var body: some View {
+        Text("\(value)")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
     }
 }
 
@@ -210,13 +223,7 @@ private struct QueueRowView: View {
             Spacer(minLength: 8)
 
             if item.state != .ready {
-                Text(item.state.label)
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .foregroundStyle(stateColor)
-                    .background(stateColor.opacity(0.12), in: Capsule())
-                    .lineLimit(1)
+                QueueStateBadge(label: item.state.label, color: stateColor)
             }
 
             Button(action: { vm.removeQueueItem(id: item.id) }) {
@@ -257,6 +264,21 @@ private struct QueueRowView: View {
         case .cancelled:
             return .secondary
         }
+    }
+}
+
+private struct QueueStateBadge: View {
+    let label: String
+    let color: Color
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(color)
+            .background(color.opacity(0.12), in: Capsule())
+            .lineLimit(1)
     }
 }
 

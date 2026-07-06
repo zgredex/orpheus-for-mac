@@ -78,6 +78,7 @@ private struct AlbumDetailHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

@@ -8,8 +8,10 @@ BUILD_DIR="${PROJECT_DIR}/Build"
 STAGE_DIR="${BUILD_DIR}/stage"
 DERIVED_DATA="${BUILD_DIR}/DerivedData"
 DIST_DIR="${PROJECT_DIR}/dist"
-APP_NAME="OrpheusUI"
+SOURCE_APP_NAME="OrpheusUI"
+APP_NAME="Orpheus for Mac"
 APP_BUNDLE="${DIST_DIR}/${APP_NAME}.app"
+LEGACY_APP_BUNDLE="${DIST_DIR}/${SOURCE_APP_NAME}.app"
 RESOURCES_DIR="${APP_BUNDLE}/Contents/Resources"
 TEMPLATE_DIR="${STAGE_DIR}/OrpheusDLTemplate"
 HELPER_DIST="${BUILD_DIR}/helper-dist"
@@ -137,7 +139,10 @@ DEVELOPER_DIR="${DEVELOPER_DIR}" xcodebuild \
   build
 
 rm -rf "${APP_BUNDLE}"
-cp -R "${DERIVED_DATA}/Build/Products/Release/${APP_NAME}.app" "${APP_BUNDLE}"
+if [[ "${LEGACY_APP_BUNDLE}" != "${APP_BUNDLE}" ]]; then
+  rm -rf "${LEGACY_APP_BUNDLE}"
+fi
+cp -R "${DERIVED_DATA}/Build/Products/Release/${SOURCE_APP_NAME}.app" "${APP_BUNDLE}"
 mkdir -p "${RESOURCES_DIR}"
 
 echo "==> Installing portable resources"

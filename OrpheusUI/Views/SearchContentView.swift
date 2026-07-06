@@ -67,8 +67,7 @@ private struct BrowseHeaderView: View {
                             .lineLimit(1)
                     }
                     if case .results = vm.browseRoute {
-                        Text(vm.browseCountSummary)
-                            .lineLimit(1)
+                        BrowseCountText(text: vm.browseCountSummary)
                     }
                 }
                 .font(.caption)
@@ -86,5 +85,17 @@ private struct BrowseHeaderView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+    }
+}
+
+private struct BrowseCountText: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Color.secondary.opacity(0.08), in: Capsule())
     }
 }

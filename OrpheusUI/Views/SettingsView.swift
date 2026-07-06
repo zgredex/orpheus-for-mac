@@ -19,9 +19,11 @@ struct SettingsView: View {
             Form {
                 Section("Qobuz Credentials") {
                     LabeledContent("Account Region") {
-                        Text(vm.accountRegion)
-                            .foregroundStyle(.secondary)
+                        Text(vm.accountRegionDisplay)
                             .font(.headline)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.secondary.opacity(0.10), in: Capsule())
                     }
 
                     LabeledContent("App ID") {
@@ -78,6 +80,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
 
                             Button(action: chooseDirectory) {
                                 Label("Choose", systemImage: "folder")
@@ -146,7 +149,7 @@ struct SettingsView: View {
             )
             switch result {
             case .success(let region):
-                testResult = .success("OK (\(region))")
+                testResult = .success("OK (\(RegionDisplay.display(region)))")
             case .failure(let error):
                 testResult = .failure(error.localizedDescription)
             }

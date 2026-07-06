@@ -424,7 +424,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = OrpheusUI;
+				INFOPLIST_KEY_CFBundleDisplayName = "Orpheus for Mac";
+				INFOPLIST_KEY_CFBundleName = "Orpheus for Mac";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -447,7 +448,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = OrpheusUI;
+				INFOPLIST_KEY_CFBundleDisplayName = "Orpheus for Mac";
+				INFOPLIST_KEY_CFBundleName = "Orpheus for Mac";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				LD_RUNPATH_SEARCH_PATHS = (

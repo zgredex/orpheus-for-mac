@@ -57,6 +57,10 @@ final class MainViewModel: ObservableObject {
         runtime.resolvedDownloadURL(from: settings?.downloadPath ?? "").path
     }
 
+    var accountRegionDisplay: String {
+        RegionDisplay.display(accountRegion)
+    }
+
     func resolvedDownloadPath(for rawPath: String) -> String {
         runtime.resolvedDownloadURL(from: rawPath).path
     }
@@ -824,7 +828,7 @@ final class MainViewModel: ObservableObject {
             selectedQueueItemChanged()
         }
 
-        queueNotice = linkSummary(
+        queueNotice = linkNotice(
             added: newValidIDs.count,
             invalid: extraction.invalidQobuzURLs.count,
             duplicates: extraction.duplicateCount,
@@ -1477,13 +1481,21 @@ final class MainViewModel: ObservableObject {
         if let resolvedOutputURL { downloads[index].resolvedOutputURL = resolvedOutputURL }
     }
 
-    private func linkSummary(added: Int, invalid: Int, duplicates: Int, ignored: Int) -> String {
+    private func linkNotice(added: Int, invalid: Int, duplicates: Int, ignored: Int) -> String? {
         var parts: [String] = []
-        if added > 0 { parts.append("Added \(added) \(added == 1 ? "link" : "links")") }
-        if invalid > 0 { parts.append("\(invalid) invalid") }
-        if duplicates > 0 { parts.append("\(duplicates) duplicate \(duplicates == 1 ? "skipped" : "skipped")") }
-        if ignored > 0 { parts.append("\(ignored) non-Qobuz \(ignored == 1 ? "URL" : "URLs") ignored") }
-        return parts.isEmpty ? "No Qobuz links found." : parts.joined(separator: ". ") + "."
+        if invalid > 0 {
+            parts.append("\(invalid) invalid Qobuz \(invalid == 1 ? "link" : "links")")
+        }
+        if duplicates > 0 {
+            parts.append("\(duplicates) duplicate \(duplicates == 1 ? "skipped" : "skipped")")
+        }
+        if added == 0 && invalid == 0 && duplicates == 0 && ignored > 0 {
+            parts.append("No Qobuz links found")
+        }
+        if added == 0 && invalid == 0 && duplicates == 0 && ignored == 0 {
+            parts.append("No Qobuz links found")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ". ") + "."
     }
 }
 
@@ -1496,6 +1508,29 @@ enum PreviewState: Equatable {
     case loadedCollection(CollectionPreviewInfo)
     case regionMismatch(yourRegion: String, blockedRegion: String?)
     case error(String)
+}
+
+enum RegionDisplay {
+    static func display(_ region: String) -> String {
+        let trimmed = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = trimmed.uppercased()
+        guard let flag = flag(for: code) else { return trimmed }
+        return "\(flag) \(code)"
+    }
+
+    private static func flag(for code: String) -> String? {
+        guard code.count == 2 else { return nil }
+
+        var scalars = String.UnicodeScalarView()
+        for scalar in code.unicodeScalars {
+            guard (65...90).contains(scalar.value),
+                  let regionalIndicator = UnicodeScalar(127397 + scalar.value) else {
+                return nil
+            }
+            scalars.append(regionalIndicator)
+        }
+        return String(scalars)
+    }
 }
 
 // MARK: - Browse State
@@ -1531,6 +1566,14 @@ enum BrowseCategory: String, CaseIterable, Identifiable, Hashable {
         case .albums: return "Alb"
         case .artists: return "Art"
         case .tracks: return "Trk"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .albums: return "square.stack"
+        case .artists: return "person.crop.circle"
+        case .tracks: return "music.note"
         }
     }
 
@@ -1769,6 +1812,15 @@ struct DownloadItem: Identifiable, Equatable {
     var unitProgressLabel: String? {
         guard let totalUnits, totalUnits > 1 else { return nil }
         return "\(min(completedUnits, totalUnits))/\(totalUnits) \(progressUnit.pluralName)"
+    }
+
+    var speedBadgeLabel: String? {
+        guard case .downloading = status,
+              let speed = speed?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !speed.isEmpty else {
+            return nil
+        }
+        return speed
     }
 }
 

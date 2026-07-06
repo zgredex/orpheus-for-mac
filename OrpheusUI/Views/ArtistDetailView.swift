@@ -62,18 +62,20 @@ private struct ArtistDetailHeader: View {
             Spacer(minLength: 12)
 
             Button(action: queueArtist) {
-                Label("Queue Artist", systemImage: "person.crop.circle.badge.plus")
+                Label("Queue", systemImage: "plus.circle")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(artistID == nil)
+            .help("Queue artist catalog")
 
             Button(action: downloadArtist) {
-                Label("Download Artist", systemImage: "arrow.down.circle.fill")
+                Label("Download", systemImage: "arrow.down.circle.fill")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(artistID == nil)
+            .help("Download artist catalog")
 
             Button("Queue Albums") {
                 vm.addAllArtistAlbums(albums)
@@ -85,6 +87,7 @@ private struct ArtistDetailHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func queueArtist() {

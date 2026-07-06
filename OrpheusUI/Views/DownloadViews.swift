@@ -4,16 +4,16 @@ struct DownloadsSectionView: View {
     @EnvironmentObject private var vm: MainViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Activity")
+                Label("Activity", systemImage: "arrow.down.circle")
                     .font(.headline)
-                Text("\(vm.downloads.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+                DownloadCountBadge(value: vm.downloads.count)
                 Spacer()
             }
             .padding(.horizontal, 16)
+            .padding(.bottom, 8)
 
             if vm.downloads.isEmpty {
                 VStack(spacing: 8) {
@@ -27,15 +27,33 @@ struct DownloadsSectionView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(vm.downloads) { item in
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(vm.downloads.enumerated()), id: \.element.id) { index, item in
                             DownloadRowView(item: item)
+                            if index < vm.downloads.index(before: vm.downloads.endIndex) {
+                                Divider().padding(.leading, 50)
+                            }
                         }
                     }
                 }
             }
         }
         .padding(.vertical, 10)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct DownloadCountBadge: View {
+    let value: Int
+
+    var body: some View {
+        Text("\(value)")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
     }
 }
 
@@ -58,10 +76,14 @@ struct DownloadRowView: View {
 
             Spacer(minLength: 10)
 
+            if let speed = item.speedBadgeLabel {
+                SpeedBadge(speed: speed)
+            }
+
             actionButton
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 5)
+        .padding(.vertical, 7)
     }
 
     @ViewBuilder
@@ -73,10 +95,9 @@ struct DownloadRowView: View {
                 .foregroundStyle(.secondary)
         case .downloading:
             ProgressView(value: item.progress)
-                .frame(maxWidth: 360)
+                .frame(maxWidth: 420)
             HStack(spacing: 8) {
                 Text(item.unitProgressLabel ?? "\(Int(item.progress * 100))%")
-                if let speed = item.speed { Text(speed) }
                 if let downloaded = item.downloaded, let total = item.total {
                     Text("\(downloaded)/\(total)")
                 }
@@ -128,19 +149,39 @@ struct DownloadRowView: View {
                 Image(systemName: "xmark.circle")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
             .help("Cancel")
         case .completed:
             Button(action: { vm.revealInFinder(id: item.id) }) {
                 Image(systemName: "finder")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
             .help("Show in Finder")
         case .failed, .cancelled:
             Button(action: { vm.removeDownload(id: item.id) }) {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
             .help("Remove")
         }
+    }
+}
+
+private struct SpeedBadge: View {
+    let speed: String
+
+    var body: some View {
+        Label(speed, systemImage: "arrow.down")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .help("Download speed")
     }
 }

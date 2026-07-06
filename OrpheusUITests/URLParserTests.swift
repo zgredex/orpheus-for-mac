@@ -113,6 +113,13 @@ final class URLParserTests: XCTestCase {
         XCTAssertEqual(album.tracks?.total, 2)
     }
 
+    func testRegionDisplayAddsFlagForISORegion() {
+        XCTAssertEqual(RegionDisplay.display("FR"), "\u{1F1EB}\u{1F1F7} FR")
+        XCTAssertEqual(RegionDisplay.display("us"), "\u{1F1FA}\u{1F1F8} US")
+        XCTAssertEqual(RegionDisplay.display(" ?? "), "??")
+        XCTAssertEqual(RegionDisplay.display("Europe"), "Europe")
+    }
+
     func testSearchItemsSkipMalformedEntriesInsteadOfFailingWholeCategory() throws {
         let json = Data("""
         {
@@ -157,6 +164,17 @@ final class URLParserTests: XCTestCase {
         XCTAssertEqual(vm.selectedQueueID, vm.queuedLinks.first?.id)
         XCTAssertTrue(vm.queuedLinks[0].state.canStart)
         XCTAssertFalse(vm.queuedLinks[1].state.canStart)
+    }
+
+    @MainActor
+    func testSuccessfulQueueAddDoesNotShowNotice() {
+        let vm = MainViewModel()
+        vm.batchInput = "https://open.qobuz.com/album/abc123"
+
+        vm.addLinksFromInput()
+
+        XCTAssertEqual(vm.queuedLinks.count, 1)
+        XCTAssertNil(vm.queueNotice)
     }
 
     @MainActor
@@ -615,6 +633,27 @@ final class URLParserTests: XCTestCase {
         vm.revealInFinder(id: id)
 
         XCTAssertEqual(finder.revealedURLs, [temp])
+    }
+
+    func testDownloadSpeedBadgeOnlyShowsForActiveSpeed() {
+        var item = DownloadItem(
+            id: UUID(),
+            queueID: nil,
+            url: "https://open.qobuz.com/track/abc123",
+            title: "Track",
+            status: .downloading,
+            speed: " 6.01MB/s ",
+            progressUnit: .tracks
+        )
+
+        XCTAssertEqual(item.speedBadgeLabel, "6.01MB/s")
+
+        item.status = .queued
+        XCTAssertNil(item.speedBadgeLabel)
+
+        item.status = .downloading
+        item.speed = "   "
+        XCTAssertNil(item.speedBadgeLabel)
     }
 
     func testDownloadOutputResolverPrefersDirectChildCreatedAfterStart() throws {

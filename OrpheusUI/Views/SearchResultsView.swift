@@ -114,15 +114,18 @@ private struct BrowseCategoryBar: View {
     @EnvironmentObject private var vm: MainViewModel
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             ForEach(BrowseCategory.allCases) { category in
                 Button(action: { vm.selectBrowseCategory(category) }) {
                     HStack(spacing: 6) {
+                        Image(systemName: category.iconName)
+                            .imageScale(.small)
                         Text(category.label)
                             .font(.subheadline.weight(.medium))
                         statusText(for: category)
                     }
-                    .padding(.horizontal, 10)
+                    .foregroundStyle(foreground(for: category))
+                    .padding(.horizontal, 11)
                     .frame(height: 28)
                     .background(background(for: category), in: RoundedRectangle(cornerRadius: 7))
                 }
@@ -161,6 +164,10 @@ private struct BrowseCategoryBar: View {
             ? Color.accentColor.opacity(0.16)
             : Color.clear
     }
+
+    private func foreground(for category: BrowseCategory) -> Color {
+        vm.selectedBrowseCategory == category ? .accentColor : .primary
+    }
 }
 
 struct BrowseRowGroup<Content: View>: View {
@@ -171,6 +178,10 @@ struct BrowseRowGroup<Content: View>: View {
             content
         }
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.10))
+        }
     }
 }
 
@@ -257,29 +268,51 @@ private struct BrowseArtistRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            BrowseArtworkView(url: cover, icon: "person.fill", shape: .circle)
+            Button(action: openArtist) {
+                HStack(spacing: 12) {
+                    BrowseArtworkView(url: cover, icon: "person.fill", shape: .circle)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(artist.name)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(artist.name)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
 
-                Text("Artist")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                        Text("Artist catalog")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .disabled(artist.id?.value == nil)
+            .help("Open artist")
 
             Spacer(minLength: 10)
 
-            Button(action: openArtist) {
-                Image(systemName: "chevron.right.circle")
-            }
-            .buttonStyle(.borderless)
-            .disabled(artist.id?.value == nil)
-            .help("Open artist")
+            BrowseRowActions(
+                queueAction: queueArtist,
+                downloadAction: downloadArtist,
+                openAction: openArtist,
+                queueHelp: "Queue artist",
+                downloadHelp: "Download artist",
+                openHelp: "Open artist",
+                isEnabled: artist.id?.value != nil
+            )
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+    }
+
+    private func queueArtist() {
+        if let id = artist.id?.value {
+            vm.addArtistToQueue(id)
+        }
+    }
+
+    private func downloadArtist() {
+        if let id = artist.id?.value {
+            vm.downloadArtistNow(id)
+        }
     }
 
     private func openArtist() {
@@ -355,11 +388,13 @@ struct BrowseRowActions: View {
     var disabledHelp: String?
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 5) {
             Button(action: queueAction) {
                 Image(systemName: "plus.circle")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .frame(width: 24, height: 24)
             .disabled(!isEnabled)
             .help(isEnabled ? queueHelp : disabledHelp ?? queueHelp)
 
@@ -367,6 +402,8 @@ struct BrowseRowActions: View {
                 Image(systemName: "arrow.down.circle.fill")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(isEnabled ? Color.accentColor : Color.secondary)
+            .frame(width: 24, height: 24)
             .disabled(!isEnabled)
             .help(isEnabled ? downloadHelp : disabledHelp ?? downloadHelp)
 
@@ -374,6 +411,8 @@ struct BrowseRowActions: View {
                 Image(systemName: "chevron.right.circle")
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .frame(width: 24, height: 24)
             .disabled(!isEnabled)
             .help(isEnabled ? openHelp : disabledHelp ?? openHelp)
         }

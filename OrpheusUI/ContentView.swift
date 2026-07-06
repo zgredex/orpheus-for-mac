@@ -125,13 +125,14 @@ private struct BottomCommandBarView: View {
             Button(action: vm.downloadSelected) {
                 Label(vm.selectedDownloadActionTitle, systemImage: "arrow.down.circle")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .disabled(!vm.canDownloadSelected)
             .help("Download selected queue item")
 
             Button(action: vm.downloadAllQueued) {
                 Label("Download All", systemImage: "arrow.down.circle.fill")
             }
+            .buttonStyle(.borderedProminent)
             .disabled(!vm.canDownloadAll)
             .help("Download all ready queue items")
         }
