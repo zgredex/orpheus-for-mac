@@ -11,7 +11,7 @@ final class OrpheusRunner {
         let percent: Double
         let downloaded: String
         let total: String
-        let speed: String
+        let speed: String?
         let rawLine: String
     }
 
@@ -124,6 +124,9 @@ final class OrpheusRunner {
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
 
                 outputQueue.async {
+                    for event in parser.finish() {
+                        continuation.yield(event)
+                    }
                     let output = self?.snapshotOutput() ?? ""
                     self?.markFinished()
 
@@ -238,21 +241,44 @@ final class OrpheusRunner {
         let clean = cleanLine(line)
         guard !clean.isEmpty else { return nil }
 
-        let pattern = #"([0-9]+(?:\.[0-9]+)?)%.*?([0-9]+(?:\.[0-9]+)?\s*(?:[KMGTPE]?i?B|[KMGTPE]?B|B)?)/([0-9]+(?:\.[0-9]+)?\s*(?:[KMGTPE]?i?B|[KMGTPE]?B|B)?).*?([0-9]+(?:\.[0-9]+)?\s*(?:[KMGTPE]?i?B|[KMGTPE]?B|B)/s)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let number = #"[0-9]+(?:\.[0-9]+)?"#
+        let byteUnit = #"(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)?"#
+        let byteValue = "\(number)\\s*\(byteUnit)"
+        let progressPattern = "(\(number))%.*?(\(byteValue))/(\\s*\(byteValue))"
+        guard let progressRegex = try? NSRegularExpression(pattern: progressPattern) else { return nil }
         let ns = clean as NSString
-        guard let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
-              match.numberOfRanges == 5 else {
+        guard let match = progressRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges == 4 else {
             return nil
         }
+
+        let speedPattern = #"([0-9]+(?:\.[0-9]+)?\s*(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)/s)"#
+        let speedRegex = try? NSRegularExpression(pattern: speedPattern)
+        let totalRange = match.range(at: 3)
+        let speedSearchStart = totalRange.location + totalRange.length
+        let speedMatch = speedRegex?.firstMatch(
+            in: clean,
+            range: NSRange(location: speedSearchStart, length: max(0, ns.length - speedSearchStart))
+        )
+        let speed = speedMatch.map { ns.substring(with: $0.range(at: 1)).normalizedProgressUnit }
 
         return ProgressEvent(
             percent: Double(ns.substring(with: match.range(at: 1))) ?? 0,
             downloaded: ns.substring(with: match.range(at: 2)).normalizedProgressUnit,
             total: ns.substring(with: match.range(at: 3)).normalizedProgressUnit,
-            speed: ns.substring(with: match.range(at: 4)).normalizedProgressUnit,
+            speed: speed,
             rawLine: clean
         )
+    }
+
+    static func parseEvents(from chunks: [String]) -> [Event] {
+        let parser = RunnerOutputParser()
+        var events: [Event] = []
+        for chunk in chunks {
+            events.append(contentsOf: parser.events(from: chunk))
+        }
+        events.append(contentsOf: parser.finish())
+        return events
     }
 
     static func summarizeFailureOutput(_ output: String) -> String {
@@ -335,88 +361,139 @@ private final class RunnerOutputParser {
     private var currentAlbum: Int?
     private var totalAlbums: Int?
     private var completedAlbums = 0
+    private var pendingOutput = ""
+    private var lastFileProgressLine: String?
 
     func events(from chunk: String) -> [OrpheusRunner.Event] {
+        pendingOutput += chunk
+        let split = splitCompleteLines(from: pendingOutput)
+        pendingOutput = split.remainder
+
+        var events = split.lines.flatMap(events(fromLine:))
+        if let progress = liveProgressEvent(from: pendingOutput) {
+            events.append(progress)
+        }
+        return events
+    }
+
+    func finish() -> [OrpheusRunner.Event] {
+        let remainder = pendingOutput
+        pendingOutput = ""
+        guard !remainder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return events(fromLine: remainder)
+    }
+
+    private func splitCompleteLines(from text: String) -> (lines: [String], remainder: String) {
+        var lines: [String] = []
+        var start = text.startIndex
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let character = text[index]
+            if character == "\n" || character == "\r" {
+                let line = String(text[start..<index])
+                if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    lines.append(line)
+                }
+                start = text.index(after: index)
+            }
+            index = text.index(after: index)
+        }
+
+        return (lines, String(text[start...]))
+    }
+
+    private func liveProgressEvent(from line: String) -> OrpheusRunner.Event? {
+        let clean = OrpheusRunner.cleanLine(line)
+        guard !clean.isEmpty,
+              clean != lastFileProgressLine,
+              let progress = OrpheusRunner.parseProgress(clean) else {
+            return nil
+        }
+        lastFileProgressLine = clean
+        return .fileProgress(progress)
+    }
+
+    private func events(fromLine line: String) -> [OrpheusRunner.Event] {
         var events: [OrpheusRunner.Event] = []
 
-        for line in OrpheusRunner.splitProcessChunk(chunk) {
-            let clean = OrpheusRunner.cleanLine(line)
+        let clean = OrpheusRunner.cleanLine(line)
 
-            if let total = OrpheusRunner.parseAlbumTotal(clean) {
-                totalAlbums = max(totalAlbums ?? 0, total)
-                events.append(.albumProgress(.init(
-                    completed: completedAlbums,
-                    total: totalAlbums,
-                    current: currentAlbum,
-                    state: .totalKnown,
-                    rawLine: clean
-                )))
-            }
+        if let total = OrpheusRunner.parseAlbumTotal(clean) {
+            totalAlbums = max(totalAlbums ?? 0, total)
+            events.append(.albumProgress(.init(
+                completed: completedAlbums,
+                total: totalAlbums,
+                current: currentAlbum,
+                state: .totalKnown,
+                rawLine: clean
+            )))
+        }
 
-            if let marker = OrpheusRunner.parseAlbumMarker(clean) {
-                currentAlbum = marker.current
-                totalAlbums = marker.total
-                completedAlbums = max(completedAlbums, marker.current - 1)
-                events.append(.albumProgress(.init(
-                    completed: completedAlbums,
-                    total: totalAlbums,
-                    current: currentAlbum,
-                    state: .started,
-                    rawLine: clean
-                )))
-            }
+        if let marker = OrpheusRunner.parseAlbumMarker(clean) {
+            currentAlbum = marker.current
+            totalAlbums = marker.total
+            completedAlbums = max(completedAlbums, marker.current - 1)
+            events.append(.albumProgress(.init(
+                completed: completedAlbums,
+                total: totalAlbums,
+                current: currentAlbum,
+                state: .started,
+                rawLine: clean
+            )))
+        }
 
-            if OrpheusRunner.parseAlbumOutcome(clean) {
-                let completed = currentAlbum ?? (completedAlbums + 1)
-                completedAlbums = max(completedAlbums, completed)
-                events.append(.albumProgress(.init(
-                    completed: completedAlbums,
-                    total: totalAlbums,
-                    current: currentAlbum,
-                    state: .finished,
-                    rawLine: clean
-                )))
-            }
+        if OrpheusRunner.parseAlbumOutcome(clean) {
+            let completed = currentAlbum ?? (completedAlbums + 1)
+            completedAlbums = max(completedAlbums, completed)
+            events.append(.albumProgress(.init(
+                completed: completedAlbums,
+                total: totalAlbums,
+                current: currentAlbum,
+                state: .finished,
+                rawLine: clean
+            )))
+        }
 
-            if let total = OrpheusRunner.parseTrackTotal(clean) {
-                totalTracks = max(totalTracks ?? 0, total)
-                events.append(.trackProgress(.init(
-                    completed: completedTracks,
-                    total: totalTracks,
-                    current: currentTrack,
-                    state: .totalKnown,
-                    rawLine: clean
-                )))
-            }
+        if let total = OrpheusRunner.parseTrackTotal(clean) {
+            totalTracks = max(totalTracks ?? 0, total)
+            events.append(.trackProgress(.init(
+                completed: completedTracks,
+                total: totalTracks,
+                current: currentTrack,
+                state: .totalKnown,
+                rawLine: clean
+            )))
+        }
 
-            if let marker = OrpheusRunner.parseTrackMarker(clean) {
-                currentTrack = marker.current
-                totalTracks = marker.total
-                completedTracks = max(completedTracks, marker.current - 1)
-                events.append(.trackProgress(.init(
-                    completed: completedTracks,
-                    total: totalTracks,
-                    current: currentTrack,
-                    state: .started,
-                    rawLine: clean
-                )))
-            }
+        if let marker = OrpheusRunner.parseTrackMarker(clean) {
+            currentTrack = marker.current
+            totalTracks = marker.total
+            completedTracks = max(completedTracks, marker.current - 1)
+            events.append(.trackProgress(.init(
+                completed: completedTracks,
+                total: totalTracks,
+                current: currentTrack,
+                state: .started,
+                rawLine: clean
+            )))
+        }
 
-            if let outcome = OrpheusRunner.parseTrackOutcome(clean) {
-                let completed = currentTrack ?? (completedTracks + 1)
-                completedTracks = max(completedTracks, completed)
-                events.append(.trackProgress(.init(
-                    completed: completedTracks,
-                    total: totalTracks,
-                    current: currentTrack,
-                    state: .finished(outcome),
-                    rawLine: clean
-                )))
-            }
+        if let outcome = OrpheusRunner.parseTrackOutcome(clean) {
+            let completed = currentTrack ?? (completedTracks + 1)
+            completedTracks = max(completedTracks, completed)
+            events.append(.trackProgress(.init(
+                completed: completedTracks,
+                total: totalTracks,
+                current: currentTrack,
+                state: .finished(outcome),
+                rawLine: clean
+            )))
+        }
 
-            if let progress = OrpheusRunner.parseProgress(clean) {
-                events.append(.fileProgress(progress))
-            }
+        if clean != lastFileProgressLine, let progress = OrpheusRunner.parseProgress(clean) {
+            lastFileProgressLine = clean
+            events.append(.fileProgress(progress))
         }
 
         return events

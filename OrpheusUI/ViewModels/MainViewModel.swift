@@ -1068,38 +1068,33 @@ final class MainViewModel: ObservableObject {
 
                 switch event {
                 case .fileProgress(let progress):
-                    if !shouldUseUnitProgress(id: id) {
-                        updateDownload(
-                            id: id,
-                            progress: min(max(progress.percent / 100, 0), 1),
-                            speed: progress.speed,
-                            downloaded: progress.downloaded,
-                            total: progress.total
-                        )
-                    } else {
-                        updateDownload(
-                            id: id,
-                            speed: progress.speed,
-                            downloaded: progress.downloaded,
-                            total: progress.total
-                        )
-                    }
+                    let fileFraction = DownloadItem.clampedFraction(progress.percent / 100)
+                    updateDownload(
+                        id: id,
+                        progress: aggregateProgress(id: id, fileFraction: fileFraction),
+                        speed: progress.speed,
+                        downloaded: progress.downloaded,
+                        total: progress.total,
+                        clearSpeed: progress.speed == nil
+                    )
                 case .trackProgress(let progress):
                     if !queueItem.parsed.isArtist {
                         updateDownload(
                             id: id,
-                            progress: progressFraction(completed: progress.completed, total: progress.total),
+                            progress: unitProgress(id: id, completed: progress.completed, total: progress.total),
                             completedUnits: progress.completed,
-                            totalUnits: progress.total
+                            totalUnits: progress.total,
+                            resetTransfer: progress.state == .started
                         )
                     }
                 case .albumProgress(let progress):
                     if queueItem.parsed.isArtist {
                         updateDownload(
                             id: id,
-                            progress: progressFraction(completed: progress.completed, total: progress.total),
+                            progress: unitProgress(id: id, completed: progress.completed, total: progress.total),
                             completedUnits: progress.completed,
-                            totalUnits: progress.total
+                            totalUnits: progress.total,
+                            resetTransfer: progress.state == .started
                         )
                     }
                 }
@@ -1443,14 +1438,16 @@ final class MainViewModel: ObservableObject {
         parsed.isArtist ? .albums : .tracks
     }
 
-    private func shouldUseUnitProgress(id: UUID) -> Bool {
-        guard let item = downloads.first(where: { $0.id == id }) else { return false }
-        return (item.totalUnits ?? 0) > 1
+    private func aggregateProgress(id: UUID, fileFraction: Double) -> Double {
+        guard let item = downloads.first(where: { $0.id == id }) else {
+            return DownloadItem.clampedFraction(fileFraction)
+        }
+        return item.aggregateProgress(fileFraction: fileFraction)
     }
 
-    private func progressFraction(completed: Int, total: Int?) -> Double? {
-        guard let total, total > 0 else { return nil }
-        return min(max(Double(completed) / Double(total), 0), 1)
+    private func unitProgress(id: UUID, completed: Int, total: Int?) -> Double? {
+        let resolvedTotal = total ?? downloads.first(where: { $0.id == id })?.totalUnits
+        return DownloadItem.unitProgress(completed: completed, total: resolvedTotal)
     }
 
     private func runnerEnvironment() -> [String: String] {
@@ -1468,11 +1465,19 @@ final class MainViewModel: ObservableObject {
         total: String? = nil,
         completedUnits: Int? = nil,
         totalUnits: Int? = nil,
-        resolvedOutputURL: URL? = nil
+        resolvedOutputURL: URL? = nil,
+        resetTransfer: Bool = false,
+        clearSpeed: Bool = false
     ) {
         guard let index = downloads.firstIndex(where: { $0.id == id }) else { return }
+        if resetTransfer {
+            downloads[index].speed = nil
+            downloads[index].downloaded = nil
+            downloads[index].total = nil
+        }
         if let status { downloads[index].status = status }
         if let progress { downloads[index].progress = progress }
+        if clearSpeed { downloads[index].speed = nil }
         if let speed { downloads[index].speed = speed }
         if let downloaded { downloads[index].downloaded = downloaded }
         if let total { downloads[index].total = total }
@@ -1814,6 +1819,27 @@ struct DownloadItem: Identifiable, Equatable {
         return "\(min(completedUnits, totalUnits))/\(totalUnits) \(progressUnit.pluralName)"
     }
 
+    var percentProgressLabel: String {
+        "\(Int(Self.clampedFraction(progress) * 100))%"
+    }
+
+    var transferProgressLabel: String? {
+        guard let downloaded, let total, !downloaded.isEmpty, !total.isEmpty else { return nil }
+        return "\(downloaded)/\(total)"
+    }
+
+    var progressDetailLabels: [String] {
+        var labels: [String] = []
+        if let unitProgressLabel {
+            labels.append(unitProgressLabel)
+        }
+        labels.append(percentProgressLabel)
+        if let transferProgressLabel {
+            labels.append(transferProgressLabel)
+        }
+        return labels
+    }
+
     var speedBadgeLabel: String? {
         guard case .downloading = status,
               let speed = speed?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1821,6 +1847,25 @@ struct DownloadItem: Identifiable, Equatable {
             return nil
         }
         return speed
+    }
+
+    func aggregateProgress(fileFraction: Double) -> Double {
+        let fileFraction = Self.clampedFraction(fileFraction)
+        guard let totalUnits, totalUnits > 1 else { return fileFraction }
+
+        let completed = min(max(completedUnits, 0), totalUnits)
+        let aggregate = (Double(completed) + fileFraction) / Double(totalUnits)
+        return Self.clampedFraction(aggregate)
+    }
+
+    static func unitProgress(completed: Int, total: Int?) -> Double? {
+        guard let total, total > 0 else { return nil }
+        let completed = min(max(completed, 0), total)
+        return Self.clampedFraction(Double(completed) / Double(total))
+    }
+
+    static func clampedFraction(_ value: Double) -> Double {
+        min(max(value, 0), 1)
     }
 }
 

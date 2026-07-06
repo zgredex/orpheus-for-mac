@@ -94,12 +94,11 @@ struct DownloadRowView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .downloading:
-            ProgressView(value: item.progress)
+            ProgressView(value: min(max(item.progress, 0), 1))
                 .frame(maxWidth: 420)
             HStack(spacing: 8) {
-                Text(item.unitProgressLabel ?? "\(Int(item.progress * 100))%")
-                if let downloaded = item.downloaded, let total = item.total {
-                    Text("\(downloaded)/\(total)")
+                ForEach(Array(item.progressDetailLabels.enumerated()), id: \.offset) { _, label in
+                    Text(label)
                 }
             }
             .font(.caption)

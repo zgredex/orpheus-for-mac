@@ -656,6 +656,76 @@ final class URLParserTests: XCTestCase {
         XCTAssertNil(item.speedBadgeLabel)
     }
 
+    func testDownloadProgressDetailsKeepUnitFileAndTransferProgress() {
+        let item = DownloadItem(
+            id: UUID(),
+            queueID: nil,
+            url: "https://open.qobuz.com/album/abc123",
+            title: "Album",
+            status: .downloading,
+            progress: 0.456,
+            downloaded: "234M",
+            total: "521M",
+            completedUnits: 3,
+            totalUnits: 12,
+            progressUnit: .tracks
+        )
+
+        XCTAssertEqual(item.progressDetailLabels, ["3/12 tracks", "45%", "234M/521M"])
+    }
+
+    func testDownloadAggregateProgressFillsWithinTrackSlice() {
+        let item = DownloadItem(
+            id: UUID(),
+            queueID: nil,
+            url: "https://open.qobuz.com/album/abc123",
+            title: "Album",
+            status: .downloading,
+            completedUnits: 3,
+            totalUnits: 12,
+            progressUnit: .tracks
+        )
+
+        XCTAssertEqual(item.aggregateProgress(fileFraction: 0.5), 3.5 / 12, accuracy: 0.0001)
+    }
+
+    func testDownloadAggregateProgressFallsBackToFileProgressWhenTotalUnknown() {
+        let item = DownloadItem(
+            id: UUID(),
+            queueID: nil,
+            url: "https://open.qobuz.com/track/abc123",
+            title: "Track",
+            status: .downloading,
+            progressUnit: .tracks
+        )
+
+        XCTAssertEqual(item.aggregateProgress(fileFraction: 0.42), 0.42, accuracy: 0.0001)
+    }
+
+    func testDownloadUnitProgressClampsBoundaries() {
+        XCTAssertEqual(DownloadItem.unitProgress(completed: 3, total: 12), 0.25)
+        XCTAssertEqual(DownloadItem.unitProgress(completed: 99, total: 12), 1)
+        XCTAssertEqual(DownloadItem.unitProgress(completed: -1, total: 12), 0)
+        XCTAssertNil(DownloadItem.unitProgress(completed: 3, total: nil))
+    }
+
+    func testDownloadProgressPercentIsClamped() {
+        var item = DownloadItem(
+            id: UUID(),
+            queueID: nil,
+            url: "https://open.qobuz.com/track/abc123",
+            title: "Track",
+            status: .downloading,
+            progress: 1.4,
+            progressUnit: .tracks
+        )
+
+        XCTAssertEqual(item.percentProgressLabel, "100%")
+
+        item.progress = -0.2
+        XCTAssertEqual(item.percentProgressLabel, "0%")
+    }
+
     func testDownloadOutputResolverPrefersDirectChildCreatedAfterStart() throws {
         let temp = try makeTempDirectory()
         let old = temp.appendingPathComponent("Old Album", isDirectory: true)
