@@ -75,6 +75,23 @@ final class OrpheusRunnerTests: XCTestCase {
         XCTAssertEqual(fileProgressEvents(in: events).count, 1)
     }
 
+    func testEmitsOutputLinesAlongsideStructuredProgressEvents() {
+        let events = OrpheusRunner.parseEvents(from: [
+            "Number of tracks: 12\nTrack 1/12\n 45%|████▌     | 234M/521M [00:32<00:41, 6.01MB/s]\r"
+        ])
+
+        XCTAssertTrue(events.contains(.outputLine("Number of tracks: 12")))
+        XCTAssertTrue(events.contains(.outputLine("Track 1/12")))
+        XCTAssertTrue(events.contains(.trackProgress(.init(
+            completed: 0,
+            total: 12,
+            current: 1,
+            state: .started,
+            rawLine: "Track 1/12"
+        ))))
+        XCTAssertEqual(fileProgressEvents(in: events).last?.percent, 45)
+    }
+
     func testIgnoresNonProgressLine() {
         XCTAssertNil(OrpheusRunner.parseProgress("Downloading album cover"))
     }

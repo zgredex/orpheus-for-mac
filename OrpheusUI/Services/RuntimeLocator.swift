@@ -19,6 +19,7 @@ struct RuntimeLocator {
     let bundle: Bundle
     let applicationSupportRoot: URL
     let defaultDownloadURL: URL
+    private let resourceOverrideURL: URL?
     private let templateOverrideURL: URL?
     private let helperOverrideURL: URL?
 
@@ -27,11 +28,13 @@ struct RuntimeLocator {
         bundle: Bundle = .main,
         applicationSupportRoot: URL? = nil,
         defaultDownloadURL: URL? = nil,
+        resourceURL: URL? = nil,
         templateURL: URL? = nil,
         helperURL: URL? = nil
     ) {
         self.fileManager = fileManager
         self.bundle = bundle
+        self.resourceOverrideURL = resourceURL
         self.templateOverrideURL = templateURL
         self.helperOverrideURL = helperURL
 
@@ -65,28 +68,46 @@ struct RuntimeLocator {
         if let helperOverrideURL {
             return helperOverrideURL
         }
-        if let url = bundle.resourceURL?.appendingPathComponent("orpheus-helper") {
-            return url
+        if let resourceURL = resolvedResourceURL {
+            let onedir = resourceURL
+                .appendingPathComponent("orpheus-helper", isDirectory: true)
+                .appendingPathComponent("orpheus-helper")
+            if fileManager.isExecutableFile(atPath: onedir.path) {
+                return onedir
+            }
+
+            let legacy = resourceURL.appendingPathComponent("orpheus-helper")
+            if fileManager.isExecutableFile(atPath: legacy.path) {
+                return legacy
+            }
         }
         return URL(fileURLWithPath: "orpheus-helper")
     }
 
     var ffmpegURL: URL? {
-        guard let resourceURL = bundle.resourceURL else { return nil }
+        guard let resourceURL = resolvedResourceURL else { return nil }
         let candidate = resourceURL.appendingPathComponent("ffmpeg")
         return fileManager.isExecutableFile(atPath: candidate.path) ? candidate : nil
+    }
+
+    private var resolvedResourceURL: URL? {
+        resourceOverrideURL ?? bundle.resourceURL
     }
 
     func prepareRuntime() throws {
         try fileManager.createDirectory(at: applicationSupportRoot, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: defaultDownloadURL, withIntermediateDirectories: true)
 
-        guard !fileManager.fileExists(atPath: settingsURL.path) else {
+        guard fileManager.fileExists(atPath: settingsURL.path) else {
+            let template = try resolveTemplateURL()
+            try installRuntimeTemplate(from: template)
             return
         }
 
-        let template = try resolveTemplateURL()
-        try installRuntimeTemplate(from: template)
+        guard let template = try? resolveTemplateURL() else {
+            return
+        }
+        try refreshRuntimeTemplate(from: template)
     }
 
     func resolvedDownloadURL(from rawPath: String) -> URL {
@@ -115,7 +136,7 @@ struct RuntimeLocator {
         if let templateOverrideURL {
             candidates.append(templateOverrideURL)
         }
-        if let resourceURL = bundle.resourceURL {
+        if let resourceURL = resolvedResourceURL {
             candidates.append(resourceURL.appendingPathComponent("OrpheusDLTemplate", isDirectory: true))
         }
         if let override = ProcessInfo.processInfo.environment["ORPHEUSDL_TEMPLATE_PATH"], !override.isEmpty {
@@ -144,6 +165,20 @@ struct RuntimeLocator {
 
         try copyRuntimeTemplate(from: template, to: stagingURL)
         try sanitizeCopiedSettings(in: stagingURL)
+        try commitStagedRuntime(from: stagingURL)
+    }
+
+    private func refreshRuntimeTemplate(from template: URL) throws {
+        let stagingURL = applicationSupportRoot
+            .appendingPathComponent(".OrpheusDL.refresh.\(UUID().uuidString)", isDirectory: true)
+        defer {
+            if fileManager.fileExists(atPath: stagingURL.path) {
+                try? fileManager.removeItem(at: stagingURL)
+            }
+        }
+
+        try copyRuntimeTemplate(from: template, to: stagingURL)
+        try preserveMutableRuntimeFiles(from: runtimeProjectURL, to: stagingURL)
         try commitStagedRuntime(from: stagingURL)
     }
 
@@ -176,6 +211,27 @@ struct RuntimeLocator {
         runtimeURL
             .appendingPathComponent("config", isDirectory: true)
             .appendingPathComponent("settings.json")
+    }
+
+    private func preserveMutableRuntimeFiles(from existingRuntime: URL, to stagingURL: URL) throws {
+        let mutableRelativePaths = [
+            "config/settings.json",
+            "config/loginstorage.bin",
+            "downloads",
+            "temp"
+        ]
+
+        for relativePath in mutableRelativePaths {
+            let source = existingRuntime.appendingPathComponent(relativePath)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+
+            let target = stagingURL.appendingPathComponent(relativePath)
+            try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: target.path) {
+                try fileManager.removeItem(at: target)
+            }
+            try fileManager.copyItem(at: source, to: target)
+        }
     }
 
     private func copyRuntimeTemplate(from source: URL, to destination: URL) throws {

@@ -34,7 +34,6 @@ final class MainViewModel: ObservableObject {
     private let outputResolver: DownloadOutputResolver
     private var qobuzAPI: QobuzServicing?
     private var previewTask: Task<Void, Never>?
-    private var preflightTask: Task<Void, Never>?
     private var activeDownloadTask: Task<Void, Never>?
     private var runners: [UUID: OrpheusRunner] = [:]
     private var activeDownloadID: UUID?
@@ -963,60 +962,36 @@ final class MainViewModel: ObservableObject {
     }
 
     private func startQueuedDownloads(ids: [UUID]) {
+        let requestedAt = Date()
         let context: DownloadPreflightContext
         do {
             context = try preflightQueuedDownloads(ids: ids)
+            logDownloadTiming("local-check", startedAt: requestedAt, detail: "\(context.ids.count) item(s)")
         } catch {
             presentPreflightFailure(error.localizedDescription)
             return
         }
 
-        let task = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.isPreflighting = false
-                self.preflightTask = nil
-            }
-
-            do {
-                try Task.checkCancellation()
-                try await verifyRemoteAvailability(for: context)
-                try Task.checkCancellation()
-            } catch is CancellationError {
-                queueNotice = "Download preflight cancelled."
-                return
-            } catch {
-                presentPreflightFailure(error.localizedDescription)
-                return
-            }
-
-            for id in context.ids {
-                setQueueState(id: id, state: .queued)
-            }
-
-            queueNotice = context.ids.count == 1
-                ? "Preflight passed. Starting download."
-                : "Preflight passed. Starting \(context.ids.count) downloads."
-
-            activeDownloadTask = Task { [weak self] in
-                guard let self else { return }
-                for id in context.ids {
-                    guard !Task.isCancelled else { break }
-                    await self.runQueuedDownload(queueID: id)
-                }
-
-                self.finishBatch(ids: context.ids)
-            }
+        for id in context.ids {
+            setQueueState(id: id, state: .queued)
         }
 
-        preflightTask = task
-        isPreflighting = true
-        queueNotice = context.items.count == 1
-            ? "Preparing download: checking Qobuz availability and selected quality..."
-            : "Preparing downloads: checking \(context.items.count) Qobuz items and selected quality..."
+        queueNotice = context.ids.count == 1
+            ? "Starting download."
+            : "Starting \(context.ids.count) downloads."
+
+        activeDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            for id in context.ids {
+                guard !Task.isCancelled else { break }
+                await self.runQueuedDownload(queueID: id, requestedAt: requestedAt)
+            }
+
+            self.finishBatch(ids: context.ids)
+        }
     }
 
-    private func runQueuedDownload(queueID: UUID) async {
+    private func runQueuedDownload(queueID: UUID, requestedAt: Date) async {
         guard let index = queuedLinks.firstIndex(where: { $0.id == queueID }) else { return }
         let queueItem = queuedLinks[index]
         guard queueItem.parsed.downloadableURL != nil,
@@ -1026,14 +1001,14 @@ final class MainViewModel: ObservableObject {
 
         let id = UUID()
         let unit = progressUnit(for: queueItem.parsed)
-        let startedAt = Date()
         let item = DownloadItem(
             id: id,
             queueID: queueID,
             url: queueItem.canonicalURL,
             title: queueItem.displayTitle,
             status: .queued,
-            startedAt: startedAt,
+            startedAt: requestedAt,
+            phase: .starting,
             totalUnits: expectedUnitTotal(for: queueItem),
             progressUnit: unit
         )
@@ -1051,6 +1026,9 @@ final class MainViewModel: ObservableObject {
         let outputURL = runtime.resolvedDownloadURL(from: settings?.downloadPath ?? "")
 
         do {
+            var sawOutput = false
+            var sawTrackMarker = false
+            var sawFileProgress = false
             let processStartedAt = Date()
             let stream = runner.runDownload(
                 url: queueItem.canonicalURL,
@@ -1067,10 +1045,24 @@ final class MainViewModel: ObservableObject {
                 }
 
                 switch event {
+                case .processStarted:
+                    logDownloadTiming("process-started", downloadID: id, startedAt: requestedAt)
+                    updateDownload(id: id, phase: .starting)
+                case .outputLine(let line):
+                    if !sawOutput {
+                        sawOutput = true
+                        logDownloadTiming("first-output", downloadID: id, startedAt: requestedAt, detail: line)
+                        updateDownload(id: id, phase: .preparingMedia)
+                    }
                 case .fileProgress(let progress):
+                    if !sawFileProgress {
+                        sawFileProgress = true
+                        logDownloadTiming("first-file-progress", downloadID: id, startedAt: requestedAt, detail: progress.rawLine)
+                    }
                     let fileFraction = DownloadItem.clampedFraction(progress.percent / 100)
                     updateDownload(
                         id: id,
+                        phase: .downloading,
                         progress: aggregateProgress(id: id, fileFraction: fileFraction),
                         speed: progress.speed,
                         downloaded: progress.downloaded,
@@ -1079,8 +1071,13 @@ final class MainViewModel: ObservableObject {
                     )
                 case .trackProgress(let progress):
                     if !queueItem.parsed.isArtist {
+                        if progress.state == .started, !sawTrackMarker {
+                            sawTrackMarker = true
+                            logDownloadTiming("first-track-marker", downloadID: id, startedAt: requestedAt, detail: progress.rawLine)
+                        }
                         updateDownload(
                             id: id,
+                            phase: progress.state == .started ? .downloading : nil,
                             progress: unitProgress(id: id, completed: progress.completed, total: progress.total),
                             completedUnits: progress.completed,
                             totalUnits: progress.total,
@@ -1091,6 +1088,7 @@ final class MainViewModel: ObservableObject {
                     if queueItem.parsed.isArtist {
                         updateDownload(
                             id: id,
+                            phase: progress.state == .started ? .downloading : nil,
                             progress: unitProgress(id: id, completed: progress.completed, total: progress.total),
                             completedUnits: progress.completed,
                             totalUnits: progress.total,
@@ -1131,10 +1129,6 @@ final class MainViewModel: ObservableObject {
     private func preflightQueuedDownloads(ids: [UUID]) throws -> DownloadPreflightContext {
         guard activeDownloadTask == nil else {
             throw DownloadPreflightError.failure("Cannot start download: another download is already running.")
-        }
-
-        guard !isPreflighting, preflightTask == nil else {
-            throw DownloadPreflightError.failure("Cannot start download: preflight is already running.")
         }
 
         guard !ids.isEmpty else {
@@ -1178,12 +1172,6 @@ final class MainViewModel: ObservableObject {
             throw DownloadPreflightError.failure("Cannot start download: unsupported Qobuz quality \(quality).")
         }
 
-        let api = qobuzAPI ?? QobuzAPI(
-            appID: document.qobuzAppID,
-            appSecret: document.qobuzAppSecret,
-            authToken: document.qobuzAuthToken
-        )
-
         try verifyRuntimeFolder()
         do {
             try runtime.verifyHelperExists()
@@ -1203,94 +1191,7 @@ final class MainViewModel: ObservableObject {
         }
         selectedQuality = quality
 
-        return DownloadPreflightContext(ids: ids, items: items, quality: quality, api: api)
-    }
-
-    private func verifyRemoteAvailability(for context: DownloadPreflightContext) async throws {
-        for item in context.items {
-            try Task.checkCancellation()
-            do {
-                try await verifyRemoteAvailability(for: item, quality: context.quality, api: context.api)
-            } catch {
-                if error is CancellationError { throw error }
-                let message = "Cannot start download: \(item.displayTitle) failed preflight. \(error.localizedDescription)"
-                markPreflightFailed(queueID: item.id, message: message)
-                throw DownloadPreflightError.failure(message)
-            }
-        }
-    }
-
-    private func verifyRemoteAvailability(
-        for item: QueuedLink,
-        quality: String,
-        api: QobuzServicing
-    ) async throws {
-        switch item.parsed {
-        case .album(let id):
-            let album = try await api.getAlbum(id: id)
-            guard album.isBrowseAvailable else {
-                throw DownloadPreflightError.failure(album.browseUnavailableReason ?? "Album is not available.")
-            }
-            let tracks = album.tracks?.items ?? []
-            guard let firstTrack = tracks.first else {
-                throw DownloadPreflightError.failure("Album has no tracks available to download.")
-            }
-            try await verifyTrackQuality(trackID: firstTrack.id.value, quality: quality, api: api)
-            cachePreflightPreview(.loadedAlbum(AlbumPreviewInfo(from: album)), for: item.id)
-
-        case .track(let id):
-            let track = try await api.getTrack(id: id)
-            guard track.isBrowseAvailable else {
-                throw DownloadPreflightError.failure("Track is not available or downloadable for this account region.")
-            }
-            try await verifyTrackQuality(trackID: track.id.value, quality: quality, api: api)
-
-        case .artist(let id):
-            let artist = try await api.getArtist(id: id)
-            let albums = (artist.albums?.items ?? []).filter(\.isBrowseAvailable)
-            guard let firstAlbumRef = albums.first else {
-                throw DownloadPreflightError.failure("Artist has no available albums for this account region.")
-            }
-            let firstAlbum = try await api.getAlbum(id: firstAlbumRef.id.value)
-            guard let firstTrack = firstAlbum.tracks?.items.first else {
-                throw DownloadPreflightError.failure("Artist catalog has no downloadable tracks.")
-            }
-            try await verifyTrackQuality(trackID: firstTrack.id.value, quality: quality, api: api)
-            cachePreflightPreview(.loadedArtist(ArtistPreviewInfo(from: artist, fallbackID: id)), for: item.id)
-
-        case .playlist(let id):
-            let playlist = try await api.getPlaylist(id: id)
-            guard let firstTrack = playlist.tracks?.items.first else {
-                throw DownloadPreflightError.failure("Playlist has no tracks available to download.")
-            }
-            try await verifyTrackQuality(trackID: firstTrack.id.value, quality: quality, api: api)
-
-        case .invalid:
-            throw DownloadPreflightError.failure("Not a recognized Qobuz URL.")
-        }
-    }
-
-    private func verifyTrackQuality(trackID: String, quality: String, api: QobuzServicing) async throws {
-        let response = try await api.getFileURL(trackID: trackID, quality: quality)
-        guard response.hasPlayableURL else {
-            throw DownloadPreflightError.failure("Selected quality is not downloadable for this item.")
-        }
-    }
-
-    private func cachePreflightPreview(_ preview: PreviewState, for queueID: UUID) {
-        guard let index = queuedLinks.firstIndex(where: { $0.id == queueID }) else { return }
-        queuedLinks[index].cachedPreview = preview
-        applyPreviewSummary(preview, to: index)
-        if selectedQueueID == queueID {
-            previewState = preview
-        }
-    }
-
-    private func markPreflightFailed(queueID: UUID, message: String) {
-        setQueueState(id: queueID, state: .metadataFailed(message))
-        if selectedQueueID == queueID {
-            previewState = .error(message)
-        }
+        return DownloadPreflightContext(ids: ids, items: items, quality: quality)
     }
 
     private func verifyRuntimeFolder() throws {
@@ -1349,10 +1250,8 @@ final class MainViewModel: ObservableObject {
     }
 
     private func cancelPreflight() {
-        guard isPreflighting || preflightTask != nil else { return }
-        preflightTask?.cancel()
+        guard isPreflighting else { return }
         isPreflighting = false
-        preflightTask = nil
         queueNotice = "Download preflight cancelled."
     }
 
@@ -1456,9 +1355,46 @@ final class MainViewModel: ObservableObject {
         return ["PATH": "\(ffmpegURL.deletingLastPathComponent().path):\(existingPath)"]
     }
 
+    private func logDownloadTiming(
+        _ marker: String,
+        downloadID: UUID? = nil,
+        startedAt: Date,
+        detail: String? = nil
+    ) {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        var parts = [
+            ISO8601DateFormatter().string(from: Date()),
+            "download_timing",
+            marker,
+            String(format: "%.3fs", elapsed)
+        ]
+        if let downloadID {
+            parts.append("id=\(downloadID.uuidString)")
+        }
+        if let detail, !detail.isEmpty {
+            parts.append(detail.replacingOccurrences(of: "\n", with: " "))
+        }
+        let line = parts.joined(separator: " | ") + "\n"
+
+        do {
+            try runtime.fileManager.createDirectory(at: runtime.applicationSupportRoot, withIntermediateDirectories: true)
+            if runtime.fileManager.fileExists(atPath: runtime.logURL.path) {
+                let handle = try FileHandle(forWritingTo: runtime.logURL)
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(line.utf8))
+                try handle.close()
+            } else {
+                try Data(line.utf8).write(to: runtime.logURL)
+            }
+        } catch {
+            // Timing diagnostics should never block a download.
+        }
+    }
+
     private func updateDownload(
         id: UUID,
         status: DownloadStatus? = nil,
+        phase: DownloadPhase? = nil,
         progress: Double? = nil,
         speed: String? = nil,
         downloaded: String? = nil,
@@ -1476,6 +1412,7 @@ final class MainViewModel: ObservableObject {
             downloads[index].total = nil
         }
         if let status { downloads[index].status = status }
+        if let phase { downloads[index].phase = phase }
         if let progress { downloads[index].progress = progress }
         if clearSpeed { downloads[index].speed = nil }
         if let speed { downloads[index].speed = speed }
@@ -1805,6 +1742,7 @@ struct DownloadItem: Identifiable, Equatable {
     let title: String
     var status: DownloadStatus
     var startedAt: Date = Date()
+    var phase: DownloadPhase = .starting
     var progress: Double = 0
     var speed: String?
     var downloaded: String?
@@ -1830,6 +1768,9 @@ struct DownloadItem: Identifiable, Equatable {
 
     var progressDetailLabels: [String] {
         var labels: [String] = []
+        if status == .downloading {
+            labels.append(phase.label)
+        }
         if let unitProgressLabel {
             labels.append(unitProgressLabel)
         }
@@ -1869,11 +1810,27 @@ struct DownloadItem: Identifiable, Equatable {
     }
 }
 
+enum DownloadPhase: Equatable {
+    case starting
+    case preparingMedia
+    case downloading
+
+    var label: String {
+        switch self {
+        case .starting:
+            return "Starting"
+        case .preparingMedia:
+            return "Preparing media"
+        case .downloading:
+            return "Downloading"
+        }
+    }
+}
+
 private struct DownloadPreflightContext {
     let ids: [UUID]
     let items: [QueuedLink]
     let quality: String
-    let api: any QobuzServicing
 }
 
 enum DownloadProgressUnit: Equatable {

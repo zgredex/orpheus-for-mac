@@ -13,7 +13,21 @@ import runpy
 import sys
 
 
+def configure_portable_environment() -> None:
+    os.environ.setdefault("OPENSSL_CONF", os.devnull)
+    try:
+        import certifi
+    except Exception:
+        return
+
+    certificate_bundle = certifi.where()
+    os.environ.setdefault("SSL_CERT_FILE", certificate_bundle)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certificate_bundle)
+
+
 def main() -> int:
+    configure_portable_environment()
+
     parser = argparse.ArgumentParser(description="Run bundled OrpheusDL")
     parser.add_argument("--project", required=True, help="Mutable OrpheusDL runtime path")
     parser.add_argument("--output", required=True, help="Download output path")

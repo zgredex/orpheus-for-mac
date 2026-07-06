@@ -520,13 +520,10 @@ final class URLParserTests: XCTestCase {
     }
 
     @MainActor
-    func testCancelAllCancelsPreflightAndLeavesQueueReady() async throws {
+    func testDownloadStartsWithoutRemotePreflight() async throws {
         let temp = try makeTempDirectory()
         let runtime = try preparedRuntime(temp: temp)
-        let service = FakeQobuzService(albumHandler: { id in
-            try await Task.sleep(nanoseconds: 1_000_000_000)
-            return try decodeQobuzAlbum(id: id, title: "Slow Album", tracks: ["One"])
-        })
+        let service = FakeQobuzService()
         let vm = MainViewModel(runtime: runtime, qobuzAPI: service)
         let item = readyAlbumQueueItem()
         vm.settings = settingsDocument(
@@ -539,23 +536,19 @@ final class URLParserTests: XCTestCase {
         vm.selectedQueueID = item.id
 
         vm.downloadSelected()
-        await waitUntil { vm.isPreflighting }
-        vm.cancelAllDownloads()
-        await waitUntil { !vm.isPreflighting }
+        await waitUntil { !vm.downloads.isEmpty }
 
-        XCTAssertEqual(vm.queueNotice, "Download preflight cancelled.")
-        XCTAssertTrue(vm.downloads.isEmpty)
-        XCTAssertEqual(vm.queuedLinks.first?.state, .ready)
+        XCTAssertFalse(vm.isPreflighting)
+        XCTAssertEqual(service.albumCallCount, 0)
+        XCTAssertEqual(service.trackCallCount, 0)
+        XCTAssertEqual(service.fileURLCallCount, 0)
     }
 
     @MainActor
-    func testSettingsCannotChangeDuringPreflight() async throws {
+    func testSettingsCannotChangeWhileDownloadIsRunning() async throws {
         let temp = try makeTempDirectory()
-        let runtime = try preparedRuntime(temp: temp)
-        let service = FakeQobuzService(albumHandler: { id in
-            try await Task.sleep(nanoseconds: 1_000_000_000)
-            return try decodeQobuzAlbum(id: id, title: "Slow Album", tracks: ["One"])
-        })
+        let runtime = try preparedRuntime(temp: temp, helperScript: "#!/bin/sh\nsleep 1\nexit 0\n")
+        let service = FakeQobuzService()
         let vm = MainViewModel(runtime: runtime, qobuzAPI: service)
         let item = readyAlbumQueueItem()
         vm.settings = settingsDocument(
@@ -568,7 +561,7 @@ final class URLParserTests: XCTestCase {
         vm.selectedQueueID = item.id
 
         vm.downloadSelected()
-        await waitUntil { vm.isPreflighting }
+        await waitUntil { vm.isDownloadRunning }
         vm.applySettings(
             appID: "new-app",
             appSecret: "new-secret",
@@ -579,7 +572,7 @@ final class URLParserTests: XCTestCase {
         )
 
         XCTAssertEqual(vm.settings?.qobuzAppID, "app")
-        XCTAssertTrue(vm.queueNotice?.contains("Wait for the current download check") == true)
+        XCTAssertTrue(vm.queueNotice?.contains("Wait for the current download check or download to finish") == true)
         vm.cancelAllDownloads()
     }
 
@@ -671,7 +664,7 @@ final class URLParserTests: XCTestCase {
             progressUnit: .tracks
         )
 
-        XCTAssertEqual(item.progressDetailLabels, ["3/12 tracks", "45%", "234M/521M"])
+        XCTAssertEqual(item.progressDetailLabels, ["Starting", "3/12 tracks", "45%", "234M/521M"])
     }
 
     func testDownloadAggregateProgressFillsWithinTrackSlice() {
@@ -789,13 +782,16 @@ final class URLParserTests: XCTestCase {
         return temp
     }
 
-    private func preparedRuntime(temp: URL) throws -> RuntimeLocator {
+    private func preparedRuntime(
+        temp: URL,
+        helperScript: String = "#!/bin/sh\nexit 0\n"
+    ) throws -> RuntimeLocator {
         let support = temp.appendingPathComponent("support", isDirectory: true)
         let runtimeProject = support.appendingPathComponent("OrpheusDL", isDirectory: true)
         let config = runtimeProject.appendingPathComponent("config", isDirectory: true)
         try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
         let helper = temp.appendingPathComponent("orpheus-helper")
-        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: helper)
+        try Data(helperScript.utf8).write(to: helper)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
 
         return RuntimeLocator(
@@ -845,6 +841,9 @@ private final class FakeQobuzService: QobuzServicing {
 
     private let lock = NSLock()
     private var storedSearchCalls: [SearchCall] = []
+    private var storedAlbumCallCount = 0
+    private var storedTrackCallCount = 0
+    private var storedFileURLCallCount = 0
     private let searchHandler: SearchHandler
 
     typealias AlbumHandler = (String) async throws -> QobuzAlbumResponse
@@ -882,6 +881,24 @@ private final class FakeQobuzService: QobuzServicing {
         return storedSearchCalls
     }
 
+    var albumCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedAlbumCallCount
+    }
+
+    var trackCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedTrackCallCount
+    }
+
+    var fileURLCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedFileURLCallCount
+    }
+
     func validateAccount() async throws -> String {
         "US"
     }
@@ -891,11 +908,17 @@ private final class FakeQobuzService: QobuzServicing {
     }
 
     func getAlbum(id: String) async throws -> QobuzAlbumResponse {
-        try await albumHandler(id)
+        lock.lock()
+        storedAlbumCallCount += 1
+        lock.unlock()
+        return try await albumHandler(id)
     }
 
     func getTrack(id: String) async throws -> QobuzTrackResponse {
-        try decodeQobuzTrack(id: id, title: "\(id) track")
+        lock.lock()
+        storedTrackCallCount += 1
+        lock.unlock()
+        return try decodeQobuzTrack(id: id, title: "\(id) track")
     }
 
     func getArtist(id: String) async throws -> QobuzArtistResponse {
@@ -914,7 +937,10 @@ private final class FakeQobuzService: QobuzServicing {
     }
 
     func getFileURL(trackID: String, quality: String) async throws -> QobuzFileURLResponse {
-        try await fileURLHandler(trackID, quality)
+        lock.lock()
+        storedFileURLCallCount += 1
+        lock.unlock()
+        return try await fileURLHandler(trackID, quality)
     }
 
     func search(query: String, type: SearchType, limit: Int) async throws -> QobuzSearchResponse {

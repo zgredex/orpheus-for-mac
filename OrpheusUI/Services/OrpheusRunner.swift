@@ -2,6 +2,8 @@ import Foundation
 
 final class OrpheusRunner {
     enum Event: Equatable {
+        case processStarted
+        case outputLine(String)
         case fileProgress(ProgressEvent)
         case trackProgress(TrackProgressEvent)
         case albumProgress(AlbumProgressEvent)
@@ -144,6 +146,7 @@ final class OrpheusRunner {
 
             do {
                 try process.run()
+                continuation.yield(.processStarted)
             } catch {
                 markFinished()
                 continuation.finish(throwing: error)
@@ -418,6 +421,9 @@ private final class RunnerOutputParser {
         var events: [OrpheusRunner.Event] = []
 
         let clean = OrpheusRunner.cleanLine(line)
+        if !clean.isEmpty {
+            events.append(.outputLine(clean))
+        }
 
         if let total = OrpheusRunner.parseAlbumTotal(clean) {
             totalAlbums = max(totalAlbums ?? 0, total)
