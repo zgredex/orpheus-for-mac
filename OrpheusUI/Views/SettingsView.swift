@@ -72,20 +72,16 @@ struct SettingsView: View {
                     }
 
                     LabeledContent("Download Path") {
-                        VStack(alignment: .trailing, spacing: 6) {
-                            HStack(spacing: 8) {
-                                TextField("~/Music/OrpheusUI", text: $tempDownloadPath)
-                                    .textFieldStyle(.roundedBorder)
-
-                                Button(action: chooseDirectory) {
-                                    Label("Choose", systemImage: "folder")
-                                }
-                            }
-
-                            Text("Resolved: \(vm.resolvedDownloadPath(for: tempDownloadPath))")
+                        HStack(spacing: 10) {
+                            Text(vm.resolvedDownloadPath(for: tempDownloadPath))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Button(action: chooseDirectory) {
+                                Label("Choose", systemImage: "folder")
+                            }
                         }
                     }
                 }
