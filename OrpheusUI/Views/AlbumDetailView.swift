@@ -114,6 +114,11 @@ private struct AlbumTrackDetailRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .qobuzContextMenu(
+            url: "https://open.qobuz.com/track/\(track.id.value)",
+            queueAction: { vm.addTrackToQueue(track.id.value) },
+            downloadAction: { vm.downloadTrackNow(track.id.value) }
+        )
     }
 }
 

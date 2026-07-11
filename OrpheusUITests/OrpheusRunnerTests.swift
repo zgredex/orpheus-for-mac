@@ -2,6 +2,56 @@ import XCTest
 @testable import OrpheusUI
 
 final class OrpheusRunnerTests: XCTestCase {
+    func testSanitizedEnvironmentDoesNotInheritSecrets() {
+        let environment = OrpheusRunner.sanitizedEnvironment(
+            overrides: ["PATH": "/app/resources"],
+            parent: [
+                "HOME": "/Users/test",
+                "PATH": "/usr/bin",
+                "SSH_AUTH_SOCK": "/private/ssh.sock",
+                "AWS_SECRET_ACCESS_KEY": "secret"
+            ]
+        )
+
+        XCTAssertEqual(environment["HOME"], "/Users/test")
+        XCTAssertEqual(environment["PATH"], "/app/resources")
+        XCTAssertNil(environment["SSH_AUTH_SOCK"])
+        XCTAssertNil(environment["AWS_SECRET_ACCESS_KEY"])
+    }
+
+    func testCancellationTerminatesLaunchedProcess() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let helper = temp.appendingPathComponent("slow-helper")
+        try Data("#!/bin/sh\nsleep 10\n".utf8).write(to: helper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+
+        let runner = OrpheusRunner()
+        let stream = runner.runDownload(
+            url: "https://open.qobuz.com/track/test",
+            helperURL: helper,
+            projectURL: temp,
+            downloadURL: temp
+        )
+        let finished = expectation(description: "Runner terminates after cancellation")
+        let startedAt = Date()
+
+        Task {
+            do {
+                for try await event in stream where event == .processStarted {
+                    runner.cancel()
+                }
+            } catch {
+                // A terminated process exits non-zero; stream completion is what matters here.
+            }
+            finished.fulfill()
+        }
+
+        await fulfillment(of: [finished], timeout: 2)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
+    }
+
     func testParsesTqdmProgressLine() throws {
         let line = " 45%|████▌     | 234MB/521MB [00:32<00:41, 6.01MB/s]"
         let event = try XCTUnwrap(OrpheusRunner.parseProgress(line))
@@ -18,6 +68,19 @@ final class OrpheusRunnerTests: XCTestCase {
         XCTAssertEqual(event.downloaded, "1.5GiB")
         XCTAssertEqual(event.total, "1.5GiB")
         XCTAssertEqual(event.speed, "140MiB/s")
+    }
+
+    func testStripsOSCAndCSISequencesFromOutputLines() {
+        let line = "\u{001B}]0;Orpheus\u{0007}\u{001B}[32mTrack 1/2\u{001B}[0m\n"
+        let events = OrpheusRunner.parseEvents(from: [line])
+
+        XCTAssertTrue(events.contains(.outputLine("Track 1/2")))
+        XCTAssertFalse(events.contains { event in
+            if case .outputLine(let value) = event {
+                return value.contains("\u{001B}") || value.contains("\u{0007}")
+            }
+            return false
+        })
     }
 
     func testParsesTqdmProgressBeforeSpeedIsKnown() throws {

@@ -28,7 +28,15 @@ final class URLParserTests: XCTestCase {
     func testInvalidURLs() {
         XCTAssertEqual(QobuzURLParser.parse("https://example.com/album/abc123"), .invalid)
         XCTAssertEqual(QobuzURLParser.parse("https://open.qobuz.com/notmusic/abc123"), .invalid)
+        XCTAssertEqual(QobuzURLParser.parse("https://open.qobuz.com/album/abc123/extra/junk"), .invalid)
         XCTAssertEqual(QobuzURLParser.parse("not a url"), .invalid)
+    }
+
+    func testParserAcceptsUnicodeSlugs() {
+        XCTAssertEqual(
+            QobuzURLParser.parse("https://www.qobuz.com/fr-fr/album/beyonc\u{00E9}-caf\u{00E9}/abc123"),
+            .album("abc123")
+        )
     }
 
     func testExtractsMultipleLinksAndReportsDuplicates() {
@@ -148,6 +156,93 @@ final class URLParserTests: XCTestCase {
         XCTAssertEqual(response.tracks?.items.map(\.id.value), ["valid-track"])
     }
 
+    func testQobuzAPIUsesInjectedHTTPSessionForSearch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        MockURLProtocol.handler = { request in
+            guard let url = request.url,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  components.path.hasSuffix("/catalog/search") else {
+                throw MockHTTPError.unexpectedRequest
+            }
+
+            var parameters: [String: String] = [:]
+            for item in components.queryItems ?? [] {
+                if let value = item.value {
+                    parameters[item.name] = value
+                }
+            }
+            guard parameters["query"] == "visitor",
+                  parameters["type"] == "albums",
+                  parameters["limit"] == "30",
+                  request.value(forHTTPHeaderField: "X-User-Auth-Token") == "token" else {
+                throw MockHTTPError.unexpectedRequest
+            }
+
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = Data("""
+            {
+              "albums": {
+                "items": [
+                  {
+                    "id": "album-1",
+                    "title": "Visitor",
+                    "artist": { "id": "artist-1", "name": "Sienna Spiro" }
+                  }
+                ]
+              }
+            }
+            """.utf8)
+            return (response, data)
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let api = QobuzAPI(appID: "app", appSecret: "secret", authToken: "token", session: session)
+        let response = try await api.search(query: "visitor", type: .album, limit: 30)
+
+        XCTAssertEqual(response.albums?.items.first?.id.value, "album-1")
+        XCTAssertEqual(response.albums?.items.first?.artist.name, "Sienna Spiro")
+    }
+
+    func testQobuzAPIRetriesTemporaryServerFailures() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            let statusCode = requestCount < 3 ? 503 : 200
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let data = statusCode == 200
+                ? Data(#"{"albums":{"items":[]}}"#.utf8)
+                : Data("Temporary outage".utf8)
+            return (response, data)
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let api = QobuzAPI(
+            appID: "app",
+            appSecret: "secret",
+            authToken: "token",
+            session: session,
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 3, baseDelayNanoseconds: 0)
+        )
+        _ = try await api.search(query: "visitor", type: .album, limit: 30)
+
+        XCTAssertEqual(requestCount, 3)
+    }
+
     @MainActor
     func testQueueAddsSelectsAndSkipsDuplicates() {
         let vm = MainViewModel()
@@ -175,6 +270,26 @@ final class URLParserTests: XCTestCase {
 
         XCTAssertEqual(vm.queuedLinks.count, 1)
         XCTAssertNil(vm.queueNotice)
+    }
+
+    @MainActor
+    func testPlaylistPreviewLoadsRealMetadata() async {
+        let vm = MainViewModel(qobuzAPI: FakeQobuzService())
+        vm.batchInput = "https://open.qobuz.com/playlist/playlist-1"
+
+        vm.addLinksFromInput()
+        await waitUntil {
+            if case .loadedCollection(let info) = vm.previewState {
+                return info.title == "playlist-1 playlist" && info.subtitle == "1 track"
+            }
+            return false
+        }
+
+        guard case .loadedCollection(let info) = vm.previewState else {
+            return XCTFail("Expected playlist metadata preview")
+        }
+        XCTAssertEqual(info.title, "playlist-1 playlist")
+        XCTAssertEqual(info.subtitle, "1 track")
     }
 
     @MainActor
@@ -524,7 +639,14 @@ final class URLParserTests: XCTestCase {
         let temp = try makeTempDirectory()
         let runtime = try preparedRuntime(temp: temp)
         let service = FakeQobuzService()
-        let vm = MainViewModel(runtime: runtime, qobuzAPI: service)
+        let notifications = FakeNotificationService()
+        let dockProgress = FakeDockProgress()
+        let vm = MainViewModel(
+            runtime: runtime,
+            qobuzAPI: service,
+            notificationService: notifications,
+            dockProgress: dockProgress
+        )
         let item = readyAlbumQueueItem()
         vm.settings = settingsDocument(
             appID: "app",
@@ -536,12 +658,16 @@ final class URLParserTests: XCTestCase {
         vm.selectedQueueID = item.id
 
         vm.downloadSelected()
-        await waitUntil { !vm.downloads.isEmpty }
+        await waitUntil { !vm.isDownloadRunning && vm.downloads.first?.status == .completed }
 
         XCTAssertFalse(vm.isPreflighting)
         XCTAssertEqual(service.albumCallCount, 0)
         XCTAssertEqual(service.trackCallCount, 0)
         XCTAssertEqual(service.fileURLCallCount, 0)
+        XCTAssertFalse(dockProgress.updates.isEmpty)
+        XCTAssertGreaterThan(dockProgress.clearCount, 0)
+        XCTAssertEqual(notifications.completedCounts, [1])
+        XCTAssertEqual(notifications.failedCounts, [0])
     }
 
     @MainActor
@@ -717,6 +843,62 @@ final class URLParserTests: XCTestCase {
 
         item.progress = -0.2
         XCTAssertEqual(item.percentProgressLabel, "0%")
+        XCTAssertEqual(DownloadItem.clampedFraction(.nan), 0)
+        XCTAssertEqual(DownloadItem.clampedFraction(.infinity), 0)
+    }
+
+    func testQueueStateServiceClearsInactiveRowsAndPreservesActiveSelection() {
+        let service = QueueStateService()
+        let active = QueuedLink(
+            originalURL: "https://open.qobuz.com/album/active",
+            canonicalURL: "https://open.qobuz.com/album/active",
+            parsed: .album("active"),
+            title: "Active",
+            subtitle: nil,
+            coverURL: nil,
+            state: .queued,
+            cachedPreview: nil,
+            downloadID: nil
+        )
+        let ready = readyAlbumQueueItem()
+        var queue = [ready, active]
+        var selection: UUID? = active.id
+
+        let removed = service.clearInactive(queue: &queue, selectedID: &selection)
+
+        XCTAssertEqual(removed, 1)
+        XCTAssertEqual(queue.map(\.id), [active.id])
+        XCTAssertEqual(selection, active.id)
+    }
+
+    func testDownloadStateReducerClampsAndResetsTransferState() {
+        let reducer = DownloadStateReducer()
+        let id = UUID()
+        var downloads = [
+            DownloadItem(
+                id: id,
+                queueID: nil,
+                url: "https://open.qobuz.com/track/test",
+                title: "Test",
+                status: .downloading,
+                progress: 0.4,
+                speed: "5MB/s",
+                downloaded: "5M",
+                total: "10M",
+                progressUnit: .tracks
+            )
+        ]
+
+        reducer.apply(
+            DownloadMutation(progress: .nan, resetTransfer: true),
+            to: &downloads,
+            id: id
+        )
+
+        XCTAssertEqual(downloads[0].progress, 0)
+        XCTAssertNil(downloads[0].speed)
+        XCTAssertNil(downloads[0].downloaded)
+        XCTAssertNil(downloads[0].total)
     }
 
     func testDownloadOutputResolverPrefersDirectChildCreatedAfterStart() throws {
@@ -735,6 +917,29 @@ final class URLParserTests: XCTestCase {
         let resolved = DownloadOutputResolver(fileManager: .default).resolveOutput(in: temp, startedAt: startedAt)
 
         XCTAssertEqual(resolved?.standardizedFileURL.path, album.standardizedFileURL.path)
+    }
+
+    func testRelativeDownloadPathCannotEscapeRuntimeRoot() {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runtime = RuntimeLocator(
+            applicationSupportRoot: temp.appendingPathComponent("support", isDirectory: true),
+            defaultDownloadURL: temp.appendingPathComponent("downloads", isDirectory: true)
+        )
+
+        XCTAssertEqual(
+            runtime.resolvedDownloadURL(from: "../../../../tmp/elsewhere"),
+            runtime.defaultDownloadURL
+        )
+    }
+
+    func testMissingHelperFallbackRemainsBundleRooted() {
+        let resources = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runtime = RuntimeLocator(resourceURL: resources)
+
+        XCTAssertTrue(runtime.helperURL.isFileURL)
+        XCTAssertTrue(runtime.helperURL.path.hasPrefix(resources.path))
     }
 
     private func readyAlbumQueueItem() -> QueuedLink {
@@ -822,12 +1027,71 @@ private final class FakeFinderRevealer: FinderRevealing {
     }
 }
 
+@MainActor
+private final class FakeNotificationService: AppNotificationDelivering {
+    private(set) var completedCounts: [Int] = []
+    private(set) var failedCounts: [Int] = []
+
+    func notifyBatchFinished(completed: Int, failed: Int) {
+        completedCounts.append(completed)
+        failedCounts.append(failed)
+    }
+}
+
+@MainActor
+private final class FakeDockProgress: DockProgressReporting {
+    private(set) var updates: [(progress: Double?, badge: String?)] = []
+    private(set) var clearCount = 0
+
+    func update(progress: Double?, badge: String?) {
+        updates.append((progress, badge))
+    }
+
+    func clear() {
+        clearCount += 1
+    }
+}
+
 private enum FakeQobuzError: LocalizedError {
     case plannedFailure
 
     var errorDescription: String? {
         "Planned Qobuz failure"
     }
+}
+
+private enum MockHTTPError: Error {
+    case unexpectedRequest
+}
+
+private final class MockURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: MockHTTPError.unexpectedRequest)
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private final class FakeQobuzService: QobuzServicing {
@@ -908,16 +1172,16 @@ private final class FakeQobuzService: QobuzServicing {
     }
 
     func getAlbum(id: String) async throws -> QobuzAlbumResponse {
-        lock.lock()
-        storedAlbumCallCount += 1
-        lock.unlock()
+        lock.withLock {
+            storedAlbumCallCount += 1
+        }
         return try await albumHandler(id)
     }
 
     func getTrack(id: String) async throws -> QobuzTrackResponse {
-        lock.lock()
-        storedTrackCallCount += 1
-        lock.unlock()
+        lock.withLock {
+            storedTrackCallCount += 1
+        }
         return try decodeQobuzTrack(id: id, title: "\(id) track")
     }
 
@@ -937,16 +1201,16 @@ private final class FakeQobuzService: QobuzServicing {
     }
 
     func getFileURL(trackID: String, quality: String) async throws -> QobuzFileURLResponse {
-        lock.lock()
-        storedFileURLCallCount += 1
-        lock.unlock()
+        lock.withLock {
+            storedFileURLCallCount += 1
+        }
         return try await fileURLHandler(trackID, quality)
     }
 
     func search(query: String, type: SearchType, limit: Int) async throws -> QobuzSearchResponse {
-        lock.lock()
-        storedSearchCalls.append(SearchCall(query: query, type: type, limit: limit))
-        lock.unlock()
+        lock.withLock {
+            storedSearchCalls.append(SearchCall(query: query, type: type, limit: limit))
+        }
         return try await searchHandler(query, type, limit)
     }
 }

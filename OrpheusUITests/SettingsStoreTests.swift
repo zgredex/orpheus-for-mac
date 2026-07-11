@@ -2,6 +2,20 @@ import XCTest
 @testable import OrpheusUI
 
 final class SettingsStoreTests: XCTestCase {
+    func testRoundTripPreservesLargeUnknownIntegerExactly() throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let settingsURL = temp.appendingPathComponent("settings.json")
+        try Data(#"{"future_counter":9007199254740993}"#.utf8).write(to: settingsURL)
+
+        let document = try SettingsStore.load(from: settingsURL)
+        try SettingsStore.save(document, to: settingsURL)
+        let saved = try String(contentsOf: settingsURL, encoding: .utf8)
+
+        XCTAssertTrue(saved.contains("9007199254740993"))
+    }
+
     func testRoundTripPreservesUnknownTopLevelFields() throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -87,6 +101,34 @@ final class SettingsStoreTests: XCTestCase {
         let preserved = try SettingsStore.load(from: runtime.settingsURL)
         XCTAssertEqual(preserved.qobuzAuthToken, "user-token")
         XCTAssertEqual(preserved.qobuzUserID, "user-id")
+    }
+
+    func testPrepareRuntimeRemovesAbandonedStagingDirectories() throws {
+        let temp = try makeTempDirectory()
+        let template = temp.appendingPathComponent("Template", isDirectory: true)
+        let support = temp.appendingPathComponent("Support", isDirectory: true)
+        let downloads = temp.appendingPathComponent("Downloads", isDirectory: true)
+        try writeTemplateSettings(
+            under: template,
+            authToken: "",
+            userID: "",
+            downloadPath: downloads.path
+        )
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let staleInstall = support.appendingPathComponent(".OrpheusDL.staging.old", isDirectory: true)
+        let staleRefresh = support.appendingPathComponent(".OrpheusDL.refresh.old", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleInstall, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staleRefresh, withIntermediateDirectories: true)
+
+        let runtime = RuntimeLocator(
+            applicationSupportRoot: support,
+            defaultDownloadURL: downloads,
+            templateURL: template
+        )
+        try runtime.prepareRuntime()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleInstall.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleRefresh.path))
     }
 
     func testPrepareRuntimeDoesNotDeleteExistingRuntimeWhenTemplateResolutionFails() throws {

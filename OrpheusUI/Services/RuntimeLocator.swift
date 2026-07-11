@@ -38,10 +38,13 @@ struct RuntimeLocator {
         self.templateOverrideURL = templateURL
         self.helperOverrideURL = helperURL
 
-        let supportBase = applicationSupportRoot ?? fileManager.urls(
+        let supportDirectory = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!.appendingPathComponent("OrpheusUI", isDirectory: true)
+        ).first ?? fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let supportBase = applicationSupportRoot
+            ?? supportDirectory.appendingPathComponent("OrpheusUI", isDirectory: true)
         self.applicationSupportRoot = supportBase
 
         let music = fileManager.urls(for: .musicDirectory, in: .userDomainMask).first
@@ -81,7 +84,11 @@ struct RuntimeLocator {
                 return legacy
             }
         }
-        return URL(fileURLWithPath: "orpheus-helper")
+        let resourceRoot = resolvedResourceURL
+            ?? bundle.bundleURL.appendingPathComponent("Contents/Resources", isDirectory: true)
+        return resourceRoot
+            .appendingPathComponent("orpheus-helper", isDirectory: true)
+            .appendingPathComponent("orpheus-helper")
     }
 
     var ffmpegURL: URL? {
@@ -97,6 +104,7 @@ struct RuntimeLocator {
     func prepareRuntime() throws {
         try fileManager.createDirectory(at: applicationSupportRoot, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: defaultDownloadURL, withIntermediateDirectories: true)
+        cleanupStaleStagingDirectories()
 
         guard fileManager.fileExists(atPath: settingsURL.path) else {
             let template = try resolveTemplateURL()
@@ -120,7 +128,12 @@ struct RuntimeLocator {
                 .appendingPathComponent(String(path.dropFirst(2)), isDirectory: true)
         }
         if path.hasPrefix("./") || path.hasPrefix("../") {
-            return runtimeProjectURL.appendingPathComponent(path, isDirectory: true).standardizedFileURL
+            let candidate = runtimeProjectURL.appendingPathComponent(path, isDirectory: true).standardizedFileURL
+            let rootPath = runtimeProjectURL.standardizedFileURL.path
+            guard candidate.path == rootPath || candidate.path.hasPrefix(rootPath + "/") else {
+                return defaultDownloadURL
+            }
+            return candidate
         }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
@@ -139,19 +152,31 @@ struct RuntimeLocator {
         if let resourceURL = resolvedResourceURL {
             candidates.append(resourceURL.appendingPathComponent("OrpheusDLTemplate", isDirectory: true))
         }
+        #if DEBUG
         if let override = ProcessInfo.processInfo.environment["ORPHEUSDL_TEMPLATE_PATH"], !override.isEmpty {
             candidates.append(URL(fileURLWithPath: override, isDirectory: true))
         }
-        candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("OrpheusDL", isDirectory: true))
-        candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("OrpheusDL", isDirectory: true))
+        #endif
 
         for candidate in candidates where fileManager.fileExists(atPath: candidate.path) {
             return candidate
         }
         throw RuntimeError.missingBundledTemplate(candidates.map(\.path))
+    }
+
+    private func cleanupStaleStagingDirectories() {
+        guard let children = try? fileManager.contentsOfDirectory(
+            at: applicationSupportRoot,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+
+        for child in children where
+            child.lastPathComponent.hasPrefix(".OrpheusDL.staging.")
+                || child.lastPathComponent.hasPrefix(".OrpheusDL.refresh.") {
+            try? fileManager.removeItem(at: child)
+        }
     }
 
     private func installRuntimeTemplate(from template: URL) throws {
@@ -257,7 +282,12 @@ struct RuntimeLocator {
 
         while let item = enumerator?.nextObject() as? URL {
             let name = item.lastPathComponent
-            let relativePath = String(item.standardizedFileURL.path.dropFirst(sourcePath.count + 1))
+            let itemPath = item.standardizedFileURL.path
+            guard itemPath.hasPrefix(sourcePath + "/") else {
+                enumerator?.skipDescendants()
+                continue
+            }
+            let relativePath = String(itemPath.dropFirst(sourcePath.count + 1))
             if excludedNames.contains(name) || excludedRelativePaths.contains(relativePath) {
                 enumerator?.skipDescendants()
                 continue

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct InputBarView: View {
     @EnvironmentObject private var vm: MainViewModel
+    @FocusState private var inputFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -12,6 +13,7 @@ struct InputBarView: View {
                 TextField("Paste link or search Qobuz", text: $vm.linkInput)
                     .textFieldStyle(.plain)
                     .font(.body)
+                    .focused($inputFocused)
                     .onSubmit(vm.addLinkInput)
 
                 Button(action: vm.addLinkInput) {
@@ -60,6 +62,9 @@ struct InputBarView: View {
             }
         }
         .controlSize(.regular)
+        .onChange(of: vm.searchFocusRequest) { _, _ in
+            inputFocused = true
+        }
     }
 }
 
@@ -235,12 +240,23 @@ private struct QueueRowView: View {
         }
         .padding(.vertical, 5)
         .contextMenu {
-            Button("Download") {
-                vm.selectedQueueID = item.id
-                vm.downloadSelected()
+            if item.state.canStart {
+                Button(item.state == .ready ? "Download" : "Retry") {
+                    vm.retryQueueItem(id: item.id)
+                }
+                .disabled(vm.isDownloadRunning)
             }
-            .disabled(!item.state.canStart)
 
+            Button("Show in Finder") {
+                vm.revealQueueItem(id: item.id)
+            }
+            .disabled(!vm.canRevealQueueItem(id: item.id))
+
+            Button("Copy Qobuz Link") {
+                vm.copyQueueURL(id: item.id)
+            }
+
+            Divider()
             Button("Remove") {
                 vm.removeQueueItem(id: item.id)
             }

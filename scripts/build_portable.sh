@@ -15,7 +15,7 @@ LEGACY_APP_BUNDLE="${DIST_DIR}/${SOURCE_APP_NAME}.app"
 RESOURCES_DIR="${APP_BUNDLE}/Contents/Resources"
 TEMPLATE_DIR="${STAGE_DIR}/OrpheusDLTemplate"
 HELPER_DIST="${BUILD_DIR}/helper-dist"
-ORPHEUSDL_SOURCE="${WORKSPACE_ROOT}/OrpheusDL"
+ORPHEUSDL_SOURCE="${ORPHEUSDL_SOURCE:-${WORKSPACE_ROOT}/OrpheusDL}"
 QOBUZ_MODULE_DIR="${ORPHEUSDL_SOURCE}/modules/qobuz"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 if [[ -n "${ORPHEUS_BUILD_PYTHON:-}" ]]; then
@@ -26,8 +26,19 @@ else
   BUILD_PYTHON="python3"
 fi
 
-mkdir -p "${BUILD_DIR}" "${DIST_DIR}" "${STAGE_DIR}"
+mkdir -p "${BUILD_DIR}" "${DIST_DIR}" "${STAGE_DIR}" "${BUILD_DIR}/pyinstaller-config"
 export PYINSTALLER_CONFIG_DIR="${BUILD_DIR}/pyinstaller-config"
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Missing required build tool: $1" >&2
+    exit 2
+  }
+}
+
+for tool in codesign file grep otool patch rsync xattr xcodebuild; do
+  require_command "${tool}"
+done
 
 if [[ ! -f "${ORPHEUSDL_SOURCE}/orpheus.py" ]]; then
   echo "Missing OrpheusDL checkout at ${ORPHEUSDL_SOURCE}." >&2
@@ -65,14 +76,11 @@ find_portable_ffmpeg() {
     "${PROJECT_DIR}/Packaging/ffmpeg"
     "${PROJECT_DIR}/Packaging/bin/ffmpeg"
     "${BUILD_DIR}/vendor/ffmpeg"
+    "/Applications/BlueStacks.app/Contents/MacOS/ffmpeg"
   )
   if command -v ffmpeg >/dev/null 2>&1; then
     candidates+=("$(command -v ffmpeg)")
   fi
-  while IFS= read -r -d '' candidate; do
-    candidates+=("${candidate}")
-  done < <(find /Applications -path "*/Contents/MacOS/ffmpeg" -type f -perm +111 -print0 2>/dev/null || true)
-
   local candidate
   for candidate in "${candidates[@]}"; do
     if is_portable_ffmpeg "${candidate}"; then
@@ -199,11 +207,14 @@ fi
 echo "==> Signing app"
 if [[ -d "${RESOURCES_DIR}/orpheus-helper" ]]; then
   while IFS= read -r -d '' code_file; do
-    codesign --force --sign "${CODESIGN_IDENTITY:--}" "${code_file}" 2>/dev/null || true
+    if file "${code_file}" | grep -q "Mach-O"; then
+      codesign --force --sign "${CODESIGN_IDENTITY:--}" "${code_file}"
+    fi
   done < <(find "${RESOURCES_DIR}/orpheus-helper" -type f \( -perm +111 -o -name "*.dylib" -o -name "*.so" \) -print0)
 else
-  codesign --force --sign "${CODESIGN_IDENTITY:--}" "${RESOURCES_DIR}/orpheus-helper" 2>/dev/null || true
+  codesign --force --sign "${CODESIGN_IDENTITY:--}" "${RESOURCES_DIR}/orpheus-helper"
 fi
 codesign --force --deep --sign "${CODESIGN_IDENTITY:--}" "${APP_BUNDLE}"
+codesign --verify --deep --strict "${APP_BUNDLE}"
 
 echo "Built ${APP_BUNDLE}"

@@ -4,6 +4,7 @@ enum JSONValue: Codable, Equatable {
     case object([String: JSONValue])
     case array([JSONValue])
     case string(String)
+    case integer(Int64)
     case number(Double)
     case bool(Bool)
     case null
@@ -14,6 +15,8 @@ enum JSONValue: Codable, Equatable {
             self = .null
         } else if let value = try? container.decode(Bool.self) {
             self = .bool(value)
+        } else if let value = try? container.decode(Int64.self) {
+            self = .integer(value)
         } else if let value = try? container.decode(Double.self) {
             self = .number(value)
         } else if let value = try? container.decode(String.self) {
@@ -33,6 +36,8 @@ enum JSONValue: Codable, Equatable {
         case .array(let value):
             try container.encode(value)
         case .string(let value):
+            try container.encode(value)
+        case .integer(let value):
             try container.encode(value)
         case .number(let value):
             try container.encode(value)
@@ -59,8 +64,14 @@ enum JSONValue: Codable, Equatable {
     }
 
     var intValue: Int? {
-        if case .number(let value) = self { return Int(value) }
-        return nil
+        switch self {
+        case .integer(let value):
+            return Int(exactly: value)
+        case .number(let value):
+            return Int(exactly: value)
+        default:
+            return nil
+        }
     }
 }
 

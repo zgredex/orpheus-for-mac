@@ -27,6 +27,10 @@
 		10000000000000000000096A /* SearchResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000906 /* SearchResultsView.swift */; };
 		10000000000000000000096B /* ArtistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000907 /* ArtistDetailView.swift */; };
 		10000000000000000000096C /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000908 /* AlbumDetailView.swift */; };
+		10000000000000000000096D /* NativeAppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000909 /* NativeAppServices.swift */; };
+		10000000000000000000096E /* FeatureServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090A /* FeatureServices.swift */; };
+		10000000000000000000096F /* AppStateModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090B /* AppStateModels.swift */; };
+		100000000000000000000970 /* DownloadOutputServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090C /* DownloadOutputServices.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +66,10 @@
 		100000000000000000000906 /* SearchResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsView.swift"; sourceTree = "<group>"; };
 		100000000000000000000907 /* ArtistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ArtistDetailView.swift"; sourceTree = "<group>"; };
 		100000000000000000000908 /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AlbumDetailView.swift"; sourceTree = "<group>"; };
+		100000000000000000000909 /* NativeAppServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeAppServices.swift"; sourceTree = "<group>"; };
+		10000000000000000000090A /* FeatureServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeatureServices.swift"; sourceTree = "<group>"; };
+		10000000000000000000090B /* AppStateModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStateModels.swift"; sourceTree = "<group>"; };
+		10000000000000000000090C /* DownloadOutputServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DownloadOutputServices.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,6 +137,7 @@
 				100000000000000000000003 /* JSONValue.swift */,
 				100000000000000000000004 /* QobuzModels.swift */,
 				100000000000000000000005 /* QobuzURLParser.swift */,
+				10000000000000000000090B /* AppStateModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -139,6 +148,9 @@
 				100000000000000000000006 /* RuntimeLocator.swift */,
 				100000000000000000000007 /* QobuzAPI.swift */,
 				100000000000000000000008 /* OrpheusRunner.swift */,
+				100000000000000000000909 /* NativeAppServices.swift */,
+				10000000000000000000090A /* FeatureServices.swift */,
+				10000000000000000000090C /* DownloadOutputServices.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -281,6 +293,10 @@
 				10000000000000000000096A /* SearchResultsView.swift in Sources */,
 				10000000000000000000096B /* ArtistDetailView.swift in Sources */,
 				10000000000000000000096C /* AlbumDetailView.swift in Sources */,
+				10000000000000000000096D /* NativeAppServices.swift in Sources */,
+				10000000000000000000096E /* FeatureServices.swift in Sources */,
+				10000000000000000000096F /* AppStateModels.swift in Sources */,
+				100000000000000000000970 /* DownloadOutputServices.swift in Sources */,
 );
 			runOnlyForDeploymentPostprocessing = 0;
 		};

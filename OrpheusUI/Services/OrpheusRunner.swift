@@ -68,6 +68,44 @@ final class OrpheusRunner {
     private var process: Process?
     private var capturedOutput = ""
     private var finished = false
+    private var processLaunched = false
+
+    private static let trackTotalRegex = try! NSRegularExpression(
+        pattern: #"^Number of tracks:\s*([0-9]+)\s*$"#,
+        options: [.caseInsensitive]
+    )
+    private static let trackMarkerRegex = try! NSRegularExpression(
+        pattern: #"^Track\s+([0-9]+)\s*/\s*([0-9]+)\s*$"#,
+        options: [.caseInsensitive]
+    )
+    private static let trackOutcomeRegex = try! NSRegularExpression(
+        pattern: #"^===\s*Track\s+.+\s+(downloaded|skipped|failed)\s*===$"#,
+        options: [.caseInsensitive]
+    )
+    private static let albumTotalRegex = try! NSRegularExpression(
+        pattern: #"^Number of albums:\s*([0-9]+)\s*$"#,
+        options: [.caseInsensitive]
+    )
+    private static let albumMarkerRegex = try! NSRegularExpression(
+        pattern: #"^Album\s+([0-9]+)\s*/\s*([0-9]+)\s*$"#,
+        options: [.caseInsensitive]
+    )
+    private static let albumOutcomeRegex = try! NSRegularExpression(
+        pattern: #"^===\s*Album\s+.+\s+downloaded\s*===$"#,
+        options: [.caseInsensitive]
+    )
+    private static let progressRegex = try! NSRegularExpression(
+        pattern: #"([0-9]+(?:\.[0-9]+)?)%.*?([0-9]+(?:\.[0-9]+)?\s*(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)?)/(\s*[0-9]+(?:\.[0-9]+)?\s*(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)?)"#
+    )
+    private static let speedRegex = try! NSRegularExpression(
+        pattern: #"([0-9]+(?:\.[0-9]+)?\s*(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)/s)"#
+    )
+    private static let csiRegex = try! NSRegularExpression(
+        pattern: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]"
+    )
+    private static let oscRegex = try! NSRegularExpression(
+        pattern: "\u{001B}\\][^\u{0007}]*(?:\u{0007}|\u{001B}\\\\)"
+    )
 
     func runDownload(
         url: String,
@@ -87,9 +125,7 @@ final class OrpheusRunner {
             ]
             process.currentDirectoryURL = projectURL
 
-            var processEnvironment = ProcessInfo.processInfo.environment
-            processEnvironment.merge(environment) { _, new in new }
-            process.environment = processEnvironment
+            process.environment = Self.sanitizedEnvironment(overrides: environment)
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
@@ -102,10 +138,12 @@ final class OrpheusRunner {
             self.process = process
             self.capturedOutput = ""
             self.finished = false
+            self.processLaunched = false
             lock.unlock()
 
             let handleData: (Data) -> Void = { [weak self] data in
-                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+                guard !data.isEmpty else { return }
+                let text = String(decoding: data, as: UTF8.self)
                 outputQueue.async {
                     self?.appendOutput(text)
                     for event in parser.events(from: text) {
@@ -144,11 +182,27 @@ final class OrpheusRunner {
                 self?.cancel()
             }
 
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                continuation.finish()
+                return
+            }
+
             do {
                 try process.run()
+                processLaunched = true
+                lock.unlock()
                 continuation.yield(.processStarted)
             } catch {
-                markFinished()
+                processLaunched = false
+                self.process = nil
+                finished = true
+                lock.unlock()
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
                 continuation.finish(throwing: error)
             }
         }
@@ -156,10 +210,8 @@ final class OrpheusRunner {
 
     static func parseTrackTotal(_ line: String) -> Int? {
         let clean = cleanLine(line)
-        let pattern = #"^Number of tracks:\s*([0-9]+)\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = clean as NSString
-        guard let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
+        guard let match = trackTotalRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
               match.numberOfRanges == 2 else {
             return nil
         }
@@ -168,10 +220,8 @@ final class OrpheusRunner {
 
     static func parseTrackMarker(_ line: String) -> (current: Int, total: Int)? {
         let clean = cleanLine(line)
-        let pattern = #"^Track\s+([0-9]+)\s*/\s*([0-9]+)\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = clean as NSString
-        guard let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
+        guard let match = trackMarkerRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
               match.numberOfRanges == 3,
               let current = Int(ns.substring(with: match.range(at: 1))),
               let total = Int(ns.substring(with: match.range(at: 2))) else {
@@ -182,10 +232,8 @@ final class OrpheusRunner {
 
     static func parseTrackOutcome(_ line: String) -> TrackOutcome? {
         let clean = cleanLine(line)
-        let pattern = #"^===\s*Track\s+.+\s+(downloaded|skipped|failed)\s*===$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = clean as NSString
-        guard let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
+        guard let match = trackOutcomeRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
               match.numberOfRanges == 2 else {
             return nil
         }
@@ -194,10 +242,8 @@ final class OrpheusRunner {
 
     static func parseAlbumTotal(_ line: String) -> Int? {
         let clean = cleanLine(line)
-        let pattern = #"^Number of albums:\s*([0-9]+)\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = clean as NSString
-        guard let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
+        guard let match = albumTotalRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
               match.numberOfRanges == 2 else {
             return nil
         }
@@ -206,10 +252,8 @@ final class OrpheusRunner {
 
     static func parseAlbumMarker(_ line: String) -> (current: Int, total: Int)? {
         let clean = cleanLine(line)
-        let pattern = #"^Album\s+([0-9]+)\s*/\s*([0-9]+)\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = clean as NSString
-        guard let match = regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
+        guard let match = albumMarkerRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
               match.numberOfRanges == 3,
               let current = Int(ns.substring(with: match.range(at: 1))),
               let total = Int(ns.substring(with: match.range(at: 2))) else {
@@ -220,23 +264,22 @@ final class OrpheusRunner {
 
     static func parseAlbumOutcome(_ line: String) -> Bool {
         let clean = cleanLine(line)
-        let pattern = #"^===\s*Album\s+.+\s+downloaded\s*===$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
         let ns = clean as NSString
-        return regex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)) != nil
+        return albumOutcomeRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)) != nil
     }
 
     func cancel() {
         lock.lock()
         let process = process
         let alreadyFinished = finished
+        let processWasLaunched = processLaunched
         if !alreadyFinished {
             finished = true
             self.process = nil
         }
         lock.unlock()
 
-        guard !alreadyFinished, let process, process.isRunning else { return }
+        guard !alreadyFinished, processWasLaunched, let process, process.isRunning else { return }
         process.terminate()
     }
 
@@ -244,22 +287,15 @@ final class OrpheusRunner {
         let clean = cleanLine(line)
         guard !clean.isEmpty else { return nil }
 
-        let number = #"[0-9]+(?:\.[0-9]+)?"#
-        let byteUnit = #"(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)?"#
-        let byteValue = "\(number)\\s*\(byteUnit)"
-        let progressPattern = "(\(number))%.*?(\(byteValue))/(\\s*\(byteValue))"
-        guard let progressRegex = try? NSRegularExpression(pattern: progressPattern) else { return nil }
         let ns = clean as NSString
         guard let match = progressRegex.firstMatch(in: clean, range: NSRange(location: 0, length: ns.length)),
               match.numberOfRanges == 4 else {
             return nil
         }
 
-        let speedPattern = #"([0-9]+(?:\.[0-9]+)?\s*(?:[kKMGTPE]?i?B|[kKMGTPE]?B|[kKMGTPE]|B)/s)"#
-        let speedRegex = try? NSRegularExpression(pattern: speedPattern)
         let totalRange = match.range(at: 3)
         let speedSearchStart = totalRange.location + totalRange.length
-        let speedMatch = speedRegex?.firstMatch(
+        let speedMatch = speedRegex.firstMatch(
             in: clean,
             range: NSRange(location: speedSearchStart, length: max(0, ns.length - speedSearchStart))
         )
@@ -327,11 +363,31 @@ final class OrpheusRunner {
     }
 
     private static func stripANSI(_ line: String) -> String {
-        line.replacingOccurrences(
-            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]",
-            with: "",
-            options: .regularExpression
-        )
+        let fullRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        let withoutOSC = oscRegex.stringByReplacingMatches(in: line, range: fullRange, withTemplate: "")
+        let csiRange = NSRange(withoutOSC.startIndex..<withoutOSC.endIndex, in: withoutOSC)
+        return csiRegex.stringByReplacingMatches(in: withoutOSC, range: csiRange, withTemplate: "")
+    }
+
+    static func sanitizedEnvironment(
+        overrides: [String: String],
+        parent: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        let inheritedKeys = [
+            "HOME",
+            "TMPDIR",
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "SYSTEM_VERSION_COMPAT",
+            "__CF_USER_TEXT_ENCODING"
+        ]
+        var environment = Dictionary(uniqueKeysWithValues: inheritedKeys.compactMap { key in
+            parent[key].map { (key, $0) }
+        })
+        environment["PATH"] = parent["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment.merge(overrides) { _, new in new }
+        return environment
     }
 
     private func appendOutput(_ output: String) {
@@ -353,6 +409,7 @@ final class OrpheusRunner {
         lock.lock()
         finished = true
         process = nil
+        processLaunched = false
         lock.unlock()
     }
 }

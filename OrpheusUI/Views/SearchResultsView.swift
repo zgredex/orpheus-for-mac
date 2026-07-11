@@ -255,6 +255,14 @@ private struct BrowseAlbumRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .qobuzContextMenu(
+            url: "https://open.qobuz.com/album/\(album.id.value)",
+            queueAction: { vm.addAlbumToQueue(album.id.value) },
+            downloadAction: { vm.downloadAlbumNow(album.id.value) },
+            openTitle: "Open Album",
+            openAction: { vm.pushAlbum(album) },
+            isEnabled: album.isBrowseAvailable
+        )
     }
 }
 
@@ -301,6 +309,14 @@ private struct BrowseArtistRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .qobuzContextMenu(
+            url: artist.id.map { "https://open.qobuz.com/artist/\($0.value)" } ?? "",
+            queueAction: queueArtist,
+            downloadAction: downloadArtist,
+            openTitle: "Open Artist",
+            openAction: openArtist,
+            isEnabled: artist.id != nil
+        )
     }
 
     private func queueArtist() {
@@ -374,6 +390,42 @@ private struct BrowseTrackRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .qobuzContextMenu(
+            url: "https://open.qobuz.com/track/\(track.id.value)",
+            queueAction: { vm.addTrackToQueue(track.id.value) },
+            downloadAction: { vm.downloadTrackNow(track.id.value) },
+            openTitle: "Open Album",
+            openAction: { vm.pushAlbumFromTrack(track) }
+        )
+    }
+}
+
+extension View {
+    func qobuzContextMenu(
+        url: String,
+        queueAction: @escaping () -> Void,
+        downloadAction: @escaping () -> Void,
+        openTitle: String? = nil,
+        openAction: (() -> Void)? = nil,
+        isEnabled: Bool = true
+    ) -> some View {
+        contextMenu {
+            Button("Queue", action: queueAction)
+                .disabled(!isEnabled)
+            Button("Download", action: downloadAction)
+                .disabled(!isEnabled)
+
+            if let openTitle, let openAction {
+                Button(openTitle, action: openAction)
+                    .disabled(!isEnabled)
+            }
+
+            Divider()
+            Button("Copy Qobuz Link") {
+                AppPasteboard.copy(url)
+            }
+            .disabled(url.isEmpty)
+        }
     }
 }
 

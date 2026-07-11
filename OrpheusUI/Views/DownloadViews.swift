@@ -84,6 +84,9 @@ struct DownloadRowView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
+        .contextMenu {
+            downloadContextMenu
+        }
     }
 
     @ViewBuilder
@@ -164,6 +167,36 @@ struct DownloadRowView: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help("Remove")
+        }
+    }
+
+    @ViewBuilder
+    private var downloadContextMenu: some View {
+        switch item.status {
+        case .queued, .downloading:
+            Button("Cancel") {
+                vm.cancelDownload(id: item.id)
+            }
+        case .completed:
+            Button("Show in Finder") {
+                vm.revealInFinder(id: item.id)
+            }
+        case .failed, .cancelled:
+            Button("Retry") {
+                vm.retryDownload(id: item.id)
+            }
+            .disabled(vm.isDownloadRunning)
+        }
+
+        Button("Copy Qobuz Link") {
+            vm.copyDownloadURL(id: item.id)
+        }
+
+        if item.status.isClearable {
+            Divider()
+            Button("Remove") {
+                vm.removeDownload(id: item.id)
+            }
         }
     }
 }

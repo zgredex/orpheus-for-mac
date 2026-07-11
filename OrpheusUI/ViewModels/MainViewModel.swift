@@ -18,6 +18,7 @@ final class MainViewModel: ObservableObject {
     @Published var accountRegion: String = "??"
     @Published var isPreflighting = false
     @Published var settingsLoadFailed = false
+    @Published private(set) var searchFocusRequest = 0
 
     @Published var selectedBrowseCategory: BrowseCategory = .albums
     @Published var browseQuery: String = ""
@@ -32,6 +33,11 @@ final class MainViewModel: ObservableObject {
     private let runtime: RuntimeLocator
     private let finderRevealer: any FinderRevealing
     private let outputResolver: DownloadOutputResolver
+    private let notificationService: any AppNotificationDelivering
+    private let dockProgress: any DockProgressReporting
+    private let queueStateService = QueueStateService()
+    private let downloadStateReducer = DownloadStateReducer()
+    private let browseAlbumResolver = BrowseAlbumResolver()
     private var qobuzAPI: QobuzServicing?
     private var previewTask: Task<Void, Never>?
     private var activeDownloadTask: Task<Void, Never>?
@@ -44,12 +50,16 @@ final class MainViewModel: ObservableObject {
         runtime: RuntimeLocator = RuntimeLocator(),
         qobuzAPI: QobuzServicing? = nil,
         finderRevealer: any FinderRevealing = WorkspaceFinderRevealer(),
-        outputResolver: DownloadOutputResolver? = nil
+        outputResolver: DownloadOutputResolver? = nil,
+        notificationService: (any AppNotificationDelivering)? = nil,
+        dockProgress: (any DockProgressReporting)? = nil
     ) {
         self.runtime = runtime
         self.qobuzAPI = qobuzAPI
         self.finderRevealer = finderRevealer
         self.outputResolver = outputResolver ?? DownloadOutputResolver(fileManager: runtime.fileManager)
+        self.notificationService = notificationService ?? UserNotificationService()
+        self.dockProgress = dockProgress ?? DockProgressController()
     }
 
     var downloadPath: String {
@@ -163,17 +173,27 @@ final class MainViewModel: ObservableObject {
     func loadSettings() {
         do {
             try runtime.prepareRuntime()
+        } catch {
+            handleSettingsLoadFailure("Could not prepare the Orpheus runtime: \(error.localizedDescription)")
+            return
+        }
+
+        do {
             let document = try SettingsStore.load(from: runtime.settingsURL)
             settings = document
             settingsLoadFailed = false
             selectedQuality = document.downloadQuality.isEmpty ? "hifi" : document.downloadQuality
             configureQobuzAPI(from: document)
         } catch {
-            settingsLoadFailed = true
-            settings = nil
-            qobuzAPI = nil
-            previewState = .error(error.localizedDescription)
+            handleSettingsLoadFailure("Could not load settings: \(error.localizedDescription)")
         }
+    }
+
+    private func handleSettingsLoadFailure(_ message: String) {
+        settingsLoadFailed = true
+        settings = nil
+        qobuzAPI = nil
+        previewState = .error(message)
     }
 
     func addLinkInput() {
@@ -213,6 +233,14 @@ final class MainViewModel: ObservableObject {
 
     func clearInput() {
         batchInput = ""
+    }
+
+    func focusSearch() {
+        searchFocusRequest &+= 1
+    }
+
+    func showMultipleLinks() {
+        showBatchInput = true
     }
 
     // MARK: - Browse
@@ -398,7 +426,7 @@ final class MainViewModel: ObservableObject {
             do {
                 let response = try await api.search(query: query, type: category.searchType, limit: 30)
                 let albumResolution = category == .albums
-                    ? await resolveBrowseAlbums(response.albums?.items ?? [], query: query, api: api)
+                    ? await browseAlbumResolver.resolve(response.albums?.items ?? [], query: query, api: api)
                     : nil
                 guard !Task.isCancelled else { return }
                 updateBrowseResults(requestID: requestID, category: category) { result in
@@ -449,93 +477,6 @@ final class MainViewModel: ObservableObject {
         }) {
             selectedBrowseCategory = categoryWithResults
         }
-    }
-
-    private func resolveBrowseAlbums(
-        _ albums: [QobuzAlbumResponse],
-        query: String,
-        api: QobuzServicing
-    ) async -> BrowseAlbumResolution {
-        var resolved: [QobuzAlbumResponse] = []
-        var seenIDs = Set<String>()
-        var unresolvedUnavailableCount = 0
-        var trackCandidates: [QobuzTrackResponse]?
-
-        for album in albums {
-            if album.isBrowseAvailable {
-                appendBrowseAlbum(album, to: &resolved, seenIDs: &seenIDs)
-                continue
-            }
-
-            if trackCandidates == nil {
-                trackCandidates = (try? await api.search(query: query, type: .track, limit: 30).tracks?.items) ?? []
-            }
-
-            if let equivalent = await resolveAvailableEquivalent(
-                for: album,
-                trackCandidates: trackCandidates ?? [],
-                api: api
-            ) {
-                appendBrowseAlbum(equivalent, to: &resolved, seenIDs: &seenIDs)
-            } else {
-                unresolvedUnavailableCount += 1
-            }
-        }
-
-        return BrowseAlbumResolution(albums: resolved, unavailableCount: unresolvedUnavailableCount)
-    }
-
-    private func resolveAvailableEquivalent(
-        for unavailableAlbum: QobuzAlbumResponse,
-        trackCandidates: [QobuzTrackResponse],
-        api: QobuzServicing
-    ) async -> QobuzAlbumResponse? {
-        guard let match = trackCandidates.first(where: { track in
-            track.isBrowseAvailable && trackMatches(album: unavailableAlbum, track: track)
-        }) else {
-            return nil
-        }
-
-        guard let album = try? await api.getAlbum(id: match.album.id.value),
-              album.isBrowseAvailable,
-              album.tracks?.items.isEmpty == false else {
-            return nil
-        }
-        return album
-    }
-
-    private func trackMatches(album: QobuzAlbumResponse, track: QobuzTrackResponse) -> Bool {
-        let targetTitle = normalizedBrowseMatch(album.title)
-        let candidateTitle = normalizedBrowseMatch(track.album.title)
-        guard targetTitle == candidateTitle else { return false }
-
-        let targetArtist = normalizedBrowseMatch(album.artist.name)
-        let candidateArtists = [
-            track.performer?.name,
-            track.album.artist?.name
-        ]
-            .compactMap { $0 }
-            .map(normalizedBrowseMatch)
-            .filter { !$0.isEmpty }
-
-        return candidateArtists.contains(targetArtist)
-    }
-
-    private func appendBrowseAlbum(
-        _ album: QobuzAlbumResponse,
-        to albums: inout [QobuzAlbumResponse],
-        seenIDs: inout Set<String>
-    ) {
-        guard !seenIDs.contains(album.id.value) else { return }
-        seenIDs.insert(album.id.value)
-        albums.append(album)
-    }
-
-    private func normalizedBrowseMatch(_ value: String) -> String {
-        value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func showAlbumDetail(_ album: QobuzAlbumResponse) {
@@ -613,14 +554,9 @@ final class MainViewModel: ObservableObject {
             return
         }
 
-        let selectedWasRemoved = selectedQueueID.map { selected in
-            queuedLinks.contains { $0.id == selected && !$0.state.isActive }
-        } ?? false
-
-        queuedLinks.removeAll { !$0.state.isActive }
-
-        if selectedWasRemoved || selectedQueueID == nil {
-            selectedQueueID = queuedLinks.first?.id
+        let previousSelection = selectedQueueID
+        queueStateService.clearInactive(queue: &queuedLinks, selectedID: &selectedQueueID)
+        if previousSelection != selectedQueueID {
             selectedQueueItemChanged()
         }
 
@@ -634,12 +570,40 @@ final class MainViewModel: ObservableObject {
             cancelActiveDownload()
         }
 
-        queuedLinks.removeAll { $0.id == id }
-
-        if selectedQueueID == id {
-            selectedQueueID = queuedLinks.first?.id
+        let previousSelection = selectedQueueID
+        queueStateService.remove(id: id, queue: &queuedLinks, selectedID: &selectedQueueID)
+        if previousSelection != selectedQueueID {
             selectedQueueItemChanged()
         }
+    }
+
+    func retryQueueItem(id: UUID) {
+        guard !isDownloadRunning,
+              let index = queuedLinks.firstIndex(where: { $0.id == id }),
+              queuedLinks[index].state.canStart,
+              queuedLinks[index].parsed.downloadableURL != nil else {
+            return
+        }
+        selectedQueueID = id
+        startQueuedDownloads(ids: [id])
+    }
+
+    func copyQueueURL(id: UUID) {
+        guard let url = queuedLinks.first(where: { $0.id == id })?.canonicalURL else { return }
+        AppPasteboard.copy(url)
+    }
+
+    func revealQueueItem(id: UUID) {
+        guard let downloadID = queuedLinks.first(where: { $0.id == id })?.downloadID else { return }
+        revealInFinder(id: downloadID)
+    }
+
+    func canRevealQueueItem(id: UUID) -> Bool {
+        guard let downloadID = queuedLinks.first(where: { $0.id == id })?.downloadID,
+              let download = downloads.first(where: { $0.id == downloadID }) else {
+            return false
+        }
+        return download.status == .completed
     }
 
     func selectedQueueItemChanged() {
@@ -745,10 +709,39 @@ final class MainViewModel: ObservableObject {
         }
 
         downloads.removeAll { $0.id == id }
+        refreshDockProgress()
     }
 
     func clearDownloads() {
         downloads.removeAll { $0.status.isClearable }
+        refreshDockProgress()
+    }
+
+    func retryDownload(id: UUID) {
+        guard !isDownloadRunning,
+              let download = downloads.first(where: { $0.id == id }),
+              download.status.isRetryable else {
+            return
+        }
+
+        let queueID: UUID
+        if let existingQueueID = download.queueID,
+           let index = queuedLinks.firstIndex(where: { $0.id == existingQueueID }) {
+            queuedLinks[index].state = .ready
+            queueID = existingQueueID
+        } else if let newQueueID = addQueueURL(download.url) {
+            queueID = newQueueID
+        } else {
+            return
+        }
+
+        selectedQueueID = queueID
+        startQueuedDownloads(ids: [queueID])
+    }
+
+    func copyDownloadURL(id: UUID) {
+        guard let url = downloads.first(where: { $0.id == id })?.url else { return }
+        AppPasteboard.copy(url)
     }
 
     func testConnection(appID: String, appSecret: String, authToken: String) async -> Result<String, Error> {
@@ -893,11 +886,17 @@ final class MainViewModel: ObservableObject {
                 let track = try await api.getTrack(id: id)
                 let album = try await api.getAlbum(id: track.album.id.value)
                 loaded = .loadedTrack(TrackPreviewInfo(from: track, album: album))
-            case .playlist:
+            case .playlist(let id):
+                let playlist = try await api.getPlaylist(id: id)
+                let trackCount = playlist.tracks?.total ?? playlist.tracks?.items.count ?? 0
+                let title = [playlist.title, playlist.name]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first(where: { !$0.isEmpty })
+                    ?? "Qobuz Playlist"
                 loaded = .loadedCollection(CollectionPreviewInfo(
                     kind: item.parsed,
-                    title: "Qobuz Playlist",
-                    subtitle: item.canonicalURL,
+                    title: title,
+                    subtitle: trackCount == 1 ? "1 track" : "\(trackCount) tracks",
                     downloadURL: item.canonicalURL
                 ))
             case .artist(let id):
@@ -989,6 +988,7 @@ final class MainViewModel: ObservableObject {
 
             self.finishBatch(ids: context.ids)
         }
+        refreshDockProgress()
     }
 
     private func runQueuedDownload(queueID: UUID, requestedAt: Date) async {
@@ -1231,8 +1231,8 @@ final class MainViewModel: ObservableObject {
             }
 
             let probe = outputURL.appendingPathComponent(".orpheus-ui-write-test-\(UUID().uuidString)")
+            defer { try? runtime.fileManager.removeItem(at: probe) }
             try Data().write(to: probe, options: .atomic)
-            try? runtime.fileManager.removeItem(at: probe)
         } catch let error as DownloadPreflightError {
             throw error
         } catch {
@@ -1294,21 +1294,33 @@ final class MainViewModel: ObservableObject {
             }
         }
         activeDownloadTask = nil
+        refreshDockProgress()
+
+        let latestItems = ids.compactMap { queueID in
+            downloads.first { $0.queueID == queueID }
+        }
+        let completed = latestItems.filter { $0.status == .completed }.count
+        let failed = latestItems.filter {
+            if case .failed = $0.status { return true }
+            return false
+        }.count
+        notificationService.notifyBatchFinished(completed: completed, failed: failed)
     }
 
     private func setQueueState(id: UUID, state: QueueItemState, downloadID: UUID? = nil) {
-        guard let index = queuedLinks.firstIndex(where: { $0.id == id }) else { return }
-        queuedLinks[index].state = state
-        if let downloadID {
-            queuedLinks[index].downloadID = downloadID
-        }
+        queueStateService.setState(
+            id: id,
+            state: state,
+            downloadID: downloadID,
+            queue: &queuedLinks
+        )
     }
 
     private func saveSettings(reload: Bool) {
         do {
             try persistCurrentSettings(reload: reload)
         } catch {
-            previewState = .error(error.localizedDescription)
+            queueNotice = "Could not save settings: \(error.localizedDescription)"
         }
     }
 
@@ -1405,22 +1417,40 @@ final class MainViewModel: ObservableObject {
         resetTransfer: Bool = false,
         clearSpeed: Bool = false
     ) {
-        guard let index = downloads.firstIndex(where: { $0.id == id }) else { return }
-        if resetTransfer {
-            downloads[index].speed = nil
-            downloads[index].downloaded = nil
-            downloads[index].total = nil
+        downloadStateReducer.apply(
+            DownloadMutation(
+                status: status,
+                phase: phase,
+                progress: progress,
+                speed: speed,
+                downloaded: downloaded,
+                total: total,
+                completedUnits: completedUnits,
+                totalUnits: totalUnits,
+                resolvedOutputURL: resolvedOutputURL,
+                resetTransfer: resetTransfer,
+                clearSpeed: clearSpeed
+            ),
+            to: &downloads,
+            id: id
+        )
+        refreshDockProgress()
+    }
+
+    private func refreshDockProgress() {
+        if let item = downloads.first(where: { $0.status.isActive }) {
+            let badge = item.totalUnits.map {
+                "\(min(item.completedUnits, $0))/\($0)"
+            }
+            let progress: Double? = item.phase == .starting && item.progress == 0
+                ? nil
+                : DownloadItem.clampedFraction(item.progress)
+            dockProgress.update(progress: progress, badge: badge)
+        } else if activeDownloadTask != nil {
+            dockProgress.update(progress: nil, badge: nil)
+        } else {
+            dockProgress.clear()
         }
-        if let status { downloads[index].status = status }
-        if let phase { downloads[index].phase = phase }
-        if let progress { downloads[index].progress = progress }
-        if clearSpeed { downloads[index].speed = nil }
-        if let speed { downloads[index].speed = speed }
-        if let downloaded { downloads[index].downloaded = downloaded }
-        if let total { downloads[index].total = total }
-        if let completedUnits { downloads[index].completedUnits = completedUnits }
-        if let totalUnits { downloads[index].totalUnits = totalUnits }
-        if let resolvedOutputURL { downloads[index].resolvedOutputURL = resolvedOutputURL }
     }
 
     private func linkNotice(added: Int, invalid: Int, duplicates: Int, ignored: Int) -> String? {
@@ -1438,532 +1468,5 @@ final class MainViewModel: ObservableObject {
             parts.append("No Qobuz links found")
         }
         return parts.isEmpty ? nil : parts.joined(separator: ". ") + "."
-    }
-}
-
-enum PreviewState: Equatable {
-    case idle
-    case loading
-    case loadedAlbum(AlbumPreviewInfo)
-    case loadedTrack(TrackPreviewInfo)
-    case loadedArtist(ArtistPreviewInfo)
-    case loadedCollection(CollectionPreviewInfo)
-    case regionMismatch(yourRegion: String, blockedRegion: String?)
-    case error(String)
-}
-
-enum RegionDisplay {
-    static func display(_ region: String) -> String {
-        let trimmed = region.trimmingCharacters(in: .whitespacesAndNewlines)
-        let code = trimmed.uppercased()
-        guard let flag = flag(for: code) else { return trimmed }
-        return "\(flag) \(code)"
-    }
-
-    private static func flag(for code: String) -> String? {
-        guard code.count == 2 else { return nil }
-
-        var scalars = String.UnicodeScalarView()
-        for scalar in code.unicodeScalars {
-            guard (65...90).contains(scalar.value),
-                  let regionalIndicator = UnicodeScalar(127397 + scalar.value) else {
-                return nil
-            }
-            scalars.append(regionalIndicator)
-        }
-        return String(scalars)
-    }
-}
-
-// MARK: - Browse State
-
-enum BrowseRoute: Equatable {
-    case idle
-    case loading
-    case results
-    case artistDetail(artist: QobuzSearchArtist, albums: [QobuzAlbumResponse])
-    case albumDetail(album: AlbumPreviewInfo, tracks: [QobuzTrackRef])
-    case error(String)
-
-    var isActive: Bool {
-        if case .idle = self { return false }
-        return true
-    }
-}
-
-enum BrowseCategory: String, CaseIterable, Identifiable, Hashable {
-    case albums, artists, tracks
-    var id: Self { self }
-
-    var label: String {
-        switch self {
-        case .albums: return "Albums"
-        case .artists: return "Artists"
-        case .tracks: return "Tracks"
-        }
-    }
-
-    var shortLabel: String {
-        switch self {
-        case .albums: return "Alb"
-        case .artists: return "Art"
-        case .tracks: return "Trk"
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .albums: return "square.stack"
-        case .artists: return "person.crop.circle"
-        case .tracks: return "music.note"
-        }
-    }
-
-    var searchType: SearchType {
-        switch self {
-        case .albums:
-            return .album
-        case .artists:
-            return .artist
-        case .tracks:
-            return .track
-        }
-    }
-}
-
-enum BrowseLoadState: Equatable {
-    case idle
-    case loading
-    case loaded
-    case failed(String)
-
-    var isLoading: Bool {
-        if case .loading = self { return true }
-        return false
-    }
-
-    var errorMessage: String? {
-        if case .failed(let message) = self { return message }
-        return nil
-    }
-}
-
-struct BrowseCategoryResult: Equatable {
-    var albums: [QobuzAlbumResponse] = []
-    var artists: [QobuzSearchArtist] = []
-    var tracks: [QobuzTrackResponse] = []
-    var unavailableCount: Int = 0
-    var state: BrowseLoadState = .idle
-
-    var count: Int {
-        max(albums.count, artists.count, tracks.count)
-    }
-
-    mutating func load() {
-        state = .loaded
-    }
-
-    mutating func fail(_ message: String) {
-        state = .failed(message)
-    }
-}
-
-struct BrowseResults: Equatable {
-    var albums = BrowseCategoryResult()
-    var artists = BrowseCategoryResult()
-    var tracks = BrowseCategoryResult()
-
-    static var empty: BrowseResults {
-        BrowseResults()
-    }
-
-    static func loadingAll() -> BrowseResults {
-        BrowseResults(
-            albums: BrowseCategoryResult(state: .loading),
-            artists: BrowseCategoryResult(state: .loading),
-            tracks: BrowseCategoryResult(state: .loading)
-        )
-    }
-
-    subscript(category: BrowseCategory) -> BrowseCategoryResult {
-        get {
-            switch category {
-            case .albums: return albums
-            case .artists: return artists
-            case .tracks: return tracks
-            }
-        }
-        set {
-            switch category {
-            case .albums: albums = newValue
-            case .artists: artists = newValue
-            case .tracks: tracks = newValue
-            }
-        }
-    }
-
-    func count(for category: BrowseCategory) -> Int {
-        self[category].count
-    }
-}
-
-private struct BrowseAlbumResolution {
-    let albums: [QobuzAlbumResponse]
-    let unavailableCount: Int
-}
-
-struct QueuedLink: Identifiable, Equatable {
-    let id: UUID
-    let originalURL: String
-    let canonicalURL: String
-    let parsed: QobuzURLParseResult
-    var title: String?
-    var subtitle: String?
-    var coverURL: String?
-    var state: QueueItemState
-    var cachedPreview: PreviewState?
-    var downloadID: UUID?
-
-    init(
-        id: UUID = UUID(),
-        originalURL: String,
-        canonicalURL: String,
-        parsed: QobuzURLParseResult,
-        title: String?,
-        subtitle: String?,
-        coverURL: String?,
-        state: QueueItemState,
-        cachedPreview: PreviewState?,
-        downloadID: UUID?
-    ) {
-        self.id = id
-        self.originalURL = originalURL
-        self.canonicalURL = canonicalURL
-        self.parsed = parsed
-        self.title = title
-        self.subtitle = subtitle
-        self.coverURL = coverURL
-        self.state = state
-        self.cachedPreview = cachedPreview
-        self.downloadID = downloadID
-    }
-
-    static func invalid(url: String) -> QueuedLink {
-        QueuedLink(
-            originalURL: url,
-            canonicalURL: url,
-            parsed: .invalid,
-            title: "Invalid Qobuz URL",
-            subtitle: url,
-            coverURL: nil,
-            state: .invalid("Not a recognized Qobuz URL."),
-            cachedPreview: .error("Not a recognized Qobuz URL."),
-            downloadID: nil
-        )
-    }
-
-    var displayTitle: String {
-        if let title, !title.isEmpty { return title }
-        return parsed == .invalid ? "Invalid Qobuz URL" : parsed.contentTypeName
-    }
-
-    var displaySubtitle: String {
-        if let subtitle, !subtitle.isEmpty { return subtitle }
-        return canonicalURL
-    }
-}
-
-enum QueueItemState: Equatable {
-    case ready
-    case loadingMetadata
-    case metadataFailed(String)
-    case invalid(String)
-    case queued
-    case downloading(UUID)
-    case completed(UUID)
-    case failed(String)
-    case cancelled
-
-    var isActive: Bool {
-        switch self {
-        case .queued, .downloading:
-            return true
-        default:
-            return false
-        }
-    }
-
-    var isMetadataMutable: Bool {
-        switch self {
-        case .ready, .loadingMetadata, .metadataFailed:
-            return true
-        default:
-            return false
-        }
-    }
-
-    var canStart: Bool {
-        switch self {
-        case .ready, .metadataFailed, .failed, .cancelled:
-            return true
-        default:
-            return false
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .ready:
-            return "Ready"
-        case .loadingMetadata:
-            return "Loading"
-        case .metadataFailed:
-            return "Preview failed"
-        case .invalid:
-            return "Invalid"
-        case .queued:
-            return "Queued"
-        case .downloading:
-            return "Downloading"
-        case .completed:
-            return "Done"
-        case .failed:
-            return "Failed"
-        case .cancelled:
-            return "Cancelled"
-        }
-    }
-}
-
-struct DownloadItem: Identifiable, Equatable {
-    let id: UUID
-    let queueID: UUID?
-    let url: String
-    let title: String
-    var status: DownloadStatus
-    var startedAt: Date = Date()
-    var phase: DownloadPhase = .starting
-    var progress: Double = 0
-    var speed: String?
-    var downloaded: String?
-    var total: String?
-    var completedUnits: Int = 0
-    var totalUnits: Int?
-    var progressUnit: DownloadProgressUnit
-    var resolvedOutputURL: URL?
-
-    var unitProgressLabel: String? {
-        guard let totalUnits, totalUnits > 1 else { return nil }
-        return "\(min(completedUnits, totalUnits))/\(totalUnits) \(progressUnit.pluralName)"
-    }
-
-    var percentProgressLabel: String {
-        "\(Int(Self.clampedFraction(progress) * 100))%"
-    }
-
-    var transferProgressLabel: String? {
-        guard let downloaded, let total, !downloaded.isEmpty, !total.isEmpty else { return nil }
-        return "\(downloaded)/\(total)"
-    }
-
-    var progressDetailLabels: [String] {
-        var labels: [String] = []
-        if status == .downloading {
-            labels.append(phase.label)
-        }
-        if let unitProgressLabel {
-            labels.append(unitProgressLabel)
-        }
-        labels.append(percentProgressLabel)
-        if let transferProgressLabel {
-            labels.append(transferProgressLabel)
-        }
-        return labels
-    }
-
-    var speedBadgeLabel: String? {
-        guard case .downloading = status,
-              let speed = speed?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !speed.isEmpty else {
-            return nil
-        }
-        return speed
-    }
-
-    func aggregateProgress(fileFraction: Double) -> Double {
-        let fileFraction = Self.clampedFraction(fileFraction)
-        guard let totalUnits, totalUnits > 1 else { return fileFraction }
-
-        let completed = min(max(completedUnits, 0), totalUnits)
-        let aggregate = (Double(completed) + fileFraction) / Double(totalUnits)
-        return Self.clampedFraction(aggregate)
-    }
-
-    static func unitProgress(completed: Int, total: Int?) -> Double? {
-        guard let total, total > 0 else { return nil }
-        let completed = min(max(completed, 0), total)
-        return Self.clampedFraction(Double(completed) / Double(total))
-    }
-
-    static func clampedFraction(_ value: Double) -> Double {
-        min(max(value, 0), 1)
-    }
-}
-
-enum DownloadPhase: Equatable {
-    case starting
-    case preparingMedia
-    case downloading
-
-    var label: String {
-        switch self {
-        case .starting:
-            return "Starting"
-        case .preparingMedia:
-            return "Preparing media"
-        case .downloading:
-            return "Downloading"
-        }
-    }
-}
-
-private struct DownloadPreflightContext {
-    let ids: [UUID]
-    let items: [QueuedLink]
-    let quality: String
-}
-
-enum DownloadProgressUnit: Equatable {
-    case tracks
-    case albums
-
-    var pluralName: String {
-        switch self {
-        case .tracks:
-            return "tracks"
-        case .albums:
-            return "albums"
-        }
-    }
-}
-
-enum DownloadStatus: Equatable {
-    case queued
-    case downloading
-    case completed
-    case failed(String)
-    case cancelled
-
-    var isActive: Bool {
-        switch self {
-        case .queued, .downloading:
-            return true
-        case .completed, .failed, .cancelled:
-            return false
-        }
-    }
-
-    var isClearable: Bool {
-        !isActive
-    }
-}
-
-enum DownloadPreflightError: LocalizedError {
-    case failure(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .failure(let message):
-            return message
-        }
-    }
-}
-
-private extension QobuzURLParseResult {
-    var isArtist: Bool {
-        if case .artist = self { return true }
-        return false
-    }
-}
-
-protocol FinderRevealing: AnyObject {
-    func reveal(urls: [URL])
-}
-
-final class WorkspaceFinderRevealer: FinderRevealing {
-    func reveal(urls: [URL]) {
-        NSWorkspace.shared.activateFileViewerSelecting(urls)
-    }
-}
-
-struct DownloadOutputResolver {
-    let fileManager: FileManager
-
-    func resolveOutput(in root: URL, startedAt: Date) -> URL? {
-        let cutoff = startedAt.addingTimeInterval(-2)
-        guard let candidates = try? candidates(in: root, cutoff: cutoff), !candidates.isEmpty else {
-            return nil
-        }
-
-        if let direct = candidates
-            .filter({ $0.isDirectChild })
-            .max(by: { $0.date < $1.date }) {
-            return direct.url
-        }
-
-        return candidates.max(by: { $0.date < $1.date })?.url
-    }
-
-    private func candidates(in root: URL, cutoff: Date) throws -> [OutputCandidate] {
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [
-                .creationDateKey,
-                .contentModificationDateKey,
-                .isDirectoryKey,
-                .isHiddenKey
-            ],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        let standardizedRoot = root.standardizedFileURL
-        var output: [OutputCandidate] = []
-
-        while let url = enumerator.nextObject() as? URL {
-            if url.lastPathComponent.hasPrefix(".") {
-                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    enumerator.skipDescendants()
-                }
-                continue
-            }
-
-            let values = try url.resourceValues(forKeys: [
-                .creationDateKey,
-                .contentModificationDateKey,
-                .isHiddenKey
-            ])
-            if values.isHidden == true { continue }
-
-            let date = [values.contentModificationDate, values.creationDate]
-                .compactMap { $0 }
-                .max()
-            guard let date, date >= cutoff else { continue }
-
-            output.append(OutputCandidate(
-                url: url,
-                date: date,
-                isDirectChild: url.deletingLastPathComponent().standardizedFileURL.path == standardizedRoot.path
-            ))
-        }
-
-        return output
-    }
-
-    private struct OutputCandidate {
-        let url: URL
-        let date: Date
-        let isDirectChild: Bool
     }
 }

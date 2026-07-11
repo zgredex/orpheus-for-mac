@@ -12,18 +12,36 @@ protocol QobuzServicing: AnyObject {
     func search(query: String, type: SearchType, limit: Int) async throws -> QobuzSearchResponse
 }
 
+struct QobuzRetryPolicy {
+    let maxAttempts: Int
+    let baseDelayNanoseconds: UInt64
+
+    static let standard = QobuzRetryPolicy(
+        maxAttempts: 3,
+        baseDelayNanoseconds: 350_000_000
+    )
+}
+
 final class QobuzAPI: QobuzServicing {
     private let baseURL = URL(string: "https://www.qobuz.com/api.json/0.2/")!
     private let appID: String
     private let appSecret: String
     private let authToken: String
     private let session: URLSession
+    private let retryPolicy: QobuzRetryPolicy
 
-    init(appID: String, appSecret: String, authToken: String, session: URLSession = .shared) {
+    init(
+        appID: String,
+        appSecret: String,
+        authToken: String,
+        session: URLSession = .shared,
+        retryPolicy: QobuzRetryPolicy = .standard
+    ) {
         self.appID = appID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.appSecret = appSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         self.authToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
         self.session = session
+        self.retryPolicy = retryPolicy
     }
 
     func checkToken() async throws -> Bool {
@@ -146,10 +164,12 @@ final class QobuzAPI: QobuzServicing {
         _ endpoint: String,
         params: [String: String]
     ) async throws -> (T, HTTPURLResponse) {
-        var components = URLComponents(
+        guard var components = URLComponents(
             url: baseURL.appendingPathComponent(endpoint),
             resolvingAgainstBaseURL: false
-        )!
+        ) else {
+            throw QobuzError.apiError("Invalid Qobuz API endpoint")
+        }
         components.queryItems = params
             .filter { !$0.value.isEmpty }
             .map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -163,20 +183,71 @@ final class QobuzAPI: QobuzServicing {
         request.httpMethod = "GET"
         request.allHTTPHeaderFields = headers()
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw QobuzError.apiError("Invalid Qobuz API response")
-        }
+        let attempts = max(1, retryPolicy.maxAttempts)
+        for attempt in 0..<attempts {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch {
+                if attempt + 1 < attempts, isTransientNetworkError(error) {
+                    await waitBeforeRetry(attempt: attempt, response: nil)
+                    continue
+                }
+                throw QobuzError.networkError(error.localizedDescription)
+            }
 
-        guard (200...202).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else {
+                throw QobuzError.apiError("Invalid Qobuz API response")
+            }
+
+            if (200...202).contains(http.statusCode) {
+                do {
+                    return (try JSONDecoder().decode(T.self, from: data), http)
+                } catch {
+                    throw QobuzError.apiError(Self.decodingMessage(for: error))
+                }
+            }
+
+            if attempt + 1 < attempts, http.statusCode == 429 || (500...599).contains(http.statusCode) {
+                await waitBeforeRetry(attempt: attempt, response: http)
+                continue
+            }
             throw mapHTTPError(statusCode: http.statusCode, data: data, response: http)
         }
 
-        do {
-            return (try JSONDecoder().decode(T.self, from: data), http)
-        } catch {
-            throw QobuzError.apiError("Could not decode Qobuz response: \(error.localizedDescription)")
+        throw QobuzError.apiError("Qobuz request failed after retrying.")
+    }
+
+    private func waitBeforeRetry(attempt: Int, response: HTTPURLResponse?) async {
+        let retryAfter = response?
+            .value(forHTTPHeaderField: "Retry-After")
+            .flatMap(Double.init)
+            .map { UInt64(min(max($0, 0), 5) * 1_000_000_000) }
+        let multiplier = UInt64(1 << min(attempt, 4))
+        let delay = retryAfter ?? retryPolicy.baseDelayNanoseconds * multiplier
+        if delay > 0 {
+            try? await Task.sleep(nanoseconds: delay)
         }
+    }
+
+    private func isTransientNetworkError(_ error: Error) -> Bool {
+        let code = (error as? URLError)?.code
+        return [
+            .timedOut,
+            .cannotFindHost,
+            .cannotConnectToHost,
+            .networkConnectionLost,
+            .notConnectedToInternet,
+            .dnsLookupFailed
+        ].contains(code)
+    }
+
+    private static func decodingMessage(for error: Error) -> String {
+        if let decodingError = error as? DecodingError {
+            return "Could not decode Qobuz response: \(decodingError)"
+        }
+        return "Could not decode Qobuz response: \(error.localizedDescription)"
     }
 
     private func headers() -> [String: String] {
@@ -215,6 +286,12 @@ final class QobuzAPI: QobuzServicing {
         if statusCode == 404, body.localizedCaseInsensitiveContains("No result matching") {
             return .regionBlocked(storeHeader: response.value(forHTTPHeaderField: "X-Store"))
         }
+        if statusCode == 429 {
+            return .rateLimited
+        }
+        if (500...599).contains(statusCode) {
+            return .serviceUnavailable(statusCode)
+        }
         let lowercasedBody = body.lowercased()
         if lowercasedBody.contains("invalid user")
             || lowercasedBody.contains("invalid token")
@@ -252,6 +329,9 @@ enum QobuzError: LocalizedError, Equatable {
     case freeAccount
     case missingCredentials
     case regionBlocked(storeHeader: String?)
+    case rateLimited
+    case serviceUnavailable(Int)
+    case networkError(String)
 
     var errorDescription: String? {
         switch self {
@@ -266,6 +346,12 @@ enum QobuzError: LocalizedError, Equatable {
         case .regionBlocked(let storeHeader):
             let country = storeHeader.map { String($0.prefix(2)).uppercased() } ?? "another region"
             return "This Qobuz item is not available for the current account region. It appears to be available in \(country)."
+        case .rateLimited:
+            return "Qobuz is receiving too many requests. Wait a moment and try again."
+        case .serviceUnavailable(let statusCode):
+            return "Qobuz is temporarily unavailable (HTTP \(statusCode)). Try again shortly."
+        case .networkError(let message):
+            return "Could not reach Qobuz: \(message)"
         }
     }
 
@@ -286,6 +372,8 @@ private extension JSONValue {
             return !value.isEmpty
         case .string(let value):
             return !value.isEmpty
+        case .integer(let value):
+            return value != 0
         case .number(let value):
             return value != 0
         case .bool(let value):

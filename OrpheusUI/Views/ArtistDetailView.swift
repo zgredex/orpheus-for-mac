@@ -156,5 +156,12 @@ private struct ArtistAlbumDetailRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .qobuzContextMenu(
+            url: "https://open.qobuz.com/album/\(album.id.value)",
+            queueAction: { vm.addAlbumToQueue(album.id.value) },
+            downloadAction: { vm.downloadAlbumNow(album.id.value) },
+            openTitle: "Open Album",
+            openAction: { vm.pushAlbum(album) }
+        )
     }
 }

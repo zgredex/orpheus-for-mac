@@ -98,8 +98,19 @@ enum QobuzURLParser {
         }
 
         let type = parts[typeIndex].lowercased()
+        let segmentsAfterType = parts.distance(from: typeIndex, to: parts.endIndex) - 1
+        if host == "open.qobuz.com" || host == "play.qobuz.com" {
+            guard segmentsAfterType == 1 else { return .invalid }
+        } else {
+            guard (1...2).contains(segmentsAfterType) else { return .invalid }
+        }
+
         let id = parts[parts.index(before: parts.endIndex)]
-        guard !id.isEmpty else { return .invalid }
+        let validIDCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard !id.isEmpty,
+              id.unicodeScalars.allSatisfy(validIDCharacters.contains) else {
+            return .invalid
+        }
 
         switch type {
         case "album":
