@@ -105,6 +105,25 @@ struct NativeDownloadActivity: Identifiable, Equatable {
     var outputURL: URL?
 }
 
+enum BrowseDestination: Equatable {
+    case album(QobuzID)
+    case artist(QobuzID)
+}
+
+enum BrowsePageContent: Equatable {
+    case loading
+    case album(QobuzAlbum)
+    case artist(QobuzArtistCatalog)
+    case error(String)
+}
+
+/// One entry in the browse pane's drill-down stack.
+struct BrowsePage: Identifiable, Equatable {
+    let id: UUID
+    let destination: BrowseDestination
+    var content: BrowsePageContent
+}
+
 enum NativeBrowseCategory: String, CaseIterable, Hashable, Identifiable {
     case albums = "Albums"
     case artists = "Artists"

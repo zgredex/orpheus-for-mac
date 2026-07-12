@@ -70,6 +70,42 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(viewModel.browseStatusText, "4 results")
         XCTAssertFalse(viewModel.isBrowseLoading)
     }
+
+    func testBrowseDrillDownOpensAlbumPageAndBackReturnsToResults() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let service = FakeQobuzService()
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in service }
+        )
+
+        viewModel.start()
+        viewModel.search("adele")
+        viewModel.openAlbum(QobuzID("30"))
+        XCTAssertEqual(viewModel.browsePath.count, 1)
+        XCTAssertEqual(viewModel.browsePath.last?.content, .loading)
+
+        for _ in 0..<100 where viewModel.browsePath.last?.content == .loading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard case .album(let album)? = viewModel.browsePath.last?.content else {
+            return XCTFail("Expected a loaded album page")
+        }
+        XCTAssertEqual(album.title, "30")
+        XCTAssertEqual(album.tracks.map(\.title), ["Easy On Me"])
+
+        viewModel.browseBack()
+        XCTAssertTrue(viewModel.browsePath.isEmpty)
+        XCTAssertTrue(viewModel.isBrowseOpen)
+
+        viewModel.openAlbum(QobuzID("30"))
+        viewModel.search("adele")
+        XCTAssertTrue(viewModel.browsePath.isEmpty)
+    }
 }
 
 private struct MemoryCredentialStore: NativeCredentialStoring {
@@ -112,7 +148,13 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
     }
 
     func album(id: QobuzID) async throws -> QobuzAlbum {
-        throw NativeQobuzError.unavailable("Unused by this test")
+        try await Task.sleep(for: .milliseconds(10))
+        return QobuzAlbum(
+            id: id,
+            title: "30",
+            artist: .init(id: .init("adele"), name: "Adele"),
+            tracks: [QobuzTrack(id: .init("easy"), title: "Easy On Me", trackNumber: 1)]
+        )
     }
 
     func playlist(id: QobuzID) async throws -> QobuzPlaylist {

@@ -3,6 +3,9 @@ import SwiftUI
 
 struct ArtistPreview: View {
     let artist: QobuzArtistCatalog
+    var onOpenAlbum: ((QobuzAlbum) -> Void)?
+    var onAddAlbum: ((QobuzAlbum) -> Void)?
+    var isAlbumQueued: ((QobuzAlbum) -> Bool)?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
@@ -23,8 +26,17 @@ struct ArtistPreview: View {
                     if album.hiresStreamable {
                         QualityBadge(kind: .hiRes(bitDepth: nil, samplingRate: nil))
                     }
-                    Text("\(album.tracks.count) tracks").font(.rowSubtitle).foregroundStyle(.secondary)
+                    if onAddAlbum != nil {
+                        AddToQueueButton(
+                            isQueued: isAlbumQueued?(album) ?? false,
+                            add: onAddAlbum.map { add in { add(album) } }
+                        )
+                    } else {
+                        Text("\(album.tracks.count) tracks").font(.rowSubtitle).foregroundStyle(.secondary)
+                    }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { onOpenAlbum?(album) }
             }
             .listStyle(.inset)
         }

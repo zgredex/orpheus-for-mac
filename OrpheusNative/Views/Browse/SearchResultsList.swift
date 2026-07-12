@@ -9,6 +9,8 @@ struct SearchResult: Identifiable {
     let isQueued: Bool
     var placeholderSymbol = "music.note"
     var circularArtwork = false
+    /// Drill into the item (album page, artist page, or a track's album).
+    var open: (() -> Void)?
     /// `nil` when the result cannot be added (e.g. an artist without an id).
     let add: (() -> Void)?
 }
@@ -58,5 +60,6 @@ private struct SearchResultRow: View {
         }
         .contentShape(Rectangle())
         .frame(minHeight: 52)
+        .onTapGesture { result.open?() }
     }
 }

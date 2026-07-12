@@ -6,6 +6,8 @@ struct PreviewHeader {
     var placeholderSymbol = "music.note"
     var title: String
     var subtitle: String?
+    /// When set, the subtitle renders as a clickable navigation link.
+    var onSubtitleTap: (() -> Void)?
     /// Parts joined with "  ·  " on a single caption line.
     var metadata: [String] = []
     var badges: [QualityBadge.Kind] = []
@@ -23,7 +25,20 @@ struct PreviewScaffold<Content: View>: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(header.title).font(.title2.weight(.semibold)).lineLimit(2)
                     if let subtitle = header.subtitle {
-                        Text(subtitle).font(.headline).foregroundStyle(.secondary)
+                        if let onSubtitleTap = header.onSubtitleTap {
+                            Button(action: onSubtitleTap) {
+                                HStack(spacing: 3) {
+                                    Text(subtitle)
+                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .help("Show \(subtitle)")
+                        } else {
+                            Text(subtitle).font(.headline).foregroundStyle(.secondary)
+                        }
                     }
                     if !header.metadata.isEmpty {
                         Text(header.metadata.joined(separator: "  ·  "))

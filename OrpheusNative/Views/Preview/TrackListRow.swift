@@ -11,6 +11,8 @@ struct TrackListRow: View {
     let title: String
     var isExplicit = false
     let duration: Int?
+    var isQueued = false
+    var add: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -36,6 +38,9 @@ struct TrackListRow: View {
             }
             Spacer()
             Text(Format.duration(duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            if add != nil {
+                AddToQueueButton(isQueued: isQueued, add: add)
+            }
         }
     }
 }

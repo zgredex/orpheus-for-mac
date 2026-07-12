@@ -3,12 +3,16 @@ import SwiftUI
 
 struct AlbumPreview: View {
     let album: QobuzAlbum
+    var onOpenArtist: (() -> Void)?
+    var onAddTrack: ((QobuzTrack) -> Void)?
+    var isTrackQueued: ((QobuzTrack) -> Bool)?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
             artworkURL: album.image?.bestURL,
             title: album.displayTitle,
             subtitle: album.artist.name,
+            onSubtitleTap: onOpenArtist,
             metadata: [
                 album.releaseDate?.prefix(4).description,
                 album.genre,
@@ -22,7 +26,9 @@ struct AlbumPreview: View {
                     leading: .number(track.trackNumber),
                     title: track.displayTitle,
                     isExplicit: track.parentalWarning,
-                    duration: track.duration
+                    duration: track.duration,
+                    isQueued: isTrackQueued?(track) ?? false,
+                    add: onAddTrack.map { add in { add(track) } }
                 )
             }
             .listStyle(.inset)

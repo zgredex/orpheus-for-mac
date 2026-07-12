@@ -26,6 +26,7 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var loadingBrowseCategories: Set<NativeBrowseCategory> = []
     @Published private(set) var browseErrors: [NativeBrowseCategory: String] = [:]
     @Published private(set) var isBrowseOpen = false
+    @Published private(set) var browsePath: [BrowsePage] = []
 
     private let settingsStore: any NativeSettingsStoring
     private let credentialStore: any NativeCredentialStoring
@@ -34,6 +35,7 @@ final class NativeViewModel: ObservableObject {
     private var previewTask: Task<Void, Never>?
     private var browseTasks: [Task<Void, Never>] = []
     private var browseRequestID: UUID?
+    private var browsePageTask: Task<Void, Never>?
     private var downloadTask: Task<Void, Never>?
     private var started = false
 
@@ -215,6 +217,8 @@ final class NativeViewModel: ObservableObject {
         browseArtists = []
         browseTracks = []
         browseErrors = [:]
+        browsePageTask?.cancel()
+        browsePath = []
         loadingBrowseCategories = Set(NativeBrowseCategory.allCases)
         browseCategory = .albums
         isBrowseOpen = true
@@ -237,7 +241,60 @@ final class NativeViewModel: ObservableObject {
     func closeBrowse() {
         browseTasks.forEach { $0.cancel() }
         browseTasks.removeAll()
+        browsePageTask?.cancel()
+        browsePath = []
         isBrowseOpen = false
+    }
+
+    func openAlbum(_ id: QobuzID) {
+        openBrowsePage(.album(id))
+    }
+
+    func openArtist(_ id: QobuzID) {
+        openBrowsePage(.artist(id))
+    }
+
+    func browseBack() {
+        browsePageTask?.cancel()
+        _ = browsePath.popLast()
+        if browsePath.isEmpty, browseQuery.isEmpty {
+            closeBrowse()
+        }
+    }
+
+    func retryBrowsePage() {
+        guard let page = browsePath.popLast() else { return }
+        openBrowsePage(page.destination)
+    }
+
+    private func openBrowsePage(_ destination: BrowseDestination) {
+        guard let client else {
+            notice = "Configure Qobuz credentials before browsing."
+            showSettings = true
+            return
+        }
+        browsePageTask?.cancel()
+        let page = BrowsePage(id: UUID(), destination: destination, content: .loading)
+        browsePath.append(page)
+        isBrowseOpen = true
+        browsePageTask = Task { [weak self] in
+            do {
+                let content: BrowsePageContent = switch destination {
+                case .album(let id): .album(try await client.album(id: id))
+                case .artist(let id): .artist(try await client.artist(id: id))
+                }
+                guard let self, !Task.isCancelled else { return }
+                updateBrowsePage(page.id, content: content)
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                updateBrowsePage(page.id, content: .error(error.localizedDescription))
+            }
+        }
+    }
+
+    private func updateBrowsePage(_ id: UUID, content: BrowsePageContent) {
+        guard let index = browsePath.firstIndex(where: { $0.id == id }) else { return }
+        browsePath[index].content = content
     }
 
     func retryBrowseSearch() {
