@@ -30,8 +30,18 @@ struct ActivityRow: View {
                 }
                 HStack(spacing: 6) {
                     Text(phaseText)
-                    if activity.totalTracks > 0 { Text("\(activity.completedTracks)/\(activity.totalTracks) tracks") }
-                    if let written = activity.bytesWritten { Text(transfer(written, activity.totalBytes)) }
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: DS.Space.s)
+                    // Trailing numeric group: right-aligned with a reserved
+                    // width so changing digits never push the line around.
+                    if activity.totalTracks > 0 {
+                        Text("\(activity.completedTracks)/\(activity.totalTracks) tracks")
+                    }
+                    if let written = activity.bytesWritten {
+                        Text(transfer(written, activity.totalBytes))
+                            .frame(minWidth: 110, alignment: .trailing)
+                    }
                 }
                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }

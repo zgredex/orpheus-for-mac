@@ -37,6 +37,7 @@ final class NativeViewModel: ObservableObject {
     private var browseRequestID: UUID?
     private var browsePageTask: Task<Void, Never>?
     private var downloadTask: Task<Void, Never>?
+    private var lastProgressUpdate: [UUID: Date] = [:]
     private var started = false
 
     init(
@@ -470,6 +471,15 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func reduce(_ event: QobuzDownloadEvent, activityID: UUID) {
+        // Progress arrives many times a second; repainting the caption that
+        // often makes it jitter. One update per second is plenty.
+        if case .progress = event {
+            let now = Date()
+            if let last = lastProgressUpdate[activityID], now.timeIntervalSince(last) < 1 { return }
+            lastProgressUpdate[activityID] = now
+        } else {
+            lastProgressUpdate[activityID] = nil
+        }
         updateActivity(activityID) { activity in
             switch event {
             case .resolving:
