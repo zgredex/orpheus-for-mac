@@ -101,6 +101,7 @@ struct NativeDownloadActivity: Identifiable, Equatable {
     var bytesWritten: Int64?
     var totalBytes: Int64?
     var bytesPerSecond: Double?
+    var albumBytesWritten: Int64?
     var checksum: String?
     var outputURL: URL?
 }

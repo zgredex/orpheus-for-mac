@@ -38,9 +38,9 @@ struct ActivityRow: View {
                     if activity.totalTracks > 0 {
                         Text("\(activity.completedTracks)/\(activity.totalTracks) tracks")
                     }
-                    if let written = activity.bytesWritten {
-                        Text(transfer(written, activity.totalBytes))
-                            .frame(minWidth: 110, alignment: .trailing)
+                    if let size = activity.albumBytesWritten ?? activity.bytesWritten {
+                        Text(Format.bytes(size))
+                            .frame(minWidth: 90, alignment: .trailing)
                     }
                 }
                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
@@ -63,10 +63,5 @@ struct ActivityRow: View {
             return "\(activity.phase) · \(current)"
         }
         return activity.phase
-    }
-
-    private func transfer(_ written: Int64, _ total: Int64?) -> String {
-        guard let total else { return Format.bytes(written) }
-        return "\(Format.bytes(written))/\(Format.bytes(total))"
     }
 }

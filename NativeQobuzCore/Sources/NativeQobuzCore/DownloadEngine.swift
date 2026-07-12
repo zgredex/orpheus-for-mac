@@ -8,6 +8,9 @@ public struct QobuzDownloadProgress: Equatable, Sendable {
     public let bytesWritten: Int64?
     public let totalBytes: Int64?
     public let bytesPerSecond: Double?
+    /// Bytes downloaded so far across the whole plan (album/playlist),
+    /// including the partially transferred current track.
+    public let albumBytesWritten: Int64?
 
     public init(
         completedTracks: Int,
@@ -16,7 +19,8 @@ public struct QobuzDownloadProgress: Equatable, Sendable {
         overallFraction: Double,
         bytesWritten: Int64?,
         totalBytes: Int64?,
-        bytesPerSecond: Double?
+        bytesPerSecond: Double?,
+        albumBytesWritten: Int64? = nil
     ) {
         self.completedTracks = completedTracks
         self.totalTracks = totalTracks
@@ -25,6 +29,7 @@ public struct QobuzDownloadProgress: Equatable, Sendable {
         self.bytesWritten = bytesWritten
         self.totalBytes = totalBytes
         self.bytesPerSecond = bytesPerSecond
+        self.albumBytesWritten = albumBytesWritten
     }
 }
 
@@ -86,6 +91,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
 
                     var downloaded = 0
                     var skipped = 0
+                    var albumBytes: Int64 = 0
+                    var currentTrackBytes: Int64 = 0
                     var outputs: [(item: QobuzResolvedTrack, audioURL: URL)] = []
                     var verifiedOutputs: [(item: QobuzResolvedTrack, audioURL: URL, sha256: String)] = []
                     var artworkCache: [QobuzID: EmbeddedArtwork] = [:]
@@ -114,7 +121,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                     .progress(
                                         completedProgress(
                                             completed: item.position,
-                                            total: item.total
+                                            total: item.total,
+                                            albumBytes: albumBytes
                                         )
                                     )
                                 )
@@ -150,6 +158,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                     let overall = (
                                         Double(item.position - 1) + (fileFraction ?? 0)
                                     ) / Double(max(item.total, 1))
+                                    currentTrackBytes = progress.bytesWritten ?? currentTrackBytes
                                     continuation.yield(
                                         .progress(
                                             QobuzDownloadProgress(
@@ -159,7 +168,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                                 overallFraction: overall,
                                                 bytesWritten: progress.bytesWritten,
                                                 totalBytes: progress.totalBytes,
-                                                bytesPerSecond: progress.bytesPerSecond
+                                                bytesPerSecond: progress.bytesPerSecond,
+                                                albumBytesWritten: albumBytes + currentTrackBytes
                                             )
                                         )
                                     )
@@ -188,10 +198,12 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                             artworkTask.cancel()
                             throw error
                         }
+                        albumBytes += currentTrackBytes
+                        currentTrackBytes = 0
                         downloaded += 1
                         outputs.append((item, destination))
                         continuation.yield(.trackCompleted(track: item, destination: destination))
-                        continuation.yield(.progress(completedProgress(completed: item.position, total: item.total)))
+                        continuation.yield(.progress(completedProgress(completed: item.position, total: item.total, albumBytes: albumBytes)))
                     }
                     for booklet in try await assetWriter.downloadBooklets(for: outputs) {
                         continuation.yield(.assetCreated(booklet))
@@ -232,7 +244,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         }
     }
 
-    private func completedProgress(completed: Int, total: Int) -> QobuzDownloadProgress {
+    private func completedProgress(completed: Int, total: Int, albumBytes: Int64) -> QobuzDownloadProgress {
         QobuzDownloadProgress(
             completedTracks: completed,
             totalTracks: total,
@@ -240,7 +252,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             overallFraction: Double(completed) / Double(max(total, 1)),
             bytesWritten: nil,
             totalBytes: nil,
-            bytesPerSecond: nil
+            bytesPerSecond: nil,
+            albumBytesWritten: albumBytes
         )
     }
 }

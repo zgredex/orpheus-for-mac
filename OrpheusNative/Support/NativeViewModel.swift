@@ -472,10 +472,11 @@ final class NativeViewModel: ObservableObject {
 
     private func reduce(_ event: QobuzDownloadEvent, activityID: UUID) {
         // Progress arrives many times a second; repainting the caption that
-        // often makes it jitter. One update per second is plenty.
-        if case .progress = event {
+        // often makes it jitter. 5 Hz is plenty. Track-completion progress
+        // (fraction == 1) always applies so counts and sizes end exact.
+        if case .progress(let progress) = event, (progress.currentTrackFraction ?? 1) < 1 {
             let now = Date()
-            if let last = lastProgressUpdate[activityID], now.timeIntervalSince(last) < 1 { return }
+            if let last = lastProgressUpdate[activityID], now.timeIntervalSince(last) < 0.2 { return }
             lastProgressUpdate[activityID] = now
         } else {
             lastProgressUpdate[activityID] = nil
@@ -504,6 +505,7 @@ final class NativeViewModel: ObservableObject {
                 if let written = progress.bytesWritten { activity.bytesWritten = written }
                 if let total = progress.totalBytes { activity.totalBytes = total }
                 if let speed = progress.bytesPerSecond { activity.bytesPerSecond = speed }
+                if let album = progress.albumBytesWritten { activity.albumBytesWritten = album }
             case .tagging:
                 activity.status = .tagging
                 activity.phase = "Writing metadata"
