@@ -26,6 +26,16 @@ The app bundle is treated as immutable. Mutable data lives outside the bundle:
 
 The packaged app does not include local Qobuz credentials. First launch installs a sanitized OrpheusDL runtime template into Application Support; later launches refresh runtime code while preserving user settings, credentials, logs, downloads, and temp files.
 
+## Upstream Projects and Credits
+
+Orpheus for Mac is a graphical companion and packaging layer built on the work of the OrpheusDL community. It does not replace or claim authorship of the downloader or Qobuz integration:
+
+- [OrfiTeam/OrpheusDL](https://github.com/OrfiTeam/OrpheusDL) provides the core modular music downloader.
+- [OrfiDev/orpheusdl-qobuz](https://github.com/OrfiDev/orpheusdl-qobuz) is an upstream Qobuz module implementation and part of the module's development lineage.
+- [TheKVT/orpheusdl-qobuz](https://github.com/TheKVT/orpheusdl-qobuz) provides the Qobuz module revision currently used by the portable build.
+
+All credit for those projects belongs to their respective maintainers and contributors. Their licenses and notices continue to apply to the bundled upstream code.
+
 ## Repository Layout
 
 ```text
