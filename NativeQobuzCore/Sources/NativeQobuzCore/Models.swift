@@ -113,10 +113,12 @@ public struct QobuzSearchResults: Equatable, Sendable {
 public struct QobuzArtist: Codable, Equatable, Sendable {
     public let id: QobuzID?
     public let name: String
+    public let image: QobuzImage?
 
-    public init(id: QobuzID?, name: String) {
+    public init(id: QobuzID?, name: String, image: QobuzImage? = nil) {
         self.id = id
         self.name = name
+        self.image = image
     }
 }
 
@@ -395,14 +397,16 @@ public struct QobuzPlaylist: Decodable, Equatable, Sendable {
 public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
     public let id: QobuzID
     public let name: String
+    public let image: QobuzImage?
     public let albums: [QobuzAlbum]
 
-    enum CodingKeys: String, CodingKey { case id, name, albums }
+    enum CodingKeys: String, CodingKey { case id, name, image, albums }
     private struct AlbumsContainer: Decodable { let items: [QobuzAlbum] }
 
-    public init(id: QobuzID, name: String, albums: [QobuzAlbum]) {
+    public init(id: QobuzID, name: String, image: QobuzImage? = nil, albums: [QobuzAlbum]) {
         self.id = id
         self.name = name
+        self.image = image
         self.albums = albums
     }
 
@@ -410,6 +414,7 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(QobuzID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
+        image = try container.decodeIfPresent(QobuzImage.self, forKey: .image)
         albums = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)?.items ?? []
     }
 }

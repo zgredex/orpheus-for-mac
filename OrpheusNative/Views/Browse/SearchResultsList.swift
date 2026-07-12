@@ -7,6 +7,8 @@ struct SearchResult: Identifiable {
     let title: String
     let subtitle: String
     let isQueued: Bool
+    var placeholderSymbol = "music.note"
+    var circularArtwork = false
     /// `nil` when the result cannot be added (e.g. an artist without an id).
     let add: (() -> Void)?
 }
@@ -37,7 +39,12 @@ private struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ArtworkView(url: result.artworkURL, size: DS.Artwork.result)
+            ArtworkView(
+                url: result.artworkURL,
+                size: DS.Artwork.result,
+                placeholderSymbol: result.placeholderSymbol,
+                circular: result.circularArtwork
+            )
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text(result.title).font(.rowTitle).lineLimit(1)
                 Text(result.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)

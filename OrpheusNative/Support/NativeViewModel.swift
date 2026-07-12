@@ -325,7 +325,7 @@ final class NativeViewModel: ObservableObject {
                     let value = try await client.artist(id: id)
                     guard !Task.isCancelled else { return }
                     preview = .artist(value)
-                    updateQueueMetadata(item.id, title: value.name, subtitle: "\(value.albums.count) albums")
+                    updateQueueMetadata(item.id, title: value.name, subtitle: "\(value.albums.count) albums", artworkURL: value.image?.bestURL)
                 }
             } catch {
                 guard let self, !Task.isCancelled else { return }

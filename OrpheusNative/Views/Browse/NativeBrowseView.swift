@@ -94,11 +94,15 @@ struct NativeBrowseView: View {
         return vm.browseArtists.map { artist in
             SearchResult(
                 id: artist.id?.rawValue ?? artist.name,
-                artworkURL: nil,
+                artworkURL: artist.image?.bestURL,
                 title: artist.name,
                 subtitle: "Artist",
                 isQueued: artist.id.map { queued.contains(QobuzRequest.artist($0).canonicalURL) } ?? false,
-                add: artist.id.map { id in { vm.addRequest(.artist(id), title: artist.name) } }
+                placeholderSymbol: "person.crop.circle",
+                circularArtwork: true,
+                add: artist.id.map { id in
+                    { vm.addRequest(.artist(id), title: artist.name, artworkURL: artist.image?.bestURL) }
+                }
             )
         }
     }

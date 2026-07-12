@@ -8,7 +8,7 @@ struct RegionBadge: View {
     let quality: String
 
     var body: some View {
-        (regionText + Text("  ·  \(quality)"))
+        (Text("\(quality)  ·  ") + regionText)
             .font(.caption.weight(.medium))
             .foregroundStyle(.secondary)
             .fixedSize()

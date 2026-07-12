@@ -4,6 +4,7 @@ struct ArtworkView: View {
     let url: URL?
     let size: CGFloat
     var placeholderSymbol = "music.note"
+    var circular = false
 
     var body: some View {
         AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
@@ -26,7 +27,10 @@ struct ArtworkView: View {
 
     private var isHero: Bool { size >= DS.Artwork.hero }
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: isHero ? DS.Radius.hero : DS.Radius.thumb)
+    private var shape: AnyShape {
+        if circular {
+            return AnyShape(Circle())
+        }
+        return AnyShape(RoundedRectangle(cornerRadius: isHero ? DS.Radius.hero : DS.Radius.thumb))
     }
 }

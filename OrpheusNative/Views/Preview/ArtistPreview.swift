@@ -6,6 +6,7 @@ struct ArtistPreview: View {
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
+            artworkURL: artist.image?.bestURL,
             placeholderSymbol: "person.crop.circle",
             title: artist.name,
             subtitle: "Artist catalog",
