@@ -489,10 +489,10 @@ final class NativeViewModel: ObservableObject {
                 activity.progress = progress.overallFraction
                 activity.completedTracks = progress.completedTracks
                 activity.totalTracks = progress.totalTracks
-                activity.bytesWritten = progress.bytesWritten
-                activity.totalBytes = progress.totalBytes
-                // Keep the last known speed when a sample is missing (each
-                // track restarts measurement) so the label stays steady.
+                // Keep the last known values when a sample is missing (each
+                // track restarts measurement) so the caption stays steady.
+                if let written = progress.bytesWritten { activity.bytesWritten = written }
+                if let total = progress.totalBytes { activity.totalBytes = total }
                 if let speed = progress.bytesPerSecond { activity.bytesPerSecond = speed }
             case .tagging:
                 activity.status = .tagging

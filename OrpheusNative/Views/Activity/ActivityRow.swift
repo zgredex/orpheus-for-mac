@@ -32,9 +32,6 @@ struct ActivityRow: View {
                     Text(phaseText)
                     if activity.totalTracks > 0 { Text("\(activity.completedTracks)/\(activity.totalTracks) tracks") }
                     if let written = activity.bytesWritten { Text(transfer(written, activity.totalBytes)) }
-                    if activity.status == .completed, let checksum = activity.checksum {
-                        Text("SHA-256 \(checksum.prefix(8))")
-                    }
                 }
                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }
