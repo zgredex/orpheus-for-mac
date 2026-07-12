@@ -10,6 +10,10 @@ public protocol QobuzCatalogService: Sendable {
     func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo
 }
 
+public protocol QobuzBrowsingService: Sendable {
+    func search(_ query: String, category: QobuzSearchCategory, limit: Int) async throws -> QobuzSearchResults
+}
+
 public struct QobuzRetryPolicy: Equatable, Sendable {
     public let maxAttempts: Int
     public let baseDelay: Duration
@@ -22,7 +26,7 @@ public struct QobuzRetryPolicy: Equatable, Sendable {
     public static let standard = QobuzRetryPolicy()
 }
 
-public final class QobuzAPIClient: QobuzCatalogService, @unchecked Sendable {
+public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @unchecked Sendable {
     private let baseURL: URL
     private let credentials: QobuzCredentials
     private let session: URLSession
@@ -129,6 +133,30 @@ public final class QobuzAPIClient: QobuzCatalogService, @unchecked Sendable {
             ]
         )
         return value
+    }
+
+    public func search(
+        _ query: String,
+        category: QobuzSearchCategory,
+        limit: Int = 30
+    ) async throws -> QobuzSearchResults {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return QobuzSearchResults() }
+        let (value, _): (SearchResponse, HTTPURLResponse) = try await get(
+            endpoint: "catalog/search",
+            parameters: [
+                "query": trimmed,
+                "type": category.rawValue,
+                "limit": String(min(max(limit, 1), 100)),
+                "offset": "0",
+                "app_id": credentials.appID
+            ]
+        )
+        switch category {
+        case .albums: return QobuzSearchResults(albums: value.albums?.items ?? [])
+        case .artists: return QobuzSearchResults(artists: value.artists?.items ?? [])
+        case .tracks: return QobuzSearchResults(tracks: value.tracks?.items ?? [])
+        }
     }
 
     static func signature(
@@ -274,6 +302,16 @@ public final class QobuzAPIClient: QobuzCatalogService, @unchecked Sendable {
             return .unavailable("This Qobuz item is unavailable for the account region.\(suffix)")
         }
         return .http(status, body.isEmpty ? "No response body" : body)
+    }
+}
+
+private struct SearchResponse: Decodable {
+    let albums: Items<QobuzAlbumSummary>?
+    let artists: Items<QobuzArtist>?
+    let tracks: Items<QobuzTrack>?
+
+    struct Items<Value: Decodable>: Decodable {
+        let items: [Value]
     }
 }
 

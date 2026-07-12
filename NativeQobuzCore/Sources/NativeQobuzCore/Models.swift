@@ -66,6 +66,50 @@ public enum QobuzRequest: Equatable, Sendable {
     case artist(QobuzID)
 }
 
+public extension QobuzRequest {
+    var id: QobuzID {
+        switch self {
+        case .track(let id), .album(let id), .playlist(let id), .artist(let id): id
+        }
+    }
+
+    var kindName: String {
+        switch self {
+        case .track: "Track"
+        case .album: "Album"
+        case .playlist: "Playlist"
+        case .artist: "Artist"
+        }
+    }
+
+    var canonicalURL: URL {
+        let kind = kindName.lowercased()
+        return URL(string: "https://open.qobuz.com/\(kind)/\(id.rawValue)")!
+    }
+}
+
+public enum QobuzSearchCategory: String, CaseIterable, Hashable, Sendable {
+    case albums
+    case artists
+    case tracks
+}
+
+public struct QobuzSearchResults: Equatable, Sendable {
+    public let albums: [QobuzAlbumSummary]
+    public let artists: [QobuzArtist]
+    public let tracks: [QobuzTrack]
+
+    public init(
+        albums: [QobuzAlbumSummary] = [],
+        artists: [QobuzArtist] = [],
+        tracks: [QobuzTrack] = []
+    ) {
+        self.albums = albums
+        self.artists = artists
+        self.tracks = tracks
+    }
+}
+
 public struct QobuzArtist: Codable, Equatable, Sendable {
     public let id: QobuzID?
     public let name: String

@@ -88,6 +88,34 @@ final class APITests: XCTestCase {
         let region = try await client.validateAccount()
         XCTAssertEqual(region, "FR")
     }
+
+    func testSearchReturnsTypedCategoryAndUsesAccountHeaders() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestBox = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.handler = { request in
+            requestBox.set(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"albums":{"items":[{"id":"album-1","title":"19","artist":{"id":1,"name":"Adele"}}]}}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: session,
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let results = try await client.search("Adele 19", category: .albums, limit: 30)
+
+        XCTAssertEqual(results.albums.map(\.title), ["19"])
+        XCTAssertTrue(results.artists.isEmpty)
+        let request = try XCTUnwrap(requestBox.value)
+        let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(query["query"], "Adele 19")
+        XCTAssertEqual(query["type"], "albums")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-Auth-Token"), "token")
+    }
 }
 
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {

@@ -28,6 +28,33 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         let fileInfo = try await client.fileInfo(trackID: firstTrack.id, quality: .mp3)
         XCTAssertEqual(fileInfo.formatID, QobuzQuality.mp3.formatID)
         XCTAssertEqual(fileInfo.url.scheme, "https")
+
+        let search = try await client.search("Adele 19", category: .albums, limit: 30)
+        XCTAssertFalse(search.albums.isEmpty)
+        XCTAssertTrue(search.albums.contains { $0.title.localizedCaseInsensitiveContains("19") })
+    }
+
+    func testFrenchAccountSearchFindsAdeleAcrossCategories() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["QOBUZ_INTEGRATION"] == "1" else {
+            throw XCTSkip("Set QOBUZ_INTEGRATION=1 and credential environment variables to run live Qobuz tests.")
+        }
+        let client = QobuzAPIClient(credentials: try credentials(from: environment))
+
+        async let albums = client.search("adele", category: .albums, limit: 30)
+        async let artists = client.search("adele", category: .artists, limit: 30)
+        async let tracks = client.search("adele", category: .tracks, limit: 30)
+        let results = try await (albums, artists, tracks)
+
+        XCTAssertTrue(results.0.albums.contains {
+            $0.artist?.name.localizedCaseInsensitiveContains("adele") == true
+        })
+        XCTAssertTrue(results.1.artists.contains {
+            $0.name.localizedCaseInsensitiveContains("adele")
+        })
+        XCTAssertTrue(results.2.tracks.contains {
+            $0.performer?.name.localizedCaseInsensitiveContains("adele") == true
+        })
     }
 
     func testFrenchAccountCanTransferOneTrackToTemporaryFile() async throws {

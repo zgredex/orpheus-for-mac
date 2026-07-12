@@ -20,7 +20,7 @@ Live integration tests accept credentials only through environment variables and
 2. Native FLAC and ID3 metadata writers with Python parity fixtures. Complete.
 3. Artwork, booklet, playlist, duplicate, and partial-file behavior. Complete.
 4. Minimal mandatory FFmpeg media validator built from pinned source. Complete.
-5. Native app adapter and a separate preview bundle identifier/Application Support root.
+5. Native app adapter and a separate preview bundle identifier/Application Support root. Complete.
 6. Differential testing against the frozen Python behavior.
 7. Remove Python packaging only after the native backend passes the parity matrix.
 
@@ -48,5 +48,11 @@ The native core currently provides:
 
 Live French-account checks confirm direct MP3/FLAC transfer, metadata and
 1400x1400 cover embedding, complete decode validation, and final SHA-256
-generation. The package is still isolated from the production app and cannot
-replace its download engine until the native app adapter milestone is complete.
+generation. Native album search has also been verified against the FR account.
+
+`OrpheusNative.xcodeproj` now provides a runnable adapter with an isolated
+bundle identifier, Keychain service, Application Support root, and download
+directory. It supports multi-link queueing, text import, native account-region
+search, metadata previews, sequential downloads, progress/speed, cancellation,
+integrity state, and Finder reveal. It remains a preview and does not replace
+the production app until the differential parity milestone is complete.
