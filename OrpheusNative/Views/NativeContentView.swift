@@ -34,9 +34,18 @@ struct NativeContentView: View {
                 .background(.bar)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationSubtitle(statusSubtitle)
         .toolbar {
-            ToolbarItemGroup {
+            if #available(macOS 26.0, *) {
+                ToolbarItem {
+                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality.displayName)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem {
+                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality.displayName)
+                }
+            }
+            ToolbarItem {
                 Button { vm.showSettings = true } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
@@ -50,12 +59,5 @@ struct NativeContentView: View {
         } message: {
             Text(vm.notice ?? "")
         }
-    }
-
-    private var statusSubtitle: String {
-        let region = vm.accountRegion.uppercased()
-        let code = region.count == 2 ? region : "--"
-        let flagged = CountryFlag.emoji(for: code).map { "\($0) \(code)" } ?? code
-        return "\(vm.settings.quality.displayName)  ·  \(flagged)"
     }
 }
