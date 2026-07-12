@@ -8,7 +8,12 @@ struct OrpheusNativeApp: App {
         WindowGroup {
             NativeContentView()
                 .environmentObject(viewModel)
-                .frame(minWidth: 820, minHeight: 560)
+                .frame(
+                    minWidth: 820,
+                    maxWidth: .infinity,
+                    minHeight: 560,
+                    maxHeight: .infinity
+                )
                 .task { viewModel.start() }
         }
         .defaultSize(width: 1180, height: 760)
