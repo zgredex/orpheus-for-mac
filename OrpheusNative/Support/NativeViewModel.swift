@@ -99,6 +99,17 @@ final class NativeViewModel: ObservableObject {
         }
     }
 
+    var settingsDraft: SettingsDraft {
+        SettingsDraft(credentials: credentials, quality: settings.quality, downloadPath: settings.downloadPath)
+    }
+
+    func saveConfiguration(_ draft: SettingsDraft) throws {
+        try saveConfiguration(
+            credentials: draft.credentials,
+            settings: NativeSettings(downloadPath: draft.downloadPath, quality: draft.quality)
+        )
+    }
+
     func saveConfiguration(credentials: CredentialDraft, settings: NativeSettings) throws {
         guard !isDownloading else { throw NativeQobuzError.unavailable("Settings cannot change during a download.") }
         try settingsStore.save(settings)
@@ -150,6 +161,11 @@ final class NativeViewModel: ObservableObject {
     func addText(_ text: String) {
         input = text
         submitInput()
+    }
+
+    func importLinks(from url: URL) {
+        do { addText(try String(contentsOf: url, encoding: .utf8)) }
+        catch { notice = "Could not read the text file: \(error.localizedDescription)" }
     }
 
     func addRequest(_ request: QobuzRequest, title: String? = nil) {

@@ -39,7 +39,7 @@ struct NativeContentView: View {
                     .help("Settings")
             }
         }
-        .sheet(isPresented: $vm.showSettings) { NativeSettingsView() }
+        .sheet(isPresented: $vm.showSettings) { NativeSettingsView(draft: vm.settingsDraft) }
         .alert("Orpheus Native", isPresented: Binding(
             get: { vm.notice != nil },
             set: { if !$0 { vm.notice = nil } }

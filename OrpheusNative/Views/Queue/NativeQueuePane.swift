@@ -5,20 +5,12 @@ struct NativeQueuePane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Label("Queue", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    .font(.headline)
-                Text("\(vm.queue.count)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
+            PaneHeader(title: "Queue", systemImage: "text.line.first.and.arrowtriangle.forward", count: vm.queue.count) {
                 Button(action: vm.clearQueue) { Image(systemName: "trash") }
                     .buttonStyle(.plain)
                     .disabled(vm.queue.isEmpty)
                     .help("Clear queue")
             }
-            .padding(.horizontal, DS.Space.m)
-            .frame(height: DS.Bar.paneHeaderHeight)
             Divider()
 
             if vm.queue.isEmpty {

@@ -4,13 +4,10 @@ struct NativeActivityView: View {
     @EnvironmentObject private var vm: NativeViewModel
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Activity").font(.headline)
-                Text("\(vm.activities.count)").font(.caption).foregroundStyle(.secondary)
-                Spacer()
+            PaneHeader(title: "Activity", count: vm.activities.count) {
                 Button(action: vm.clearFinishedActivities) { Image(systemName: "trash") }
                     .buttonStyle(.plain).disabled(!vm.canClearActivity).help("Clear finished")
-            }.padding(.horizontal, DS.Space.m).frame(height: DS.Bar.paneHeaderHeight)
+            }
             Divider()
             if vm.activities.isEmpty {
                 ContentUnavailableView("No downloads", systemImage: "arrow.down.circle")

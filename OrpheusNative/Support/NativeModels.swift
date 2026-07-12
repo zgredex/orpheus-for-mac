@@ -18,6 +18,13 @@ struct CredentialDraft: Codable, Equatable {
     var isComplete: Bool { coreValue.isComplete }
 }
 
+/// Editable copy of the configuration shown in the settings sheet.
+struct SettingsDraft: Equatable {
+    var credentials = CredentialDraft()
+    var quality: QobuzQuality = .hiRes
+    var downloadPath = ""
+}
+
 enum NativeQueueStatus: Equatable {
     case ready
     case loading

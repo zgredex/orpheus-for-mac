@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct NativeInputBar: View {
     @EnvironmentObject private var vm: NativeViewModel
@@ -36,11 +35,7 @@ struct NativeInputBar: View {
     }
 
     private func importText() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText, UTType(filenameExtension: "m3u")!, UTType(filenameExtension: "m3u8")!]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { vm.addText(try String(contentsOf: url, encoding: .utf8)) }
-        catch { vm.notice = "Could not read the text file: \(error.localizedDescription)" }
+        guard let url = FileDialog.chooseLinksFile() else { return }
+        vm.importLinks(from: url)
     }
 }

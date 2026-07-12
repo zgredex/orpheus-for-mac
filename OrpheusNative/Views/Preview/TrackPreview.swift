@@ -5,17 +5,19 @@ struct TrackPreview: View {
     let track: QobuzTrack
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            ArtworkView(url: track.album?.image?.bestURL, size: DS.Artwork.hero)
-            VStack(alignment: .leading, spacing: 7) {
-                Text(track.displayTitle).font(.title2.weight(.semibold))
-                Text(track.performer?.name ?? "Unknown Artist").font(.headline).foregroundStyle(.secondary)
-                Text(track.album?.title ?? "").foregroundStyle(.secondary)
+        PreviewScaffold(header: PreviewHeader(
+            artworkURL: track.album?.image?.bestURL,
+            title: track.displayTitle,
+            subtitle: track.performer?.name ?? "Unknown Artist",
+            metadata: [track.album?.title].compactMap { $0 }
+        )) {
+            VStack(alignment: .leading, spacing: DS.Space.s) {
                 if let composer = track.composer?.name { LabeledContent("Composer", value: composer) }
                 if let isrc = track.isrc { LabeledContent("ISRC", value: isrc) }
+                Spacer()
             }
-            Spacer()
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(DS.Space.xl)
     }
 }
