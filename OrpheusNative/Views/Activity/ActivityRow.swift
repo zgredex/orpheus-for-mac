@@ -16,10 +16,11 @@ struct ActivityRow: View {
                         .foregroundStyle(activity.status == .completed ? .secondary : .primary)
                         .lineLimit(1)
                     Spacer()
-                    if let speed = activity.bytesPerSecond, speed > 0 {
-                        Label("\(Format.bytes(Int64(speed)))/s", systemImage: "arrow.down")
-                            .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                    }
+                    // Kept in the layout and only faded so the row does not
+                    // reflow every time the speed drops out between tracks.
+                    Label("\(Format.bytes(Int64(activity.bytesPerSecond ?? 0)))/s", systemImage: "arrow.down")
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .opacity((activity.bytesPerSecond ?? 0) > 0 ? 1 : 0)
                 }
                 if activity.status != .completed {
                     ProgressView(value: activity.progress)
@@ -40,7 +41,6 @@ struct ActivityRow: View {
             }
         }
         .frame(minHeight: 54)
-        .animation(.default, value: activity.status)
     }
 
     private var isFailed: Bool {

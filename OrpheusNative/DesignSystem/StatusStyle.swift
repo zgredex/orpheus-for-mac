@@ -25,8 +25,10 @@ extension NativeActivityStatus {
     var style: StatusStyle {
         switch self {
         case .queued: StatusStyle(systemImage: "clock", tint: .secondary)
-        case .downloading: StatusStyle(systemImage: "arrow.down.circle.fill", tint: .accentColor)
-        case .resolving, .tagging, .validating:
+        // One steady spinner for every active phase: statuses flap between
+        // downloading/tagging/validating on each track, and swapping glyph
+        // styles per flap makes the row flicker.
+        case .resolving, .downloading, .tagging, .validating:
             StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
         case .completed: StatusStyle(systemImage: "checkmark.circle.fill", tint: .green)
         case .failed: StatusStyle(systemImage: "exclamationmark.circle.fill", tint: .red)

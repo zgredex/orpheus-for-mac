@@ -7,13 +7,10 @@ struct RegionBadge: View {
         HStack(spacing: 5) {
             if let flag {
                 Text(flag)
-                    .font(.system(size: 12))
-                    .frame(width: 16, height: 14)
-                    .clipped()
+                    .font(.system(size: 11))
             } else {
                 Image(systemName: "globe")
                     .font(.caption)
-                    .frame(width: 16)
             }
             Text(normalizedCode)
                 .font(.caption.weight(.medium))
@@ -22,6 +19,7 @@ struct RegionBadge: View {
         .padding(.horizontal, DS.Space.s)
         .padding(.vertical, 3)
         .background(.quaternary, in: Capsule())
+        .fixedSize()
         .help("Qobuz account region")
     }
 

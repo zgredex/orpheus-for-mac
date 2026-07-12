@@ -12,7 +12,7 @@ struct NativeContentView: View {
             Divider()
             HSplitView {
                 NativeQueuePane()
-                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 380)
+                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
                 VSplitView {
                     Group {
                         if vm.isBrowseOpen { NativeBrowseView().transition(.opacity) }
@@ -21,9 +21,9 @@ struct NativeContentView: View {
                     .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
                     .animation(.easeOut(duration: 0.15), value: vm.isBrowseOpen)
                     NativeActivityView()
-                        .frame(minHeight: 130, idealHeight: 190)
+                        .frame(maxWidth: .infinity, minHeight: 130, idealHeight: 190)
                 }
-                .frame(minWidth: 480)
+                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .layoutPriority(1)

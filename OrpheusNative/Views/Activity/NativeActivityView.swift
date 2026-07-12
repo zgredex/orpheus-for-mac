@@ -11,6 +11,7 @@ struct NativeActivityView: View {
             Divider()
             if vm.activities.isEmpty {
                 ContentUnavailableView("No Downloads Yet", systemImage: "arrow.down.circle", description: Text("Queued items appear here while downloading."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(vm.activities) { activity in ActivityRow(activity: activity) }.listStyle(.inset)
             }

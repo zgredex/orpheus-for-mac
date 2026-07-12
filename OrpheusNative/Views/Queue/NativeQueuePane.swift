@@ -15,6 +15,7 @@ struct NativeQueuePane: View {
 
             if vm.queue.isEmpty {
                 ContentUnavailableView("Queue Is Empty", systemImage: "music.note.list", description: Text("Paste Qobuz links above, or search to browse the catalog."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: Binding(
                     get: { vm.selectedQueueID },

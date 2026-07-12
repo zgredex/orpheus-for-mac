@@ -25,6 +25,7 @@ struct NativePreviewView: View {
                 ContentUnavailableView("Could not load metadata", systemImage: "exclamationmark.triangle", description: Text(message))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.default, value: vm.preview)
     }
 }
