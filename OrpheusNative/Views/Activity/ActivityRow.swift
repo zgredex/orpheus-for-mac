@@ -17,10 +17,11 @@ struct ActivityRow: View {
                         .lineLimit(1)
                     Spacer()
                     // Kept in the layout and only faded so the row does not
-                    // reflow every time the speed drops out between tracks.
+                    // reflow; visible for the whole active download once the
+                    // first speed sample arrives.
                     Label("\(Format.bytes(Int64(activity.bytesPerSecond ?? 0)))/s", systemImage: "arrow.down")
                         .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        .opacity((activity.bytesPerSecond ?? 0) > 0 ? 1 : 0)
+                        .opacity(activity.status.isActive && (activity.bytesPerSecond ?? 0) > 0 ? 1 : 0)
                 }
                 if activity.status != .completed {
                     ProgressView(value: activity.progress)
@@ -31,7 +32,9 @@ struct ActivityRow: View {
                     Text(phaseText)
                     if activity.totalTracks > 0 { Text("\(activity.completedTracks)/\(activity.totalTracks) tracks") }
                     if let written = activity.bytesWritten { Text(transfer(written, activity.totalBytes)) }
-                    if let checksum = activity.checksum { Text("SHA-256 \(checksum.prefix(8))") }
+                    if activity.status == .completed, let checksum = activity.checksum {
+                        Text("SHA-256 \(checksum.prefix(8))")
+                    }
                 }
                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }

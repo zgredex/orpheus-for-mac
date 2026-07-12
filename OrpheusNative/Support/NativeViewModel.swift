@@ -491,15 +491,15 @@ final class NativeViewModel: ObservableObject {
                 activity.totalTracks = progress.totalTracks
                 activity.bytesWritten = progress.bytesWritten
                 activity.totalBytes = progress.totalBytes
-                activity.bytesPerSecond = progress.bytesPerSecond
+                // Keep the last known speed when a sample is missing (each
+                // track restarts measurement) so the label stays steady.
+                if let speed = progress.bytesPerSecond { activity.bytesPerSecond = speed }
             case .tagging:
                 activity.status = .tagging
                 activity.phase = "Writing metadata"
-                activity.bytesPerSecond = nil
             case .validating:
                 activity.status = .validating
                 activity.phase = "Checking audio integrity"
-                activity.bytesPerSecond = nil
             case .integrityVerified(_, let checksum):
                 activity.checksum = checksum
                 activity.phase = "Integrity verified"
