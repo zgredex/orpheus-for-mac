@@ -49,12 +49,14 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertTrue(results.0.albums.contains {
             $0.artist?.name.localizedCaseInsensitiveContains("adele") == true
         })
+        XCTAssertTrue(results.0.albums.allSatisfy(\.streamable))
         XCTAssertTrue(results.1.artists.contains {
             $0.name.localizedCaseInsensitiveContains("adele")
         })
         XCTAssertTrue(results.2.tracks.contains {
             $0.performer?.name.localizedCaseInsensitiveContains("adele") == true
         })
+        XCTAssertTrue(results.2.tracks.allSatisfy(\.streamable))
     }
 
     func testFrenchAccountCanTransferOneTrackToTemporaryFile() async throws {

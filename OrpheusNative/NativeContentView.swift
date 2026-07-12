@@ -265,7 +265,7 @@ private struct AlbumPreview: View {
             }
             .padding(18)
             Divider()
-            List(album.tracks, id: \.id) { track in
+            List(playableTracks, id: \.id) { track in
                 HStack {
                     Text("\(track.trackNumber ?? 0)").monospacedDigit().foregroundStyle(.secondary).frame(width: 28, alignment: .trailing)
                     Text(track.displayTitle).lineLimit(1)
@@ -278,8 +278,12 @@ private struct AlbumPreview: View {
     }
 
     private var albumMetadata: String {
-        [album.releaseDate?.prefix(4).description, album.genre, "\(album.tracks.count) tracks"]
+        [album.releaseDate?.prefix(4).description, album.genre, "\(playableTracks.count) tracks"]
             .compactMap { $0 }.joined(separator: "  ·  ")
+    }
+
+    private var playableTracks: [QobuzTrack] {
+        album.tracks.filter(\.streamable)
     }
 }
 
@@ -312,12 +316,12 @@ private struct CollectionPreview: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.title2.weight(.semibold))
-                    Text("\(subtitle)  ·  \(tracks.count) tracks").foregroundStyle(.secondary)
+                    Text("\(subtitle)  ·  \(playableTracks.count) tracks").foregroundStyle(.secondary)
                 }
                 Spacer()
             }.padding(18)
             Divider()
-            List(tracks, id: \.id) { track in
+            List(playableTracks, id: \.id) { track in
                 HStack {
                     Text(track.performer?.name ?? "Unknown Artist").foregroundStyle(.secondary).frame(width: 140, alignment: .leading)
                     Text(track.displayTitle).lineLimit(1)
@@ -326,6 +330,10 @@ private struct CollectionPreview: View {
                 }
             }.listStyle(.inset)
         }
+    }
+
+    private var playableTracks: [QobuzTrack] {
+        tracks.filter(\.streamable)
     }
 }
 

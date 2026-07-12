@@ -142,20 +142,26 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     ) async throws -> QobuzSearchResults {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return QobuzSearchResults() }
+        let requestedLimit = min(max(limit, 1), 100)
+        let apiLimit = category == .artists ? requestedLimit : min(requestedLimit * 2, 100)
         let (value, _): (SearchResponse, HTTPURLResponse) = try await get(
             endpoint: "catalog/search",
             parameters: [
                 "query": trimmed,
                 "type": category.rawValue,
-                "limit": String(min(max(limit, 1), 100)),
+                "limit": String(apiLimit),
                 "offset": "0",
                 "app_id": credentials.appID
             ]
         )
         switch category {
-        case .albums: return QobuzSearchResults(albums: value.albums?.items ?? [])
+        case .albums:
+            let albums = (value.albums?.items ?? []).filter(\.streamable).prefix(requestedLimit)
+            return QobuzSearchResults(albums: Array(albums))
         case .artists: return QobuzSearchResults(artists: value.artists?.items ?? [])
-        case .tracks: return QobuzSearchResults(tracks: value.tracks?.items ?? [])
+        case .tracks:
+            let tracks = (value.tracks?.items ?? []).filter(\.streamable).prefix(requestedLimit)
+            return QobuzSearchResults(tracks: Array(tracks))
         }
     }
 

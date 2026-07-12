@@ -97,7 +97,7 @@ final class APITests: XCTestCase {
         StubURLProtocol.handler = { request in
             requestBox.set(request)
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let body = #"{"albums":{"items":[{"id":"album-1","title":"19","artist":{"id":1,"name":"Adele"}}]}}"#
+            let body = #"{"albums":{"items":[{"id":"album-1","title":"19","artist":{"id":1,"name":"Adele"},"streamable":true,"downloadable":true,"displayable":true},{"id":"blocked","title":"19 (blocked)","artist":{"id":1,"name":"Adele"},"streamable":false,"downloadable":false,"displayable":false},{"id":"unknown","title":"Unknown availability","artist":{"id":1,"name":"Adele"}}]}}"#
             return (response, Data(body.utf8))
         }
         let client = QobuzAPIClient(
@@ -114,7 +114,29 @@ final class APITests: XCTestCase {
         let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         XCTAssertEqual(query["query"], "Adele 19")
         XCTAssertEqual(query["type"], "albums")
+        XCTAssertEqual(query["limit"], "60")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-Auth-Token"), "token")
+    }
+
+    func testSearchFiltersUnstreamableTracksEvenWhenTheyAreDownloadable() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"tracks":{"items":[{"id":1,"title":"Hello","streamable":true,"downloadable":false},{"id":2,"title":"Blocked","streamable":false,"downloadable":true},{"id":3,"title":"Unknown"}]}}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: session,
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let results = try await client.search("Adele", category: .tracks, limit: 30)
+
+        XCTAssertEqual(results.tracks.map(\.title), ["Hello"])
+        XCTAssertTrue(results.tracks.allSatisfy(\.streamable))
     }
 }
 

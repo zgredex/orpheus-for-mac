@@ -140,19 +140,44 @@ public struct QobuzAlbumSummary: Codable, Equatable, Sendable {
     public let version: String?
     public let artist: QobuzArtist?
     public let image: QobuzImage?
+    public let streamable: Bool
+    public let downloadable: Bool
+    public let displayable: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, version, artist, image, streamable, downloadable, displayable
+    }
 
     public init(
         id: QobuzID,
         title: String,
         version: String? = nil,
         artist: QobuzArtist? = nil,
-        image: QobuzImage? = nil
+        image: QobuzImage? = nil,
+        streamable: Bool = true,
+        downloadable: Bool = true,
+        displayable: Bool = true
     ) {
         self.id = id
         self.title = title
         self.version = version
         self.artist = artist
         self.image = image
+        self.streamable = streamable
+        self.downloadable = downloadable
+        self.displayable = displayable
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(QobuzID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        artist = try container.decodeIfPresent(QobuzArtist.self, forKey: .artist)
+        image = try container.decodeIfPresent(QobuzImage.self, forKey: .image)
+        streamable = try container.decodeIfPresent(Bool.self, forKey: .streamable) ?? false
+        downloadable = try container.decodeIfPresent(Bool.self, forKey: .downloadable) ?? false
+        displayable = try container.decodeIfPresent(Bool.self, forKey: .displayable) ?? false
     }
 }
 
@@ -230,8 +255,8 @@ public struct QobuzTrack: Codable, Equatable, Sendable {
         work = try container.decodeIfPresent(String.self, forKey: .work)
         performers = try container.decodeIfPresent(String.self, forKey: .performers)
         parentalWarning = try container.decodeIfPresent(Bool.self, forKey: .parentalWarning) ?? false
-        streamable = try container.decodeIfPresent(Bool.self, forKey: .streamable) ?? true
-        downloadable = try container.decodeIfPresent(Bool.self, forKey: .downloadable) ?? true
+        streamable = try container.decodeIfPresent(Bool.self, forKey: .streamable) ?? false
+        downloadable = try container.decodeIfPresent(Bool.self, forKey: .downloadable) ?? false
     }
 }
 

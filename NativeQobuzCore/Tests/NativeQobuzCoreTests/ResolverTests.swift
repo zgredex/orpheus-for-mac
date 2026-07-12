@@ -61,6 +61,31 @@ final class ResolverTests: XCTestCase {
         XCTAssertEqual(plan.tracks.count, 1)
         XCTAssertEqual(plan.tracks[0].album.id, album.id)
     }
+
+    func testAlbumResolutionExcludesTracksBlockedForTheAccountRegion() async throws {
+        let artist = QobuzArtist(id: QobuzID("artist"), name: "Artist")
+        let available = QobuzTrack(id: QobuzID("available"), title: "Available", performer: artist)
+        let blocked = QobuzTrack(
+            id: QobuzID("blocked"),
+            title: "Blocked",
+            performer: artist,
+            streamable: false,
+            downloadable: true
+        )
+        let album = QobuzAlbum(
+            id: QobuzID("album"),
+            title: "Mixed availability",
+            artist: artist,
+            tracks: [available, blocked]
+        )
+        let service = FakeQobuzService(albums: [album.id: album])
+
+        let plan = try await QobuzCatalogResolver(service: service).resolve(.album(album.id))
+
+        XCTAssertEqual(plan.tracks.map(\.track.id.rawValue), ["available"])
+        XCTAssertEqual(plan.tracks.first?.position, 1)
+        XCTAssertEqual(plan.tracks.first?.total, 1)
+    }
 }
 
 func makeAlbum(id: String, title: String = "Album", trackIDs: [String]) -> QobuzAlbum {
