@@ -41,7 +41,12 @@ final class DownloadEngineTests: XCTestCase {
         let service = FakeQobuzService(albums: [album.id: album])
         let recorder = TransferRecorder()
         let transfer = FakeTransferClient(recorder: recorder)
-        let engine = NativeQobuzDownloadEngine(service: service, transfer: transfer)
+        let engine = NativeQobuzDownloadEngine(
+            service: service,
+            transfer: transfer,
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -64,6 +69,38 @@ final class DownloadEngineTests: XCTestCase {
         }
         XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 2, skipped: 0)))
     }
+
+    func testEngineReplacesChecksumMismatchedExistingFileEvenWhenDecoderAcceptsIt() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let service = FakeQobuzService(albums: [album.id: album])
+        let recorder = TransferRecorder()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("Artist/Album/01. One.flac")
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("decodable but modified".utf8).write(to: destination)
+        try Data("\(String(repeating: "0", count: 64))  01. One.flac\n".utf8).write(
+            to: destination.deletingLastPathComponent().appendingPathComponent("checksums.sha256")
+        )
+        let engine = NativeQobuzDownloadEngine(
+            service: service,
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
+
+        var events: [QobuzDownloadEvent] = []
+        for try await event in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {
+            events.append(event)
+        }
+
+        let sourceCount = await recorder.sources.count
+        XCTAssertEqual(sourceCount, 1)
+        XCTAssertEqual(try Data(contentsOf: destination), Data([1, 2, 3]))
+        XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 1, skipped: 0)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.deletingLastPathComponent().appendingPathComponent("checksums.sha256").path))
+    }
 }
 
 actor TransferRecorder {
@@ -78,6 +115,11 @@ struct FakeTransferClient: FileTransferClient {
         AsyncThrowingStream { continuation in
             Task {
                 await recorder.record(source)
+                try? FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? Data([1, 2, 3]).write(to: destination)
                 continuation.yield(.started)
                 continuation.yield(
                     .progress(
@@ -93,4 +135,12 @@ struct FakeTransferClient: FileTransferClient {
             }
         }
     }
+}
+
+struct AcceptingValidator: MediaValidating {
+    func validate(_ fileURL: URL) async throws {}
+}
+
+struct RecordingMetadataWriter: AudioMetadataWriting {
+    func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {}
 }
