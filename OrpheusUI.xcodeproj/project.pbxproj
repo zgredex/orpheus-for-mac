@@ -31,6 +31,7 @@
 		10000000000000000000096E /* FeatureServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090A /* FeatureServices.swift */; };
 		10000000000000000000096F /* AppStateModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090B /* AppStateModels.swift */; };
 		100000000000000000000970 /* DownloadOutputServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090C /* DownloadOutputServices.swift */; };
+		100000000000000000000971 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000090D /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 		10000000000000000000090A /* FeatureServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeatureServices.swift"; sourceTree = "<group>"; };
 		10000000000000000000090B /* AppStateModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppStateModels.swift"; sourceTree = "<group>"; };
 		10000000000000000000090C /* DownloadOutputServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DownloadOutputServices.swift"; sourceTree = "<group>"; };
+		10000000000000000000090D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,6 +106,7 @@
 			children = (
 				100000000000000000000001 /* App.swift */,
 				100000000000000000000002 /* ContentView.swift */,
+				10000000000000000000090D /* Assets.xcassets */,
 				100000000000000000000404 /* Models */,
 				100000000000000000000405 /* Services */,
 				100000000000000000000406 /* ViewModels */,
@@ -259,6 +262,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				100000000000000000000971 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -436,6 +440,7 @@
 		100000000000000000000903 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
@@ -460,6 +465,7 @@
 		100000000000000000000904 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
