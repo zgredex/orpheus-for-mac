@@ -6,8 +6,8 @@ struct AlbumPreview: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 16) {
-                ArtworkView(url: album.image?.bestURL, size: 126)
+            HStack(alignment: .top, spacing: DS.Space.l) {
+                ArtworkView(url: album.image?.bestURL, size: DS.Artwork.hero)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(album.displayTitle).font(.title2.weight(.semibold)).lineLimit(2)
                     Text(album.artist.name).font(.headline).foregroundStyle(.secondary)

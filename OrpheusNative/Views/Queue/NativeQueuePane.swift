@@ -17,8 +17,8 @@ struct NativeQueuePane: View {
                     .disabled(vm.queue.isEmpty)
                     .help("Clear queue")
             }
-            .padding(.horizontal, 12)
-            .frame(height: 42)
+            .padding(.horizontal, DS.Space.m)
+            .frame(height: DS.Bar.paneHeaderHeight)
             Divider()
 
             if vm.queue.isEmpty {

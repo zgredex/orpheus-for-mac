@@ -29,9 +29,6 @@ struct RegionBadge: View {
     }
 
     private var flag: String? {
-        guard normalizedCode.count == 2 else { return nil }
-        let scalars = normalizedCode.unicodeScalars.compactMap { UnicodeScalar(127397 + $0.value) }
-        guard scalars.count == 2 else { return nil }
-        return scalars.map(String.init).joined()
+        CountryFlag.emoji(for: normalizedCode)
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import NativeQobuzCore
 
 enum Format {
     static func duration(_ seconds: Int?) -> String {
@@ -13,5 +14,25 @@ enum Format {
         formatter.includesUnit = true
         formatter.isAdaptive = true
         return formatter.string(fromByteCount: value)
+    }
+}
+
+enum CountryFlag {
+    static func emoji(for code: String) -> String? {
+        let normalized = code.uppercased()
+        guard normalized.count == 2 else { return nil }
+        let scalars = normalized.unicodeScalars.compactMap { UnicodeScalar(127397 + $0.value) }
+        guard scalars.count == 2 else { return nil }
+        return scalars.map(String.init).joined()
+    }
+}
+
+extension QobuzQuality {
+    var displayName: String {
+        switch self {
+        case .hiRes: "Hi-Res FLAC"
+        case .lossless: "Lossless FLAC"
+        case .mp3: "MP3 320 kbps"
+        }
     }
 }

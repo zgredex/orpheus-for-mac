@@ -7,7 +7,7 @@ struct NativeBrowseView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 10) {
-                HStack(spacing: 8) {
+                HStack(spacing: DS.Space.s) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
                     Text("Results for")
@@ -24,7 +24,7 @@ struct NativeBrowseView: View {
                         .buttonStyle(.borderless)
                         .help("Close Browse")
                 }
-                HStack(spacing: 12) {
+                HStack(spacing: DS.Space.m) {
                     Picker("Category", selection: $vm.browseCategory) {
                         ForEach(NativeBrowseCategory.allCases) { category in
                             Text("\(category.rawValue)  \(vm.browseCount(for: category))")
@@ -121,10 +121,10 @@ private struct SearchRow: View {
     let add: () -> Void
     var body: some View {
         HStack(spacing: 10) {
-            ArtworkView(url: artwork, size: 48)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout.weight(.medium)).lineLimit(1)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            ArtworkView(url: artwork, size: DS.Artwork.result)
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title).font(.rowTitle).lineLimit(1)
+                Text(subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             Button(action: add) { Image(systemName: "plus") }

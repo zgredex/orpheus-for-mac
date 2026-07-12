@@ -12,7 +12,7 @@ struct NativeSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Settings").font(.title2.weight(.semibold)).padding(.bottom, 16)
+            Text("Settings").font(.title2.weight(.semibold)).padding(.bottom, DS.Space.l)
             Form {
                 Section("Qobuz") {
                     TextField("App ID", text: $credentials.appID)
@@ -35,14 +35,14 @@ struct NativeSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red).padding(.top, 8) }
+            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red).padding(.top, DS.Space.s) }
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(!credentials.isComplete || downloadPath.isEmpty)
             }.padding(.top, 14)
         }
-        .padding(20)
+        .padding(DS.Space.xl)
         .frame(width: 540)
         .onAppear {
             credentials = vm.credentials

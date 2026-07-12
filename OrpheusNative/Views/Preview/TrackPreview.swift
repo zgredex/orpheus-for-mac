@@ -6,7 +6,7 @@ struct TrackPreview: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
-            ArtworkView(url: track.album?.image?.bestURL, size: 160)
+            ArtworkView(url: track.album?.image?.bestURL, size: DS.Artwork.hero)
             VStack(alignment: .leading, spacing: 7) {
                 Text(track.displayTitle).font(.title2.weight(.semibold))
                 Text(track.performer?.name ?? "Unknown Artist").font(.headline).foregroundStyle(.secondary)
@@ -16,6 +16,6 @@ struct TrackPreview: View {
             }
             Spacer()
         }
-        .padding(20)
+        .padding(DS.Space.xl)
     }
 }

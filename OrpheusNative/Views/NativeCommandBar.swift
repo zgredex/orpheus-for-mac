@@ -5,7 +5,7 @@ struct NativeCommandBar: View {
     @EnvironmentObject private var vm: NativeViewModel
     var body: some View {
         HStack(spacing: 10) {
-            Text(vm.settings.quality == .hiRes ? "Hi-Res FLAC" : vm.settings.quality == .lossless ? "Lossless FLAC" : "MP3 320 kbps")
+            Text(vm.settings.quality.displayName)
                 .font(.caption.weight(.medium))
             Text(vm.settings.downloadPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             Spacer()

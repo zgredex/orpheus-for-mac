@@ -16,8 +16,8 @@ struct ArtistPreview: View {
             Divider()
             List(artist.albums, id: \.id) { album in
                 HStack(spacing: 10) {
-                    ArtworkView(url: album.image?.bestURL, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
+                    ArtworkView(url: album.image?.bestURL, size: DS.Artwork.row)
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text(album.displayTitle).lineLimit(1)
                         Text(album.releaseDate?.prefix(4).description ?? "").font(.caption).foregroundStyle(.secondary)
                     }

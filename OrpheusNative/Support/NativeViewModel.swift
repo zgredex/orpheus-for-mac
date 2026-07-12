@@ -77,12 +77,8 @@ final class NativeViewModel: ObservableObject {
     }
 
     var regionDisplay: String {
-        guard accountRegion.count == 2 else { return accountRegion }
-        let flag = accountRegion.uppercased().unicodeScalars.compactMap { scalar -> UnicodeScalar? in
-            guard let value = UnicodeScalar(127397 + scalar.value) else { return nil }
-            return value
-        }.map(String.init).joined()
-        return flag.isEmpty ? accountRegion : "\(flag) \(accountRegion.uppercased())"
+        guard let flag = CountryFlag.emoji(for: accountRegion) else { return accountRegion }
+        return "\(flag) \(accountRegion.uppercased())"
     }
 
     func start() {

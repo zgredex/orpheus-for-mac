@@ -6,10 +6,10 @@ struct ActivityRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            statusIcon.frame(width: 20)
-            VStack(alignment: .leading, spacing: 4) {
+            StatusGlyph(style: activity.status.style).frame(width: 20)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
                 HStack {
-                    Text(activity.title).font(.callout.weight(.medium)).lineLimit(1)
+                    Text(activity.title).font(.rowTitle).lineLimit(1)
                     Spacer()
                     if let speed = activity.bytesPerSecond, speed > 0 {
                         Label("\(Format.bytes(Int64(speed)))/s", systemImage: "arrow.down")
@@ -30,16 +30,6 @@ struct ActivityRow: View {
                     .buttonStyle(.borderless).help("Show in Finder")
             }
         }.frame(minHeight: 54)
-    }
-
-    @ViewBuilder private var statusIcon: some View {
-        switch activity.status {
-        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
-        case .cancelled: Image(systemName: "xmark.circle").foregroundStyle(.secondary)
-        case .queued: Image(systemName: "clock").foregroundStyle(.secondary)
-        default: ProgressView().controlSize(.small)
-        }
     }
 
     private func transfer(_ written: Int64, _ total: Int64?) -> String {

@@ -10,7 +10,7 @@ struct NativeActivityView: View {
                 Spacer()
                 Button(action: vm.clearFinishedActivities) { Image(systemName: "trash") }
                     .buttonStyle(.plain).disabled(!vm.canClearActivity).help("Clear finished")
-            }.padding(.horizontal, 12).frame(height: 38)
+            }.padding(.horizontal, DS.Space.m).frame(height: DS.Bar.paneHeaderHeight)
             Divider()
             if vm.activities.isEmpty {
                 ContentUnavailableView("No downloads", systemImage: "arrow.down.circle")

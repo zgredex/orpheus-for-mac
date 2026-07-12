@@ -7,7 +7,7 @@ struct NativeInputBar: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.s) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField("Paste Qobuz links or search", text: $vm.input)
@@ -29,9 +29,9 @@ struct NativeInputBar: View {
                 .help("Add links or search")
         }
         .padding(.horizontal, 10)
-        .frame(height: 34)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .frame(height: DS.Bar.inputHeight)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
         .onAppear { focused = true }
     }
 
