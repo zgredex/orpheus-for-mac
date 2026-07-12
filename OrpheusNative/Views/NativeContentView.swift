@@ -36,7 +36,7 @@ struct NativeContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
             ToolbarItemGroup {
-                RegionBadge(code: vm.accountRegion)
+                RegionBadge(code: vm.accountRegion, quality: vm.settings.quality.displayName)
                 Button { vm.showSettings = true } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }

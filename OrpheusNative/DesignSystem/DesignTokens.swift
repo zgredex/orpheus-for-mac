@@ -19,6 +19,7 @@ enum DS {
     }
 
     enum Artwork {
+        static let queue: CGFloat = 28
         static let row: CGFloat = 44
         static let result: CGFloat = 48
         static let hero: CGFloat = 148

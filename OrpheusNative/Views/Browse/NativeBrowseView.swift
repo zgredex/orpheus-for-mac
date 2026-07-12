@@ -84,7 +84,7 @@ struct NativeBrowseView: View {
                 title: album.title,
                 subtitle: album.artist?.name ?? "Album",
                 isQueued: queued.contains(QobuzRequest.album(album.id).canonicalURL),
-                add: { vm.addRequest(.album(album.id), title: album.title) }
+                add: { vm.addRequest(.album(album.id), title: album.title, artworkURL: album.image?.bestURL) }
             )
         }
     }
@@ -112,7 +112,7 @@ struct NativeBrowseView: View {
                 title: track.displayTitle,
                 subtitle: track.performer?.name ?? track.album?.title ?? "Track",
                 isQueued: queued.contains(QobuzRequest.track(track.id).canonicalURL),
-                add: { vm.addRequest(.track(track.id), title: track.displayTitle) }
+                add: { vm.addRequest(.track(track.id), title: track.displayTitle, artworkURL: track.album?.image?.bestURL) }
             )
         }
     }

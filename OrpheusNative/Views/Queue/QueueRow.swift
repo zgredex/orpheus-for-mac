@@ -6,9 +6,7 @@ struct QueueRow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: icon)
-                .frame(width: 18)
-                .foregroundStyle(tint)
+            ArtworkView(url: item.artworkURL, size: DS.Artwork.queue, placeholderSymbol: icon)
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text(item.title).font(.rowTitle).lineLimit(1)
                 Text(item.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
@@ -36,9 +34,5 @@ struct QueueRow: View {
         case .playlist: "music.note.list"
         case .track: "music.note"
         }
-    }
-
-    private var tint: Color {
-        item.status.style?.tint ?? .accentColor
     }
 }

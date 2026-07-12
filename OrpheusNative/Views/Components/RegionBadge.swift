@@ -1,26 +1,25 @@
 import SwiftUI
 
+/// Toolbar chip showing the account region and the active download quality.
+/// Rendered as one inline Text so the flag emoji stays inside the system
+/// toolbar pill instead of overdrawing a fixed frame.
 struct RegionBadge: View {
     let code: String
+    let quality: String
 
     var body: some View {
-        HStack(spacing: 5) {
-            if let flag {
-                Text(flag)
-                    .font(.system(size: 11))
-            } else {
-                Image(systemName: "globe")
-                    .font(.caption)
-            }
-            Text(normalizedCode)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+        (regionText + Text("  ·  \(quality)"))
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .help("Qobuz account region and download quality")
+    }
+
+    private var regionText: Text {
+        if let flag {
+            return Text("\(flag) \(normalizedCode)")
         }
-        .padding(.horizontal, DS.Space.s)
-        .padding(.vertical, 3)
-        .background(.quaternary, in: Capsule())
-        .fixedSize()
-        .help("Qobuz account region")
+        return Text("\(Image(systemName: "globe")) \(normalizedCode)")
     }
 
     private var normalizedCode: String {

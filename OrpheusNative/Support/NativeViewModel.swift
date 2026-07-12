@@ -168,12 +168,13 @@ final class NativeViewModel: ObservableObject {
         catch { notice = "Could not read the text file: \(error.localizedDescription)" }
     }
 
-    func addRequest(_ request: QobuzRequest, title: String? = nil) {
+    func addRequest(_ request: QobuzRequest, title: String? = nil, artworkURL: URL? = nil) {
         guard !queue.contains(where: { $0.canonicalURL == request.canonicalURL }) else {
             notice = "That Qobuz item is already queued."
             return
         }
-        let item = NativeQueueItem(request: request, title: title)
+        var item = NativeQueueItem(request: request, title: title)
+        item.artworkURL = artworkURL
         queue.append(item)
         selectQueueItem(item.id)
     }
@@ -309,12 +310,12 @@ final class NativeViewModel: ObservableObject {
                     let value = try await client.album(id: id)
                     guard !Task.isCancelled else { return }
                     preview = .album(value)
-                    updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.artist.name)
+                    updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.artist.name, artworkURL: value.image?.bestURL)
                 case .track(let id):
                     let value = try await client.track(id: id)
                     guard !Task.isCancelled else { return }
                     preview = .track(value)
-                    updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.performer?.name ?? "Track")
+                    updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.performer?.name ?? "Track", artworkURL: value.album?.image?.bestURL)
                 case .playlist(let id):
                     let value = try await client.playlist(id: id)
                     guard !Task.isCancelled else { return }
@@ -471,10 +472,11 @@ final class NativeViewModel: ObservableObject {
         mutate(&queue[index])
     }
 
-    private func updateQueueMetadata(_ id: UUID, title: String, subtitle: String) {
+    private func updateQueueMetadata(_ id: UUID, title: String, subtitle: String, artworkURL: URL? = nil) {
         updateQueue(id) { item in
             item.title = title
             item.subtitle = subtitle
+            if let artworkURL { item.artworkURL = artworkURL }
         }
     }
 

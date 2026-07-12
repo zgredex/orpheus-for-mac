@@ -47,6 +47,7 @@ struct NativeQueueItem: Identifiable, Equatable {
     let canonicalURL: URL
     var title: String
     var subtitle: String
+    var artworkURL: URL?
     var status: NativeQueueStatus
 
     init(request: QobuzRequest, title: String? = nil) {

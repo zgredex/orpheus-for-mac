@@ -5,11 +5,6 @@ struct NativeCommandBar: View {
     @EnvironmentObject private var vm: NativeViewModel
     var body: some View {
         HStack(spacing: 10) {
-            Label(vm.settings.quality.displayName, systemImage: "waveform")
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, DS.Space.s)
-                .padding(.vertical, 3)
-                .background(.quaternary, in: Capsule())
             Button(action: vm.revealDownloadRoot) {
                 Text(vm.settings.downloadPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
