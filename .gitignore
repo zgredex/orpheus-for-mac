@@ -8,6 +8,7 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 .swiftpm/
+.build/
 
 # Packaged artifacts
 dist/
