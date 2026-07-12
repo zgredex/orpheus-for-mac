@@ -14,13 +14,28 @@ struct AlbumPreview: View {
                 album.genre,
                 "\(playableTracks.count) tracks",
                 album.label
-            ].compactMap { $0 }
+            ].compactMap { $0 },
+            badges: badges
         )) {
             List(playableTracks, id: \.id) { track in
-                TrackListRow(leading: .number(track.trackNumber), title: track.displayTitle, duration: track.duration)
+                TrackListRow(
+                    leading: .number(track.trackNumber),
+                    title: track.displayTitle,
+                    isExplicit: track.parentalWarning,
+                    duration: track.duration
+                )
             }
             .listStyle(.inset)
         }
+    }
+
+    private var badges: [QualityBadge.Kind] {
+        var result: [QualityBadge.Kind] = []
+        if album.hiresStreamable {
+            result.append(.hiRes(bitDepth: album.maximumBitDepth, samplingRate: album.maximumSamplingRate))
+        }
+        if album.parentalWarning { result.append(.explicitContent) }
+        return result
     }
 
     private var playableTracks: [QobuzTrack] {

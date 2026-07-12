@@ -15,11 +15,17 @@ struct NativeSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Settings").font(.title2.weight(.semibold)).padding(.bottom, DS.Space.l)
             Form {
-                Section("Qobuz") {
+                Section {
                     TextField("App ID", text: $draft.credentials.appID)
                     SecureField("App secret", text: $draft.credentials.appSecret)
                     SecureField("Auth token", text: $draft.credentials.authToken)
                     LabeledContent("Account region", value: vm.regionDisplay)
+                } header: {
+                    Text("Qobuz")
+                } footer: {
+                    Text("Credentials are stored in the macOS Keychain.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Section("Download") {
                     Picker("Quality", selection: $draft.quality) {
@@ -36,7 +42,12 @@ struct NativeSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red).padding(.top, DS.Space.s) }
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.top, DS.Space.s)
+            }
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()

@@ -16,9 +16,17 @@ struct QueueRow: View {
             Spacer(minLength: DS.Space.xs)
             if let style = item.status.style {
                 StatusGlyph(style: style)
+                    .contentTransition(.symbolEffect(.replace))
             }
         }
         .frame(minHeight: 38)
+        .animation(.default, value: item.status)
+        .help(failureMessage ?? "")
+    }
+
+    private var failureMessage: String? {
+        if case .failed(let message) = item.status { return message }
+        return nil
     }
 
     private var icon: String {

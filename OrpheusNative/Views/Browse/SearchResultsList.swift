@@ -43,11 +43,11 @@ private struct SearchResultRow: View {
                 Text(result.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            Button(action: { result.add?() }) { Image(systemName: "plus") }
+            Button(action: { result.add?() }) { Image(systemName: result.isQueued ? "checkmark" : "plus") }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(result.add == nil)
-                .help("Add to queue")
+                .disabled(result.add == nil || result.isQueued)
+                .help(result.isQueued ? "Already in queue" : "Add to queue")
         }
         .contentShape(Rectangle())
         .frame(minHeight: 52)

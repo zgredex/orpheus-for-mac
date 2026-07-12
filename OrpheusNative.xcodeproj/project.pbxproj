@@ -15,6 +15,7 @@
 		20EF95BD35A9895BA249E85B /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */; };
 		263609391AFCC835C9B62A79 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0705669E15A714623F9D53B4 /* Formatters.swift */; };
 		3603F64FA2F9BCA66AC0D517 /* NativePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */; };
+		3CAF01CFE188948221B62CE5 /* QualityBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883C8C758B664D44E168AD01 /* QualityBadge.swift */; };
 		3F2B6D33694006542BA748D3 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E384DA9996171C996D607BDF /* DesignTokens.swift */; };
 		485F3CFA2BF650BD080EC797 /* TrackListRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177F6887E92A0662B72B4E1A /* TrackListRow.swift */; };
 		561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BE67AA234B02DAC3353CD /* PaneHeader.swift */; };
@@ -38,6 +39,7 @@
 		BCE3D04D3C33FC0243F9018A /* QueueRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D453705AFB21557619B77B /* QueueRow.swift */; };
 		C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */; };
 		C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */; };
+		D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */; };
 		DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
 /* End PBXBuildFile section */
@@ -70,7 +72,9 @@
 		7633B86BA2BFAB97FFB41551 /* StatusStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStyle.swift; sourceTree = "<group>"; };
 		7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommandBar.swift; sourceTree = "<group>"; };
 		7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseView.swift; sourceTree = "<group>"; };
+		8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSamples.swift; sourceTree = "<group>"; };
 		83DF3A2701F8BA58A69F0948 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		883C8C758B664D44E168AD01 /* QualityBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityBadge.swift; sourceTree = "<group>"; };
 		8AF10861B2EA64C6B46BFDB4 /* NativeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsView.swift; sourceTree = "<group>"; };
 		8D922665BFDBFBF675DDD827 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		923659614A8B428EF4C2ADE2 /* NativePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePersistence.swift; sourceTree = "<group>"; };
@@ -154,6 +158,7 @@
 			children = (
 				6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */,
 				645BE67AA234B02DAC3353CD /* PaneHeader.swift */,
+				883C8C758B664D44E168AD01 /* QualityBadge.swift */,
 				FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */,
 			);
 			path = Components;
@@ -219,6 +224,7 @@
 				637C23C96791D0C949DD562A /* NativeModels.swift */,
 				923659614A8B428EF4C2ADE2 /* NativePersistence.swift */,
 				5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */,
+				8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */,
 			);
 			path = Support;
 			sourceTree = "<group>";
@@ -403,7 +409,9 @@
 				B8484B44CB5958357ADF6C62 /* NativeViewModel.swift in Sources */,
 				84D98B4FB88CFEA871F33854 /* OrpheusNativeApp.swift in Sources */,
 				561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */,
+				D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */,
 				740BCE4DD6E55B4CA542B5E2 /* PreviewScaffold.swift in Sources */,
+				3CAF01CFE188948221B62CE5 /* QualityBadge.swift in Sources */,
 				BCE3D04D3C33FC0243F9018A /* QueueRow.swift in Sources */,
 				C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */,
 				B62DA1CA6B5C955195F6708E /* SearchResultsList.swift in Sources */,

@@ -10,7 +10,7 @@ struct NativeActivityView: View {
             }
             Divider()
             if vm.activities.isEmpty {
-                ContentUnavailableView("No downloads", systemImage: "arrow.down.circle")
+                ContentUnavailableView("No Downloads Yet", systemImage: "arrow.down.circle", description: Text("Queued items appear here while downloading."))
             } else {
                 List(vm.activities) { activity in ActivityRow(activity: activity) }.listStyle(.inset)
             }

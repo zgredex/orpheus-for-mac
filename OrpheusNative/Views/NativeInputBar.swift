@@ -18,6 +18,7 @@ struct NativeInputBar: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help("Clear")
+                    .transition(.opacity.combined(with: .scale))
             }
             Divider().frame(height: 20)
             Button(action: importText) { Image(systemName: "doc.badge.plus") }
@@ -30,7 +31,12 @@ struct NativeInputBar: View {
         .padding(.horizontal, 10)
         .frame(height: DS.Bar.inputHeight)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.control))
-        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.control)
+                .stroke(focused ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: focused ? 1 : 0.5)
+        )
+        .animation(.easeOut(duration: 0.12), value: focused)
+        .animation(.easeOut(duration: 0.12), value: vm.input.isEmpty)
         .onAppear { focused = true }
     }
 

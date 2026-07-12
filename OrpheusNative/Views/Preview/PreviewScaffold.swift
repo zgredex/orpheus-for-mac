@@ -8,6 +8,7 @@ struct PreviewHeader {
     var subtitle: String?
     /// Parts joined with "  ·  " on a single caption line.
     var metadata: [String] = []
+    var badges: [QualityBadge.Kind] = []
 }
 
 struct PreviewScaffold<Content: View>: View {
@@ -18,6 +19,7 @@ struct PreviewScaffold<Content: View>: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: DS.Space.l) {
                 ArtworkView(url: header.artworkURL, size: DS.Artwork.hero, placeholderSymbol: header.placeholderSymbol)
+                    .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(header.title).font(.title2.weight(.semibold)).lineLimit(2)
                     if let subtitle = header.subtitle {
@@ -27,6 +29,12 @@ struct PreviewScaffold<Content: View>: View {
                         Text(header.metadata.joined(separator: "  ·  "))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    if !header.badges.isEmpty {
+                        HStack(spacing: DS.Space.xs) {
+                            ForEach(header.badges, id: \.self) { QualityBadge(kind: $0) }
+                        }
+                        .padding(.top, DS.Space.xxs)
                     }
                 }
                 Spacer()

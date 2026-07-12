@@ -9,6 +9,7 @@ struct TrackListRow: View {
 
     let leading: Leading
     let title: String
+    var isExplicit = false
     let duration: Int?
 
     var body: some View {
@@ -25,6 +26,14 @@ struct TrackListRow: View {
                     .frame(width: 140, alignment: .leading)
             }
             Text(title).lineLimit(1)
+            if isExplicit {
+                Text("E")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+            }
             Spacer()
             Text(Format.duration(duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }

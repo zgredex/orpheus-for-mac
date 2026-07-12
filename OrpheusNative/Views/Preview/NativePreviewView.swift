@@ -11,6 +11,8 @@ struct NativePreviewView: View {
                 ContentUnavailableView("Select an item", systemImage: "music.note", description: Text("Metadata and tracks appear here."))
             case .loading:
                 ProgressView("Loading Qobuz metadata...")
+                    .controlSize(.small)
+                    .foregroundStyle(.secondary)
             case .album(let album):
                 AlbumPreview(album: album)
             case .track(let track):
@@ -23,5 +25,6 @@ struct NativePreviewView: View {
                 ContentUnavailableView("Could not load metadata", systemImage: "exclamationmark.triangle", description: Text(message))
             }
         }
+        .animation(.default, value: vm.preview)
     }
 }

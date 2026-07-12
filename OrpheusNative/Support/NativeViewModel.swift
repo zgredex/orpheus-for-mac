@@ -276,6 +276,10 @@ final class NativeViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([target])
     }
 
+    func revealDownloadRoot() {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: settings.downloadPath, isDirectory: true)])
+    }
+
     private func configureClient() {
         client = credentials.isComplete ? clientFactory(credentials.coreValue) : nil
     }

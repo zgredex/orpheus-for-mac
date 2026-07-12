@@ -19,8 +19,10 @@ struct RegionBadge: View {
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .padding(.leading, 7)
-        .padding(.trailing, 2)
+        .padding(.horizontal, DS.Space.s)
+        .padding(.vertical, 3)
+        .background(.quaternary, in: Capsule())
+        .help("Qobuz account region")
     }
 
     private var normalizedCode: String {

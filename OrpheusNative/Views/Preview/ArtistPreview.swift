@@ -19,6 +19,9 @@ struct ArtistPreview: View {
                         Text(album.releaseDate?.prefix(4).description ?? "").font(.rowSubtitle).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if album.hiresStreamable {
+                        QualityBadge(kind: .hiRes(bitDepth: nil, samplingRate: nil))
+                    }
                     Text("\(album.tracks.count) tracks").font(.rowSubtitle).foregroundStyle(.secondary)
                 }
             }

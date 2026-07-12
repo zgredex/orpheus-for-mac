@@ -28,6 +28,7 @@ struct NativeBrowseView: View {
                     Picker("Category", selection: $vm.browseCategory) {
                         ForEach(NativeBrowseCategory.allCases) { category in
                             Text("\(category.rawValue)  \(vm.browseCount(for: category))")
+                                .monospacedDigit()
                                 .tag(category)
                         }
                     }

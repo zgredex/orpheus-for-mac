@@ -7,18 +7,19 @@ struct NativeContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             NativeInputBar()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, DS.Space.s)
             Divider()
             HSplitView {
                 NativeQueuePane()
                     .frame(minWidth: 250, idealWidth: 300, maxWidth: 380)
                 VSplitView {
                     Group {
-                        if vm.isBrowseOpen { NativeBrowseView() }
-                        else { NativePreviewView() }
+                        if vm.isBrowseOpen { NativeBrowseView().transition(.opacity) }
+                        else { NativePreviewView().transition(.opacity) }
                     }
                     .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
+                    .animation(.easeOut(duration: 0.15), value: vm.isBrowseOpen)
                     NativeActivityView()
                         .frame(minHeight: 130, idealHeight: 190)
                 }
@@ -28,8 +29,9 @@ struct NativeContentView: View {
             .layoutPriority(1)
             Divider()
             NativeCommandBar()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, DS.Space.s)
+                .background(.bar)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {

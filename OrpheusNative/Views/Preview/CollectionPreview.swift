@@ -17,6 +17,7 @@ struct CollectionPreview: View {
                 TrackListRow(
                     leading: .artist(track.performer?.name ?? "Unknown Artist"),
                     title: track.displayTitle,
+                    isExplicit: track.parentalWarning,
                     duration: track.duration
                 )
             }
