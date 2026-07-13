@@ -42,7 +42,7 @@ private struct SearchResultRow: View {
     let result: SearchResult
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.m) {
             ArtworkView(
                 url: result.artworkURL,
                 size: DS.Artwork.result,
@@ -53,25 +53,43 @@ private struct SearchResultRow: View {
                 Text(result.title).font(.rowTitle).lineLimit(1)
                 Text(result.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer()
-            if let status = result.libraryStatus {
-                LibraryStatusLabel(status: status)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+
+            Group {
+                if let status = result.libraryStatus {
+                    LibraryStatusLabel(status: status)
+                } else {
+                    Color.clear.frame(height: 1)
+                }
             }
-            if let quality = result.quality {
-                QualityBadge(kind: quality)
+            .frame(width: DS.Column.searchStatus, alignment: .trailing)
+
+            Group {
+                if let quality = result.quality {
+                    QualityBadge(kind: quality)
+                } else {
+                    Color.clear.frame(height: 1)
+                }
             }
-            if let add = result.add {
-                Button(action: add) { Image(systemName: result.isQueued ? "checkmark" : "plus") }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(result.isQueued)
-                    .help(result.isQueued ? "Already in queue" : "Add to queue")
-            } else if result.open != nil {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22)
+            .frame(width: DS.Column.searchQuality, alignment: .trailing)
+
+            Group {
+                if let add = result.add {
+                    Button(action: add) { Image(systemName: result.isQueued ? "checkmark" : "plus") }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(result.isQueued)
+                        .help(result.isQueued ? "Already in queue" : "Add to queue")
+                } else if result.open != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Color.clear.frame(height: 1)
+                }
             }
+            .frame(width: DS.Column.rowAction, alignment: .center)
         }
         .contentShape(Rectangle())
         .frame(minHeight: 52)

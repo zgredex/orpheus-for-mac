@@ -29,6 +29,16 @@ enum DS {
         static let inputHeight: CGFloat = 34
         static let paneHeaderHeight: CGFloat = 40
     }
+
+    /// Stable trailing columns shared by dense, full-width rows.
+    enum Column {
+        static let searchStatus: CGFloat = 132
+        static let searchQuality: CGFloat = 140
+        static let rowAction: CGFloat = 30
+        static let activityQuality: CGFloat = 132
+        static let activityTransfer: CGFloat = 112
+        static let activityActions: CGFloat = 56
+    }
 }
 
 extension Font {
