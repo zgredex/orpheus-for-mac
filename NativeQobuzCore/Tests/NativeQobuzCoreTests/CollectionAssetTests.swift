@@ -42,6 +42,33 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: files[0]), pdf)
     }
 
+    func testAlbumDescriptionIsWrittenForAlbumCatalogDownloads() throws {
+        let item = makeItem(
+            collection: .artist(id: QobuzID("artist"), name: "Primary"),
+            albumDescription: "  Qobuz editorial notes.  "
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let audio = root.appendingPathComponent("Primary/Album/01. Song.flac")
+
+        let files = try QobuzCollectionAssetWriter().writeAlbumDescriptions(for: [(item, audio)])
+
+        XCTAssertEqual(files, [audio.deletingLastPathComponent().appendingPathComponent("description.txt")])
+        XCTAssertEqual(try String(contentsOf: files[0], encoding: .utf8), "Qobuz editorial notes.")
+    }
+
+    func testPlaylistDoesNotCreateMisleadingSourceAlbumDescription() throws {
+        let item = makeItem(
+            collection: .playlist(id: QobuzID("playlist"), title: "Mix"),
+            albumDescription: "Album notes"
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let audio = root.appendingPathComponent("Primary/Album/01. Song.flac")
+
+        XCTAssertTrue(try QobuzCollectionAssetWriter().writeAlbumDescriptions(for: [(item, audio)]).isEmpty)
+    }
+
     func testPlaylistWritesExtendedRelativeM3U() throws {
         let item = makeItem(collection: .playlist(id: QobuzID("playlist"), title: "Road Trip"))
         let plan = QobuzDownloadPlan(request: .playlist(QobuzID("playlist")), title: "Road Trip", tracks: [item])
@@ -50,7 +77,7 @@ final class CollectionAssetTests: XCTestCase {
         let audio = root.appendingPathComponent("Road Trip/01. Primary - Song.mp3")
 
         let playlist = try XCTUnwrap(
-            QobuzCollectionAssetWriter().writePlaylist(plan: plan, outputs: [(item, audio)])
+            QobuzCollectionAssetWriter().writePlaylist(plan: plan, outputs: [(item, audio)], downloadRoot: root)
         )
         let contents = try String(contentsOf: playlist, encoding: .utf8)
 
@@ -58,6 +85,48 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertTrue(contents.contains("#EXTM3U"))
         XCTAssertTrue(contents.contains("#EXTINF:120, Primary - Song"))
         XCTAssertTrue(contents.contains("01. Primary - Song.mp3"))
+        XCTAssertFalse(contents.contains(root.path))
+    }
+
+    func testLibraryManifestKeepsRichPlaylistMetadataAndPortableTrackPaths() throws {
+        let item = makeItem(collection: .playlist(id: QobuzID("playlist"), title: "Road Trip"))
+        let playlist = QobuzPlaylist(
+            id: QobuzID("playlist"),
+            name: "Road Trip",
+            tracks: [item.track],
+            owner: QobuzPlaylistOwner(id: QobuzID("owner"), name: "Curator"),
+            createdAt: 1_700_000_000,
+            updatedAt: 1_700_000_120,
+            duration: 120,
+            description: "A portable mix",
+            tracksCount: 8
+        )
+        let plan = QobuzDownloadPlan(
+            request: .playlist(playlist.id),
+            title: playlist.name,
+            tracks: [item],
+            source: .playlist(playlist)
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let audio = root.appendingPathComponent("Primary/Album/01. Song.mp3")
+        let writer = QobuzCollectionAssetWriter()
+
+        let m3u = try XCTUnwrap(writer.writePlaylist(plan: plan, outputs: [(item, audio)], downloadRoot: root))
+        _ = try writer.recordLibraryCollections(plan: plan, outputs: [(item, audio)], downloadRoot: root)
+        let manifest = try QobuzLibraryManifestIO.load(at: root)
+
+        let record = try XCTUnwrap(manifest.collections.first)
+        XCTAssertEqual(record.id, "playlist|playlist")
+        XCTAssertEqual(record.owner, "Curator")
+        XCTAssertEqual(record.collectionDescription, "A portable mix")
+        XCTAssertEqual(record.createdAt, 1_700_000_000)
+        XCTAssertEqual(record.updatedAt, 1_700_000_120)
+        XCTAssertEqual(record.duration, 120)
+        XCTAssertEqual(record.sourceTrackCount, 8)
+        XCTAssertEqual(record.trackPaths, ["Primary/Album/01. Song.mp3"])
+        let contents = try String(contentsOf: m3u, encoding: .utf8)
+        XCTAssertTrue(contents.contains("../../Primary/Album/01. Song.mp3"))
         XCTAssertFalse(contents.contains(root.path))
     }
 
@@ -120,7 +189,11 @@ final class CollectionAssetTests: XCTestCase {
         )
     }
 
-    private func makeItem(collection: QobuzCollection, bookletURL: URL? = nil) -> QobuzResolvedTrack {
+    private func makeItem(
+        collection: QobuzCollection,
+        bookletURL: URL? = nil,
+        albumDescription: String? = nil
+    ) -> QobuzResolvedTrack {
         let artist = QobuzArtist(id: QobuzID("artist"), name: "Primary")
         let image = QobuzImage(large: URL(string: "https://static.qobuz.com/images/covers/ab/cd/cover_600.jpg"))
         let summary = QobuzAlbumSummary(id: QobuzID("album"), title: "Album", artist: artist, image: image)
@@ -141,6 +214,7 @@ final class CollectionAssetTests: XCTestCase {
             tracks: [track],
             tracksCount: 1,
             mediaCount: 1,
+            albumDescription: albumDescription,
             bookletURL: bookletURL
         )
         return QobuzResolvedTrack(track: track, album: album, collection: collection, position: 1, total: 1)

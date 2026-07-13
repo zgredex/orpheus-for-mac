@@ -91,17 +91,33 @@ struct NativeSessionSnapshot: Codable, Equatable {
     var queue: [NativeQueueItem]
     var activities: [NativeDownloadActivity]
     var selectedQueueID: UUID?
+    var linkInbox: [NativeLinkInboxItem]
 
     init(
-        version: Int = 1,
+        version: Int = 2,
         queue: [NativeQueueItem],
         activities: [NativeDownloadActivity],
-        selectedQueueID: UUID?
+        selectedQueueID: UUID?,
+        linkInbox: [NativeLinkInboxItem] = []
     ) {
         self.version = version
         self.queue = queue
         self.activities = activities
         self.selectedQueueID = selectedQueueID
+        self.linkInbox = linkInbox
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, queue, activities, selectedQueueID, linkInbox
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        queue = try container.decode([NativeQueueItem].self, forKey: .queue)
+        activities = try container.decode([NativeDownloadActivity].self, forKey: .activities)
+        selectedQueueID = try container.decodeIfPresent(UUID.self, forKey: .selectedQueueID)
+        linkInbox = try container.decodeIfPresent([NativeLinkInboxItem].self, forKey: .linkInbox) ?? []
     }
 }
 
@@ -125,7 +141,7 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
             NativeSessionSnapshot.self,
             from: Data(contentsOf: paths.sessionURL)
         )
-        guard snapshot.version == 1 else {
+        guard (1...2).contains(snapshot.version) else {
             throw NativeQobuzError.invalidResponse("Unsupported download session version.")
         }
         return snapshot

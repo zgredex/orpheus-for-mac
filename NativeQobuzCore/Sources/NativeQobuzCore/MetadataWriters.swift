@@ -18,7 +18,9 @@ struct ID3v23Writer: Sendable {
         addTextFrame("TIT2", metadata.title, to: &frames)
         addTextFrame("TALB", metadata.album, to: &frames)
         addTextFrame("TPE1", metadata.artists.joined(separator: "\u{0000}"), to: &frames)
-        addTextFrame("TPE2", metadata.albumArtist, to: &frames)
+        // ID3v2.3 has one TPE2 text value. A semicolon keeps multiple album
+        // artists readable without using the ambiguous v2.3 slash convention.
+        addTextFrame("TPE2", metadata.albumArtists.joined(separator: "; "), to: &frames)
         addTextFrame("TCOM", metadata.composer, to: &frames)
         addTextFrame("TYER", metadata.releaseDate.map { String($0.prefix(4)) }, to: &frames)
         if let date = metadata.releaseDate, date.count >= 10 {
@@ -172,7 +174,7 @@ struct FLACMetadataWriter: Sendable {
         append("TITLE", metadata.title, to: &comments)
         append("ALBUM", metadata.album, to: &comments)
         metadata.artists.forEach { append("ARTIST", $0, to: &comments) }
-        append("ALBUMARTIST", metadata.albumArtist, to: &comments)
+        metadata.albumArtists.forEach { append("ALBUMARTIST", $0, to: &comments) }
         append("COMPOSER", metadata.composer, to: &comments)
         append("DATE", metadata.releaseDate, to: &comments)
         append("TRACKNUMBER", metadata.trackNumber.map(String.init), to: &comments)

@@ -18,6 +18,9 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var activities: [NativeDownloadActivity] = [] {
         didSet { scheduleSessionPersistence() }
     }
+    @Published private(set) var linkInbox: [NativeLinkInboxItem] = [] {
+        didSet { scheduleSessionPersistence() }
+    }
     @Published private(set) var settings: NativeSettings
     @Published private(set) var credentials = CredentialDraft()
     @Published private(set) var accountRegion = "??"
@@ -26,9 +29,7 @@ final class NativeViewModel: ObservableObject {
 
     @Published private(set) var browseQuery = ""
     @Published var browseCategory: NativeBrowseCategory = .albums
-    @Published private(set) var browseAlbums: [QobuzAlbumSummary] = []
-    @Published private(set) var browseArtists: [QobuzArtist] = []
-    @Published private(set) var browseTracks: [QobuzTrack] = []
+    @Published private(set) var browseResults = NativeBrowseResults()
     @Published private(set) var loadingBrowseCategories: Set<NativeBrowseCategory> = []
     @Published private(set) var browseErrors: [NativeBrowseCategory: String] = [:]
     @Published private(set) var isBrowseOpen = false
@@ -48,6 +49,7 @@ final class NativeViewModel: ObservableObject {
     private var browseTasks: [Task<Void, Never>] = []
     private var browseRequestID: UUID?
     private var browsePageTask: Task<Void, Never>?
+    private var linkInboxTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
     private var downloadTask: Task<Void, Never>?
     private var sessionPersistenceTask: Task<Void, Never>?
@@ -98,9 +100,14 @@ final class NativeViewModel: ObservableObject {
         if isBrowseLoading {
             return "Searching all categories"
         }
-        let total = browseAlbums.count + browseArtists.count + browseTracks.count
+        let total = browseResults.totalCount
         return total == 1 ? "1 result" : "\(total) results"
     }
+
+    var browseAlbums: [QobuzAlbumSummary] { browseResults.albums }
+    var browseArtists: [QobuzArtist] { browseResults.artists }
+    var browsePlaylists: [QobuzPlaylist] { browseResults.playlists }
+    var browseTracks: [QobuzTrack] { browseResults.tracks }
 
     var regionDisplay: String {
         guard let flag = CountryFlag.emoji(for: accountRegion) else { return accountRegion }
@@ -181,20 +188,21 @@ final class NativeViewModel: ObservableObject {
     func submitInput() {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        let extraction = QobuzLinkParser.extract(
-            from: value,
-            knownCanonicalURLs: Set(queue.map { $0.canonicalURL.absoluteString })
-        )
-        if !extraction.links.isEmpty {
-            add(extraction.links)
+        let extraction = QobuzLinkParser.extract(from: value)
+        if extraction.links.count == 1, extraction.duplicateCount == 0,
+           let link = extraction.links.first {
+            openRequest(link.request)
             input = ""
-            isBrowseOpen = false
-            var parts: [String] = []
-            if extraction.duplicateCount > 0 { parts.append("\(extraction.duplicateCount) duplicate") }
-            if !extraction.invalidQobuzURLs.isEmpty { parts.append("\(extraction.invalidQobuzURLs.count) invalid Qobuz URL") }
-            notice = parts.isEmpty ? nil : parts.joined(separator: ", ")
+            notice = extraction.invalidQobuzURLs.isEmpty
+                ? nil
+                : "Ignored \(extraction.invalidQobuzURLs.count) invalid Qobuz URL."
+        } else if !extraction.links.isEmpty {
+            reviewLinks(extraction.links)
+            input = ""
+            let invalid = extraction.invalidQobuzURLs.count
+            notice = invalid > 0 ? "Added the valid links for review and ignored \(invalid) unsupported Qobuz URL\(invalid == 1 ? "" : "s")." : nil
         } else if !extraction.invalidQobuzURLs.isEmpty {
-            notice = "The Qobuz URL is not a supported track, album, playlist, or artist link."
+            notice = "The Qobuz URL is not a supported track, album, playlist, artist, or label link."
         } else {
             search(value)
             input = ""
@@ -211,12 +219,111 @@ final class NativeViewModel: ObservableObject {
         catch { notice = "Could not read the text file: \(error.localizedDescription)" }
     }
 
-    func addRequest(_ request: QobuzRequest, title: String? = nil, artworkURL: URL? = nil) {
+    func handleOpenURL(_ url: URL) {
+        if url.scheme?.lowercased() == "orpheus-native" {
+            guard let submitted = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value else {
+                notice = "The Orpheus link did not contain a Qobuz URL."
+                return
+            }
+            addText(submitted)
+        } else {
+            addText(url.absoluteString)
+        }
+    }
+
+    func openInboxItem(_ id: UUID) {
+        guard let item = linkInbox.first(where: { $0.id == id }) else { return }
+        openRequest(item.request)
+    }
+
+    func removeInboxItem(_ id: UUID) {
+        linkInbox.removeAll { $0.id == id }
+    }
+
+    func clearReviewedLinks() {
+        linkInbox.removeAll { $0.status.isReviewed }
+    }
+
+    func clearLinkInbox() {
+        linkInboxTask?.cancel()
+        linkInbox.removeAll()
+    }
+
+    func retryInboxItem(_ id: UUID) {
+        guard let item = linkInbox.first(where: { $0.id == id }) else { return }
+        reviewInboxItems([(item.id, item.request)])
+    }
+
+    private func reviewLinks(_ links: [ParsedQobuzLink]) {
+        let known = Set(linkInbox.map { $0.canonicalURL.absoluteString })
+        var seen = known
+        let newItems = links.compactMap { link -> NativeLinkInboxItem? in
+            guard seen.insert(link.canonicalURL.absoluteString).inserted else { return nil }
+            return NativeLinkInboxItem(link: link)
+        }
+        guard !newItems.isEmpty else {
+            notice = "Those links are already in the review inbox."
+            return
+        }
+        linkInbox.append(contentsOf: newItems)
+        reviewInboxItems(newItems.map { ($0.id, $0.request) })
+    }
+
+    private func reviewInboxItems(_ items: [(UUID, QobuzRequest)]) {
+        guard let client else {
+            for (id, _) in items {
+                updateInbox(id) { $0.status = .failed("Configure Qobuz credentials to verify this link.") }
+            }
+            showSettings = true
+            return
+        }
+        linkInboxTask?.cancel()
+        var workByID = Dictionary(uniqueKeysWithValues: items.map { ($0.0, $0.1) })
+        for item in linkInbox {
+            switch item.status {
+            case .pending, .checking: workByID[item.id] = item.request
+            default: break
+            }
+        }
+        let work = linkInbox.compactMap { item in workByID[item.id].map { (item.id, $0) } }
+        for (id, _) in work { updateInbox(id) { $0.status = .checking } }
+        linkInboxTask = Task { [weak self] in
+            await withTaskGroup(of: NativeInboxReviewResult.self) { group in
+                var next = 0
+                let limit = min(3, work.count)
+                for _ in 0..<limit {
+                    let value = work[next]
+                    next += 1
+                    group.addTask { await Self.fetchInboxReview(id: value.0, request: value.1, client: client) }
+                }
+                while let result = await group.next() {
+                    guard let self, !Task.isCancelled else { return }
+                    self.applyInboxReview(result)
+                    if next < work.count {
+                        let value = work[next]
+                        next += 1
+                        group.addTask { await Self.fetchInboxReview(id: value.0, request: value.1, client: client) }
+                    }
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            linkInboxTask = nil
+        }
+    }
+
+    func addRequest(
+        _ request: QobuzRequest,
+        title: String? = nil,
+        subtitle: String? = nil,
+        artworkURL: URL? = nil
+    ) {
         guard !queue.contains(where: { $0.canonicalURL == request.canonicalURL }) else {
             notice = "That Qobuz item is already queued."
             return
         }
         var item = NativeQueueItem(request: request, title: title)
+        if let subtitle { item.subtitle = subtitle }
         item.artworkURL = artworkURL
         queue.append(item)
         selectQueueItem(item.id)
@@ -227,14 +334,14 @@ final class NativeViewModel: ObservableObject {
         var added: [NativeQueueItem] = []
         var skipped = 0
 
-        for album in albums where album.streamable && album.displayable {
+        for album in albums where album.accountAvailabilityIssue == nil {
             let request = QobuzRequest.album(album.id)
             guard knownURLs.insert(request.canonicalURL).inserted else {
                 skipped += 1
                 continue
             }
             var item = NativeQueueItem(request: request, title: album.displayTitle)
-            item.subtitle = album.artist.name
+            item.subtitle = album.albumArtistDisplayName
             item.artworkURL = album.image?.bestURL
             added.append(item)
         }
@@ -285,9 +392,7 @@ final class NativeViewModel: ObservableObject {
         let requestID = UUID()
         browseRequestID = requestID
         browseQuery = query
-        browseAlbums = []
-        browseArtists = []
-        browseTracks = []
+        browseResults = NativeBrowseResults()
         browseErrors = [:]
         browsePageTask?.cancel()
         browsePath = []
@@ -327,6 +432,38 @@ final class NativeViewModel: ObservableObject {
         openBrowsePage(.artist(id))
     }
 
+    func openTrack(_ id: QobuzID) {
+        openBrowsePage(.track(id))
+    }
+
+    func openPlaylist(_ id: QobuzID) {
+        openBrowsePage(.playlist(id))
+    }
+
+    func openLabel(_ id: QobuzID) {
+        openBrowsePage(.label(id))
+    }
+
+    func openRequest(_ request: QobuzRequest) {
+        browseTasks.forEach { $0.cancel() }
+        browseTasks.removeAll()
+        browsePageTask?.cancel()
+        browseRequestID = nil
+        browseQuery = ""
+        browseResults = NativeBrowseResults()
+        browseErrors = [:]
+        loadingBrowseCategories = []
+        browsePath = []
+
+        switch request {
+        case .album(let id): openAlbum(id)
+        case .artist(let id): openArtist(id)
+        case .track(let id): openTrack(id)
+        case .playlist(let id): openPlaylist(id)
+        case .label(let id): openLabel(id)
+        }
+    }
+
     func browseBack() {
         browsePageTask?.cancel()
         _ = browsePath.popLast()
@@ -353,22 +490,161 @@ final class NativeViewModel: ObservableObject {
         isBrowseOpen = true
         browsePageTask = Task { [weak self] in
             do {
-                let content: BrowsePageContent = switch destination {
-                case .album(let id): .album(try await client.album(id: id))
-                case .artist(let id): .artist(try await client.artist(id: id))
+                let content: BrowsePageContent
+                let availability: NativeBrowseAvailability
+                switch destination {
+                case .album(let id):
+                    let value = try await client.album(id: id)
+                    content = .album(value)
+                    availability = self?.availability(for: value) ?? .checking
+                case .artist(let id):
+                    let value = try await client.artist(id: id)
+                    content = .artist(value)
+                    availability = self?.availability(for: value) ?? .checking
+                case .track(let id):
+                    let value = try await client.track(id: id)
+                    content = .track(value)
+                    availability = self?.availability(for: value) ?? .checking
+                case .playlist(let id):
+                    let value = try await client.playlist(id: id)
+                    content = .playlist(value)
+                    availability = self?.availability(for: value) ?? .checking
+                case .label(let id):
+                    let value = try await client.label(id: id)
+                    content = .label(value)
+                    availability = self?.availability(for: value) ?? .checking
                 }
                 guard let self, !Task.isCancelled else { return }
-                updateBrowsePage(page.id, content: content)
+                updateBrowsePage(page.id, content: content, availability: availability)
             } catch {
                 guard let self, !Task.isCancelled else { return }
-                updateBrowsePage(page.id, content: .error(error.localizedDescription))
+                let message = browseErrorMessage(error)
+                updateBrowsePage(
+                    page.id,
+                    content: .error(message),
+                    availability: browseFailureAvailability(error, message: message)
+                )
             }
         }
     }
 
-    private func updateBrowsePage(_ id: UUID, content: BrowsePageContent) {
+    private func updateBrowsePage(
+        _ id: UUID,
+        content: BrowsePageContent,
+        availability: NativeBrowseAvailability
+    ) {
         guard let index = browsePath.firstIndex(where: { $0.id == id }) else { return }
         browsePath[index].content = content
+        browsePath[index].availability = availability
+    }
+
+    func availability(for album: QobuzAlbum) -> NativeBrowseAvailability {
+        if let issue = album.accountAvailabilityIssue {
+            return .unavailable(availabilityMessage(for: issue, item: "This album"))
+        }
+        let available = album.availableTracks.count
+        let unavailable = album.unavailableTrackCount
+        guard available > 0 else {
+            return .unavailable("None of this album's tracks are available for \(accountDescription).")
+        }
+        guard unavailable > 0 else { return .available }
+        let trackWord = unavailable == 1 ? "track is" : "tracks are"
+        return .partial(
+            "\(available) of \(album.tracks.count) tracks are available for \(accountDescription). "
+                + "The \(unavailable) unavailable \(trackWord) shown below and will be skipped."
+        )
+    }
+
+    func availability(for track: QobuzTrack) -> NativeBrowseAvailability {
+        guard let issue = track.accountAvailabilityIssue else { return .available }
+        return .unavailable(availabilityMessage(for: issue, item: "This track"))
+    }
+
+    func availability(for playlist: QobuzPlaylist) -> NativeBrowseAvailability {
+        let available = playlist.availableTracks.count
+        let unavailable = playlist.unavailableTrackCount
+        guard available > 0 else {
+            return .unavailable("None of this playlist's tracks are available for \(accountDescription).")
+        }
+        guard unavailable > 0 else { return .available }
+        return .partial(
+            "\(available) of \(playlist.tracks.count) tracks are available for \(accountDescription). "
+                + "Unavailable tracks are shown below and will be skipped."
+        )
+    }
+
+    func availability(for artist: QobuzArtistCatalog) -> NativeBrowseAvailability {
+        let allOfficial = artist.allOfficialAlbums
+        let available = artist.officialAlbums
+        guard !available.isEmpty else {
+            return .unavailable("Qobuz returned no available official releases for this artist and \(accountDescription).")
+        }
+        let unavailable = allOfficial.count - available.count
+        guard unavailable > 0 else { return .available }
+        let releaseWord = unavailable == 1 ? "release is" : "releases are"
+        return .partial(
+            "\(available.count) of \(allOfficial.count) official releases are available for \(accountDescription). "
+                + "The \(unavailable) unavailable \(releaseWord) excluded."
+        )
+    }
+
+    func availability(for label: QobuzLabelCatalog) -> NativeBrowseAvailability {
+        let available = label.availableAlbums.count
+        guard available > 0 else {
+            return .unavailable("Qobuz returned no albums from this label for \(accountDescription).")
+        }
+        let total = label.albums.count
+        guard available < total else { return .available }
+        return .partial(
+            "\(available) of \(total) label albums are available for \(accountDescription). Unavailable albums are excluded."
+        )
+    }
+
+    func unavailabilityMessage(for track: QobuzTrack) -> String? {
+        guard let issue = track.accountAvailabilityIssue else { return nil }
+        return availabilityMessage(for: issue, item: "Track")
+    }
+
+    private var accountDescription: String {
+        accountRegion == "??" ? "this Qobuz account" : "the \(regionDisplay) account"
+    }
+
+    private func availabilityMessage(for issue: QobuzAvailabilityIssue, item: String) -> String {
+        switch issue {
+        case .notDisplayable:
+            "\(item) is not present in the catalog for \(accountDescription). It may belong to another region or have been removed."
+        case .notStreamable:
+            "\(item) is not streamable for \(accountDescription)."
+        case .notPurchasable:
+            "\(item) is not purchasable in the store for \(accountDescription)."
+        }
+    }
+
+    private func browseErrorMessage(_ error: Error) -> String {
+        guard let qobuzError = error as? NativeQobuzError else {
+            return error.localizedDescription
+        }
+        switch qobuzError {
+        case .unavailable:
+            return "Qobuz did not return this item for \(accountDescription). It may belong to another region, be unavailable, or have been removed."
+        case .emptyCollection:
+            return "Qobuz returned no available tracks for this item and \(accountDescription)."
+        default:
+            return error.localizedDescription
+        }
+    }
+
+    private func browseFailureAvailability(
+        _ error: Error,
+        message: String
+    ) -> NativeBrowseAvailability {
+        guard let qobuzError = error as? NativeQobuzError else { return .checking }
+        switch qobuzError {
+        case .unavailable, .emptyCollection:
+            return .unavailable(message)
+        default:
+            return .checking
+        }
     }
 
     func retryBrowseSearch() {
@@ -441,6 +717,18 @@ final class NativeViewModel: ObservableObject {
         }
     }
 
+    func revealArchiveEntry(_ entry: QobuzArchiveEntry) {
+        guard let snapshot = archiveSnapshot else { return }
+        let root = URL(fileURLWithPath: snapshot.rootPath, isDirectory: true).standardizedFileURL
+        let target = root.appendingPathComponent(entry.relativePath).standardizedFileURL
+        let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard target.path.hasPrefix(rootPrefix), FileManager.default.fileExists(atPath: target.path) else {
+            NSWorkspace.shared.activateFileViewerSelecting([root])
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([target])
+    }
+
     func libraryStatus(for item: NativeQueueItem) -> NativeLibraryStatus? {
         guard let snapshot = archiveSnapshot else { return nil }
         let coverage: QobuzArchiveCoverage
@@ -456,7 +744,7 @@ final class NativeViewModel: ObservableObject {
         case .playlist:
             guard let trackIDs = item.expectedTrackIDs, !trackIDs.isEmpty else { return nil }
             coverage = snapshot.coverage(trackIDs: trackIDs)
-        case .artist:
+        case .artist, .label:
             return nil
         }
         return NativeLibraryStatus(coverage)
@@ -469,7 +757,7 @@ final class NativeViewModel: ObservableObject {
 
     func libraryStatus(for album: QobuzAlbum) -> NativeLibraryStatus? {
         guard let snapshot = archiveSnapshot else { return nil }
-        let trackIDs = album.tracks.filter(\.streamable).map(\.id)
+        let trackIDs = album.availableTracks.map(\.id)
         let coverage = trackIDs.isEmpty
             ? snapshot.coverage(albumID: album.id)
             : snapshot.coverage(trackIDs: trackIDs, albumID: album.id)
@@ -483,17 +771,13 @@ final class NativeViewModel: ObservableObject {
 
     func libraryStatus(for tracks: [QobuzTrack]) -> NativeLibraryStatus? {
         guard let snapshot = archiveSnapshot else { return nil }
-        let trackIDs = tracks.filter(\.streamable).map(\.id)
+        let trackIDs = tracks.filter { $0.accountAvailabilityIssue == nil }.map(\.id)
         guard !trackIDs.isEmpty else { return nil }
         return NativeLibraryStatus(snapshot.coverage(trackIDs: trackIDs))
     }
 
     func browseCount(for category: NativeBrowseCategory) -> Int {
-        switch category {
-        case .albums: browseAlbums.count
-        case .artists: browseArtists.count
-        case .tracks: browseTracks.count
-        }
+        browseResults.count(for: category)
     }
 
     func downloadSelected() {
@@ -572,6 +856,7 @@ final class NativeViewModel: ObservableObject {
         guard !isTerminating else { return }
         isTerminating = true
         sessionPersistenceTask?.cancel()
+        linkInboxTask?.cancel()
         markActiveDownloadsPaused(phase: "Paused after app closed")
         persistSessionNow(reportErrors: false)
         downloadTask?.cancel()
@@ -624,6 +909,7 @@ final class NativeViewModel: ObservableObject {
         }
         queue = snapshot.queue
         activities = snapshot.activities
+        linkInbox = snapshot.linkInbox
         if let selected = snapshot.selectedQueueID,
            queue.contains(where: { $0.id == selected }) {
             selectedQueueID = selected
@@ -651,22 +937,13 @@ final class NativeViewModel: ObservableObject {
                 NativeSessionSnapshot(
                     queue: queue,
                     activities: activities,
-                    selectedQueueID: selectedQueueID
+                    selectedQueueID: selectedQueueID,
+                    linkInbox: linkInbox
                 )
             )
         } catch where reportErrors {
             notice = "Could not save the download queue: \(error.localizedDescription)"
         } catch {}
-    }
-
-    private func add(_ links: [ParsedQobuzLink]) {
-        var firstID: UUID?
-        for link in links {
-            let item = NativeQueueItem(request: link.request)
-            queue.append(item)
-            firstID = firstID ?? item.id
-        }
-        selectQueueItem(firstID)
     }
 
     private func loadPreview(_ item: NativeQueueItem) {
@@ -684,8 +961,8 @@ final class NativeViewModel: ObservableObject {
                     let value = try await client.album(id: id)
                     guard !Task.isCancelled else { return }
                     preview = .album(value)
-                    updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.artist.name, artworkURL: value.image?.bestURL)
-                    updateQueue(item.id) { $0.expectedTrackIDs = value.tracks.filter(\.streamable).map(\.id) }
+                    updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.albumArtistDisplayName, artworkURL: value.image?.bestURL)
+                    updateQueue(item.id) { $0.expectedTrackIDs = value.availableTracks.map(\.id) }
                 case .track(let id):
                     let value = try await client.track(id: id)
                     guard !Task.isCancelled else { return }
@@ -695,8 +972,14 @@ final class NativeViewModel: ObservableObject {
                     let value = try await client.playlist(id: id)
                     guard !Task.isCancelled else { return }
                     preview = .playlist(value)
-                    updateQueueMetadata(item.id, title: value.name, subtitle: "\(value.tracks.count) tracks")
-                    updateQueue(item.id) { $0.expectedTrackIDs = value.tracks.filter(\.streamable).map(\.id) }
+                    updateQueueMetadata(
+                        item.id,
+                        title: value.name,
+                        subtitle: [value.owner?.name, "\(value.availableTracks.count) available tracks"]
+                            .compactMap { $0 }.joined(separator: " · "),
+                        artworkURL: value.artworkURL
+                    )
+                    updateQueue(item.id) { $0.expectedTrackIDs = value.availableTracks.map(\.id) }
                 case .artist(let id):
                     let value = try await client.artist(id: id)
                     guard !Task.isCancelled else { return }
@@ -708,6 +991,16 @@ final class NativeViewModel: ObservableObject {
                         subtitle: "\(releaseCount) official \(releaseCount == 1 ? "release" : "releases")",
                         artworkURL: value.image?.bestURL
                     )
+                case .label(let id):
+                    let value = try await client.label(id: id)
+                    guard !Task.isCancelled else { return }
+                    preview = .label(value)
+                    let albumCount = value.availableAlbums.count
+                    updateQueueMetadata(
+                        item.id,
+                        title: value.name,
+                        subtitle: "\(albumCount) available \(albumCount == 1 ? "album" : "albums")"
+                    )
                 }
             } catch {
                 guard let self, !Task.isCancelled else { return }
@@ -718,15 +1011,10 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func apply(_ results: QobuzSearchResults, category: NativeBrowseCategory) {
-        switch category {
-        case .albums: browseAlbums = results.albums
-        case .artists: browseArtists = results.artists
-        case .tracks: browseTracks = results.tracks
-        }
+        browseResults.replace(results, for: category)
         loadingBrowseCategories.remove(category)
         if loadingBrowseCategories.isEmpty, browseCategory == .albums, browseAlbums.isEmpty {
-            if !browseArtists.isEmpty { browseCategory = .artists }
-            else if !browseTracks.isEmpty { browseCategory = .tracks }
+            browseCategory = browseResults.firstNonemptyCategory ?? .albums
         }
     }
 
@@ -788,11 +1076,17 @@ final class NativeViewModel: ObservableObject {
             activityID = activities[index].id
             activities[index].status = .queued
             activities[index].phase = "Resuming"
+            activities[index].quality = quality
             activities[index].bytesPerSecond = nil
         } else {
             activityID = UUID()
             activities.insert(
-                NativeDownloadActivity(id: activityID, queueID: queueID, title: item.title),
+                NativeDownloadActivity(
+                    id: activityID,
+                    queueID: queueID,
+                    title: item.title,
+                    quality: quality
+                ),
                 at: 0
             )
         }
@@ -902,6 +1196,105 @@ final class NativeViewModel: ObservableObject {
         }
     }
 
+    private static func fetchInboxReview(
+        id: UUID,
+        request: QobuzRequest,
+        client: any NativeQobuzServicing
+    ) async -> NativeInboxReviewResult {
+        do {
+            let payload: NativeInboxReviewPayload
+            switch request {
+            case .album(let value): payload = .album(try await client.album(id: value))
+            case .artist(let value): payload = .artist(try await client.artist(id: value))
+            case .track(let value): payload = .track(try await client.track(id: value))
+            case .playlist(let value): payload = .playlist(try await client.playlist(id: value))
+            case .label(let value): payload = .label(try await client.label(id: value))
+            }
+            return NativeInboxReviewResult(id: id, payload: payload, failure: nil)
+        } catch let error as NativeQobuzError {
+            return NativeInboxReviewResult(id: id, payload: nil, failure: .qobuz(error))
+        } catch {
+            return NativeInboxReviewResult(id: id, payload: nil, failure: .other(error.localizedDescription))
+        }
+    }
+
+    private func applyInboxReview(_ result: NativeInboxReviewResult) {
+        guard let payload = result.payload else {
+            let status: NativeLinkReviewStatus
+            switch result.failure {
+            case .qobuz(let error):
+                let message = browseErrorMessage(error)
+                switch error {
+                case .unavailable, .emptyCollection:
+                    status = .unavailable(message)
+                default:
+                    status = .failed(message)
+                }
+            case .other(let message):
+                status = .failed(message)
+            case nil:
+                status = .failed("Could not verify this Qobuz link.")
+            }
+            updateInbox(result.id) { $0.status = status }
+            return
+        }
+        let values: (title: String, subtitle: String, artwork: URL?, availability: NativeBrowseAvailability)
+        switch payload {
+        case .album(let value):
+            values = (
+                value.displayTitle,
+                value.mainArtists.map(\.name).joined(separator: ", "),
+                value.image?.bestURL,
+                availability(for: value)
+            )
+        case .artist(let value):
+            values = (
+                value.name,
+                "\(value.officialAlbums.count) official releases",
+                value.image?.bestURL,
+                availability(for: value)
+            )
+        case .track(let value):
+            values = (
+                value.displayTitle,
+                value.performer?.name ?? value.album?.title ?? "Track",
+                value.album?.image?.bestURL,
+                availability(for: value)
+            )
+        case .playlist(let value):
+            values = (
+                value.name,
+                [value.owner?.name, "\(value.availableTracks.count) available tracks"]
+                    .compactMap { $0 }.joined(separator: " · "),
+                value.artworkURL,
+                availability(for: value)
+            )
+        case .label(let value):
+            values = (
+                value.name,
+                "\(value.availableAlbums.count) available albums",
+                nil,
+                availability(for: value)
+            )
+        }
+        let status = reviewStatus(for: values.availability)
+        updateInbox(result.id) { item in
+            item.title = values.title
+            item.subtitle = values.subtitle
+            item.artworkURL = values.artwork
+            item.status = status
+        }
+    }
+
+    private func reviewStatus(for availability: NativeBrowseAvailability) -> NativeLinkReviewStatus {
+        switch availability {
+        case .checking: .checking
+        case .available: .available
+        case .partial(let message): .partial(message)
+        case .unavailable(let message): .unavailable(message)
+        }
+    }
+
     private func markActiveDownloadsCancelled() {
         for index in queue.indices where queue[index].status == .downloading { queue[index].status = .cancelled }
         for index in activities.indices where activities[index].status.isActive {
@@ -938,4 +1331,28 @@ final class NativeViewModel: ObservableObject {
         guard let index = activities.firstIndex(where: { $0.id == id }) else { return }
         mutate(&activities[index])
     }
+
+    private func updateInbox(_ id: UUID, mutate: (inout NativeLinkInboxItem) -> Void) {
+        guard let index = linkInbox.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&linkInbox[index])
+    }
+}
+
+private enum NativeInboxReviewPayload: Sendable {
+    case album(QobuzAlbum)
+    case artist(QobuzArtistCatalog)
+    case track(QobuzTrack)
+    case playlist(QobuzPlaylist)
+    case label(QobuzLabelCatalog)
+}
+
+private struct NativeInboxReviewResult: Sendable {
+    let id: UUID
+    let payload: NativeInboxReviewPayload?
+    let failure: NativeInboxReviewFailure?
+}
+
+private enum NativeInboxReviewFailure: Sendable {
+    case qobuz(NativeQobuzError)
+    case other(String)
 }

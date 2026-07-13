@@ -8,6 +8,7 @@ struct SearchResult: Identifiable {
     let subtitle: String
     let isQueued: Bool
     var libraryStatus: NativeLibraryStatus?
+    var quality: QualityBadge.Kind?
     var placeholderSymbol = "music.note"
     var circularArtwork = false
     /// Drill into the item (album page, artist page, or a track's album).
@@ -56,11 +57,21 @@ private struct SearchResultRow: View {
             if let status = result.libraryStatus {
                 LibraryStatusLabel(status: status)
             }
-            Button(action: { result.add?() }) { Image(systemName: result.isQueued ? "checkmark" : "plus") }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(result.add == nil || result.isQueued)
-                .help(result.isQueued ? "Already in queue" : "Add to queue")
+            if let quality = result.quality {
+                QualityBadge(kind: quality)
+            }
+            if let add = result.add {
+                Button(action: add) { Image(systemName: result.isQueued ? "checkmark" : "plus") }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(result.isQueued)
+                    .help(result.isQueued ? "Already in queue" : "Add to queue")
+            } else if result.open != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 22)
+            }
         }
         .contentShape(Rectangle())
         .frame(minHeight: 52)

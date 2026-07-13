@@ -86,6 +86,9 @@ struct NativeBrowseView: View {
         case .loading: "Loading..."
         case .album(let album): album.displayTitle
         case .artist(let catalog): catalog.name
+        case .track(let track): track.displayTitle
+        case .playlist(let playlist): playlist.name
+        case .label(let label): label.name
         case .error: "Could not load"
         }
     }
@@ -99,13 +102,75 @@ struct NativeBrowseView: View {
                     LibraryStatusLabel(status: status)
                 }
                 Button(queued ? "In Queue" : "Add Album", systemImage: queued ? "checkmark" : "plus") {
-                    vm.addRequest(.album(album.id), title: album.displayTitle, artworkURL: album.image?.bestURL)
+                    vm.addRequest(
+                        .album(album.id),
+                        title: album.displayTitle,
+                        subtitle: album.albumArtistDisplayName,
+                        artworkURL: album.image?.bestURL
+                    )
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(queued)
+                .disabled(queued || !page.availability.allowsQueue)
+                .help(page.availability.message ?? "Add this album to the queue")
             }
-        case .artist, .loading, .error:
+        case .artist(let artist):
+            let queued = queuedURLs.contains(QobuzRequest.artist(artist.id).canonicalURL)
+            Button(queued ? "In Queue" : "Add Artist", systemImage: queued ? "checkmark" : "plus") {
+                vm.addRequest(
+                    .artist(artist.id),
+                    title: artist.name,
+                    subtitle: "Artist catalog",
+                    artworkURL: artist.image?.bestURL
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(queued || !page.availability.allowsQueue)
+            .help(page.availability.message ?? "Add this artist catalog to the queue")
+        case .track(let track):
+            let queued = queuedURLs.contains(QobuzRequest.track(track.id).canonicalURL)
+            Button(queued ? "In Queue" : "Add Track", systemImage: queued ? "checkmark" : "plus") {
+                vm.addRequest(
+                    .track(track.id),
+                    title: track.displayTitle,
+                    subtitle: track.performer?.name ?? track.album?.title,
+                    artworkURL: track.album?.image?.bestURL
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(queued || !page.availability.allowsQueue)
+            .help(page.availability.message ?? "Add this track to the queue")
+        case .playlist(let playlist):
+            let queued = queuedURLs.contains(QobuzRequest.playlist(playlist.id).canonicalURL)
+            Button(queued ? "In Queue" : "Add Playlist", systemImage: queued ? "checkmark" : "plus") {
+                vm.addRequest(
+                    .playlist(playlist.id),
+                    title: playlist.name,
+                    subtitle: [playlist.owner?.name, "\(playlist.availableTracks.count) available tracks"]
+                        .compactMap { $0 }.joined(separator: " · "),
+                    artworkURL: playlist.artworkURL
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(queued || !page.availability.allowsQueue)
+            .help(page.availability.message ?? "Add this playlist to the queue")
+        case .label(let label):
+            let queued = queuedURLs.contains(QobuzRequest.label(label.id).canonicalURL)
+            Button(queued ? "In Queue" : "Add Label", systemImage: queued ? "checkmark" : "plus") {
+                vm.addRequest(
+                    .label(label.id),
+                    title: label.name,
+                    subtitle: "\(label.availableAlbums.count) available albums"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(queued || !page.availability.allowsQueue)
+            .help(page.availability.message ?? "Add all available albums from this label")
+        case .loading, .error:
             EmptyView()
         }
     }
@@ -128,6 +193,7 @@ struct NativeBrowseView: View {
             switch vm.browseCategory {
             case .albums: SearchResultsList(results: albumResults, emptyCategory: "albums")
             case .artists: SearchResultsList(results: artistResults, emptyCategory: "artists")
+            case .playlists: SearchResultsList(results: playlistResults, emptyCategory: "playlists")
             case .tracks: SearchResultsList(results: trackResults, emptyCategory: "tracks")
             }
         }
@@ -142,34 +208,116 @@ struct NativeBrowseView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .error(let message):
             ContentUnavailableView {
-                Label("Could not load metadata", systemImage: "wifi.exclamationmark")
+                Label(
+                    page.availability.isUnavailable ? "Unavailable for this account" : "Could not load metadata",
+                    systemImage: "wifi.exclamationmark"
+                )
             } description: {
                 Text(message)
             } actions: {
                 Button("Try Again") { vm.retryBrowsePage() }
             }
         case .album(let album):
-            AlbumPreview(
-                album: album,
-                onOpenArtist: album.artist.id.map { id in { vm.openArtist(id) } },
-                onAddTrack: { track in
-                    vm.addRequest(.track(track.id), title: track.displayTitle, artworkURL: album.image?.bestURL)
-                },
-                isTrackQueued: { track in
-                    queuedURLs.contains(QobuzRequest.track(track.id).canonicalURL)
-                },
-                trackLibraryStatus: { vm.libraryStatus(for: $0) }
-            )
+            detailPage(page) {
+                AlbumPreview(
+                    album: album,
+                    onOpenArtist: album.artist.id.map { id in { vm.openArtist(id) } },
+                    onOpenLabel: album.labelInfo?.id.map { id in { vm.openLabel(id) } },
+                    onAddTrack: { track in
+                        vm.addRequest(
+                            .track(track.id),
+                            title: track.displayTitle,
+                            subtitle: track.performer?.name ?? album.albumArtistDisplayName,
+                            artworkURL: album.image?.bestURL
+                        )
+                    },
+                    isTrackQueued: { track in
+                        queuedURLs.contains(QobuzRequest.track(track.id).canonicalURL)
+                    },
+                    trackLibraryStatus: { vm.libraryStatus(for: $0) },
+                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
+                )
+            }
         case .artist(let catalog):
-            ArtistPreview(
-                artist: catalog,
-                onOpenAlbum: { album in vm.openAlbum(album.id) },
-                onAddAlbums: vm.addAlbums,
-                isAlbumQueued: { album in
-                    queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
-                },
-                albumLibraryStatus: { vm.libraryStatus(for: $0) }
-            )
+            detailPage(page) {
+                ArtistPreview(
+                    artist: catalog,
+                    onOpenAlbum: { album in vm.openAlbum(album.id) },
+                    onAddAlbums: vm.addAlbums,
+                    isAlbumQueued: { album in
+                        queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
+                    },
+                    albumLibraryStatus: { vm.libraryStatus(for: $0) }
+                )
+            }
+        case .track(let track):
+            detailPage(page) {
+                TrackPreview(
+                    track: track,
+                    onOpenAlbum: track.album.map { summary in { vm.openAlbum(summary.id) } },
+                    libraryStatus: vm.libraryStatus(for: track)
+                )
+            }
+        case .playlist(let playlist):
+            detailPage(page) {
+                CollectionPreview(
+                    title: playlist.name,
+                    subtitle: playlist.owner.map { "Playlist by \($0.name)" } ?? "Playlist",
+                    tracks: playlist.tracks,
+                    artworkURL: playlist.artworkURL,
+                    metadata: playlistMetadata(playlist),
+                    collectionDescription: playlist.playlistDescription,
+                    libraryStatus: vm.libraryStatus(for: playlist.tracks),
+                    trackLibraryStatus: { vm.libraryStatus(for: $0) },
+                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
+                )
+            }
+        case .label(let label):
+            detailPage(page) {
+                LabelPreview(
+                    label: label,
+                    onOpenAlbum: { album in vm.openAlbum(album.id) },
+                    onAddAlbums: vm.addAlbums,
+                    isAlbumQueued: { album in
+                        queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
+                    },
+                    albumLibraryStatus: { vm.libraryStatus(for: $0) }
+                )
+            }
+        }
+    }
+
+    private func detailPage<Content: View>(
+        _ page: BrowsePage,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(spacing: 0) {
+            availabilityBanner(page.availability)
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder private func availabilityBanner(_ availability: NativeBrowseAvailability) -> some View {
+        switch availability {
+        case .partial(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DS.Space.l)
+                .padding(.vertical, DS.Space.s)
+                .background(Color.orange.opacity(0.08))
+        case .unavailable(let message):
+            Label(message, systemImage: "nosign")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DS.Space.l)
+                .padding(.vertical, DS.Space.s)
+                .background(Color.red.opacity(0.08))
+        case .checking, .available:
+            EmptyView()
         }
     }
 
@@ -184,11 +332,12 @@ struct NativeBrowseView: View {
                 id: album.id.rawValue,
                 artworkURL: album.image?.bestURL,
                 title: album.title,
-                subtitle: album.artist?.name ?? "Album",
+                subtitle: album.albumArtistDisplayName,
                 isQueued: queued.contains(QobuzRequest.album(album.id).canonicalURL),
                 libraryStatus: vm.libraryStatus(for: album),
+                quality: .catalog(album),
                 open: { vm.openAlbum(album.id) },
-                add: { vm.addRequest(.album(album.id), title: album.title, artworkURL: album.image?.bestURL) }
+                add: nil
             )
         }
     }
@@ -205,9 +354,7 @@ struct NativeBrowseView: View {
                 placeholderSymbol: "person.crop.circle",
                 circularArtwork: true,
                 open: artist.id.map { id in { vm.openArtist(id) } },
-                add: artist.id.map { id in
-                    { vm.addRequest(.artist(id), title: artist.name, artworkURL: artist.image?.bestURL) }
-                }
+                add: nil
             )
         }
     }
@@ -222,9 +369,43 @@ struct NativeBrowseView: View {
                 subtitle: track.performer?.name ?? track.album?.title ?? "Track",
                 isQueued: queued.contains(QobuzRequest.track(track.id).canonicalURL),
                 libraryStatus: vm.libraryStatus(for: track),
-                open: track.album.map { summary in { vm.openAlbum(summary.id) } },
-                add: { vm.addRequest(.track(track.id), title: track.displayTitle, artworkURL: track.album?.image?.bestURL) }
+                quality: track.album.map(QualityBadge.Kind.catalog),
+                open: { vm.openTrack(track.id) },
+                add: nil
             )
         }
+    }
+
+    private var playlistResults: [SearchResult] {
+        let queued = queuedURLs
+        return vm.browsePlaylists.map { playlist in
+            let count = playlist.tracksCount ?? playlist.tracksTotal ?? playlist.tracks.count
+            return SearchResult(
+                id: playlist.id.rawValue,
+                artworkURL: playlist.artworkURL,
+                title: playlist.name,
+                subtitle: [playlist.owner?.name, count > 0 ? "\(count) tracks" : nil]
+                    .compactMap { $0 }
+                    .joined(separator: " · "),
+                isQueued: queued.contains(QobuzRequest.playlist(playlist.id).canonicalURL),
+                libraryStatus: vm.libraryStatus(for: playlist.tracks),
+                placeholderSymbol: "music.note.list",
+                open: { vm.openPlaylist(playlist.id) },
+                add: nil
+            )
+        }
+    }
+
+    private func playlistMetadata(_ playlist: QobuzPlaylist) -> [String] {
+        var values: [String] = []
+        if let createdAt = playlist.createdAt {
+            values.append(Date(timeIntervalSince1970: TimeInterval(createdAt)).formatted(.dateTime.year()))
+        }
+        if let duration = playlist.duration {
+            let hours = duration / 3_600
+            let minutes = (duration % 3_600) / 60
+            values.append(hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m")
+        }
+        return values
     }
 }

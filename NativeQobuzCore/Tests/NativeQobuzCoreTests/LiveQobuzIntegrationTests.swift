@@ -83,6 +83,38 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         })
     }
 
+    func testLiveSchemaPreservesMultipleAlbumArtistsLabelAndPlaylistMetadata() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["QOBUZ_INTEGRATION"] == "1" else {
+            throw XCTSkip("Set QOBUZ_INTEGRATION=1 and credential environment variables to run live Qobuz tests.")
+        }
+        let client = QobuzAPIClient(credentials: try credentials(from: environment))
+
+        let multiArtist = try await client.album(id: QobuzID("f91ymo1s6vtgb"))
+        XCTAssertEqual(
+            Set(multiArtist.mainArtists.map(\.name)),
+            Set(["Kids See Ghosts", "Kanye West", "Kid Cudi"])
+        )
+
+        let label = try await client.label(id: QobuzID(environment["QOBUZ_TEST_LABEL_ID"] ?? "10278643"))
+        XCTAssertFalse(label.name.isEmpty)
+        XCTAssertFalse(label.albums.isEmpty)
+        XCTAssertEqual(label.albums.count, label.albumsTotal)
+        XCTAssertTrue(label.availableAlbums.allSatisfy { $0.accountAvailabilityIssue == nil })
+
+        let playlist = try await client.playlist(
+            id: QobuzID(environment["QOBUZ_TEST_PLAYLIST_ID"] ?? "52736446")
+        )
+        XCTAssertFalse(playlist.name.isEmpty)
+        XCTAssertFalse(playlist.owner?.name.isEmpty ?? true)
+        XCTAssertNotNil(playlist.createdAt)
+        XCTAssertNotNil(playlist.updatedAt)
+        XCTAssertNotNil(playlist.duration)
+        XCTAssertNotNil(playlist.tracksCount)
+        XCTAssertNotNil(playlist.playlistDescription)
+        XCTAssertNotNil(playlist.artworkURL)
+    }
+
     func testFrenchAccountCanTransferOneTrackToTemporaryFile() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["QOBUZ_DOWNLOAD_INTEGRATION"] == "1" else {

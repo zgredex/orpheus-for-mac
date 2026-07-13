@@ -7,7 +7,14 @@ public protocol QobuzCatalogService: Sendable {
     func album(id: QobuzID) async throws -> QobuzAlbum
     func playlist(id: QobuzID) async throws -> QobuzPlaylist
     func artist(id: QobuzID) async throws -> QobuzArtistCatalog
+    func label(id: QobuzID) async throws -> QobuzLabelCatalog
     func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo
+}
+
+public extension QobuzCatalogService {
+    func label(id: QobuzID) async throws -> QobuzLabelCatalog {
+        throw NativeQobuzError.unavailable("Label browsing is not supported by this catalog service.")
+    }
 }
 
 public protocol QobuzBrowsingService: Sendable {
@@ -92,14 +99,44 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     }
 
     public func playlist(id: QobuzID) async throws -> QobuzPlaylist {
+        let pageSize = 500
+        let first = try await playlistPage(id: id, offset: 0, limit: pageSize)
+        var tracks = first.tracks
+        let total = first.tracksTotal ?? first.tracksCount ?? tracks.count
+        var offset = (first.tracksOffset ?? 0) + tracks.count
+        while offset < total {
+            try Task.checkCancellation()
+            let page = try await playlistPage(id: id, offset: offset, limit: pageSize)
+            guard !page.tracks.isEmpty else { break }
+            tracks.append(contentsOf: page.tracks)
+            offset += page.tracks.count
+        }
+        return QobuzPlaylist(
+            id: first.id,
+            name: first.name,
+            tracks: tracks,
+            owner: first.owner,
+            createdAt: first.createdAt,
+            updatedAt: first.updatedAt,
+            duration: first.duration,
+            description: first.playlistDescription,
+            tracksCount: first.tracksCount ?? total,
+            artworkURLs: first.artworkURLs,
+            tracksTotal: total,
+            tracksOffset: 0,
+            tracksLimit: tracks.count
+        )
+    }
+
+    private func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
         let (value, _): (QobuzPlaylist, HTTPURLResponse) = try await get(
             endpoint: "playlist/get",
             parameters: [
                 "playlist_id": id.rawValue,
                 "app_id": credentials.appID,
                 "extra": "tracks,subscribers,focusAll",
-                "limit": "2000",
-                "offset": "0"
+                "limit": String(limit),
+                "offset": String(offset)
             ]
         )
         return value
@@ -136,6 +173,44 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                 "artist_id": id.rawValue,
                 "app_id": credentials.appID,
                 "extra": "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
+                "limit": String(limit),
+                "offset": String(offset)
+            ]
+        )
+        return value
+    }
+
+    public func label(id: QobuzID) async throws -> QobuzLabelCatalog {
+        let pageSize = 500
+        let first = try await labelPage(id: id, offset: 0, limit: pageSize)
+        var albums = first.albums
+        let total = first.albumsTotal ?? albums.count
+        var offset = (first.albumsOffset ?? 0) + albums.count
+        while offset < total {
+            try Task.checkCancellation()
+            let page = try await labelPage(id: id, offset: offset, limit: pageSize)
+            guard !page.albums.isEmpty else { break }
+            albums.append(contentsOf: page.albums)
+            offset += page.albums.count
+        }
+        return QobuzLabelCatalog(
+            id: first.id,
+            name: first.name,
+            slug: first.slug,
+            albums: albums,
+            albumsTotal: total,
+            albumsOffset: 0,
+            albumsLimit: albums.count
+        )
+    }
+
+    private func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
+        let (value, _): (QobuzLabelCatalog, HTTPURLResponse) = try await get(
+            endpoint: "label/get",
+            parameters: [
+                "label_id": id.rawValue,
+                "app_id": credentials.appID,
+                "extra": "albums",
                 "limit": String(limit),
                 "offset": String(offset)
             ]
@@ -180,11 +255,16 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         )
         switch category {
         case .albums:
-            let albums = (value.albums?.items ?? []).filter(\.streamable).prefix(requestedLimit)
+            let albums = (value.albums?.items ?? [])
+                .filter { $0.accountAvailabilityIssue == nil }
+                .prefix(requestedLimit)
             return QobuzSearchResults(albums: Array(albums))
         case .artists: return QobuzSearchResults(artists: value.artists?.items ?? [])
+        case .playlists: return QobuzSearchResults(playlists: value.playlists?.items ?? [])
         case .tracks:
-            let tracks = (value.tracks?.items ?? []).filter(\.streamable).prefix(requestedLimit)
+            let tracks = (value.tracks?.items ?? [])
+                .filter { $0.accountAvailabilityIssue == nil }
+                .prefix(requestedLimit)
             return QobuzSearchResults(tracks: Array(tracks))
         }
     }
@@ -338,6 +418,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
 private struct SearchResponse: Decodable {
     let albums: Items<QobuzAlbumSummary>?
     let artists: Items<QobuzArtist>?
+    let playlists: Items<QobuzPlaylist>?
     let tracks: Items<QobuzTrack>?
 
     struct Items<Value: Decodable>: Decodable {

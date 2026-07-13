@@ -1,3 +1,4 @@
+import NativeQobuzCore
 import SwiftUI
 
 /// Toolbar chip showing download quality and account region.
@@ -7,18 +8,28 @@ import SwiftUI
 /// emoji sits mid-run inside one Text so its glyph ink cannot escape.
 struct RegionBadge: View {
     let code: String
-    let quality: String
+    let quality: QobuzQuality
 
     var body: some View {
-        (Text("\(quality)  ·  ") + regionText)
+        HStack(spacing: 6) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 6))
+                .foregroundStyle(qualityKind.color)
+            Text(qualityKind.text)
+                .foregroundStyle(qualityKind.color)
+            Text("·")
+                .foregroundStyle(.tertiary)
+            regionText
+        }
             .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
             .lineLimit(1)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(.quaternary, in: Capsule())
             .help("Download quality and Qobuz account region")
     }
+
+    private var qualityKind: QualityBadge.Kind { .target(quality) }
 
     private var regionText: Text {
         if let flag = CountryFlag.emoji(for: normalizedCode) {

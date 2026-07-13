@@ -1,31 +1,150 @@
+import NativeQobuzCore
 import SwiftUI
 
-/// Capsule badge for audio quality and content markers.
+/// Shared quality language for catalog capability, requested downloads, and archived files.
 struct QualityBadge: View {
     enum Kind: Hashable {
-        case hiRes(bitDepth: Int?, samplingRate: Double?)
+        case catalog(bitDepth: Int?, samplingRate: Double?, hiRes: Bool)
+        case target(QobuzQuality)
+        case archive(formatID: Int, bitDepth: Int?, samplingRate: Double?)
+        case mixed
         case explicitContent
+
+        static func catalog(_ album: QobuzAlbum) -> Self {
+            .catalog(
+                bitDepth: album.maximumBitDepth,
+                samplingRate: album.maximumSamplingRate,
+                hiRes: album.hiresStreamable
+            )
+        }
+
+        static func catalog(_ album: QobuzAlbumSummary) -> Self {
+            .catalog(
+                bitDepth: album.maximumBitDepth,
+                samplingRate: album.maximumSamplingRate,
+                hiRes: album.hiresStreamable
+            )
+        }
+
+        static func archive(_ track: QobuzArchiveTrack) -> Self {
+            .archive(
+                formatID: track.formatID,
+                bitDepth: track.bitDepth,
+                samplingRate: track.samplingRate
+            )
+        }
+
+        var color: Color {
+            switch tier {
+            case .hiRes: .orange
+            case .lossless: .teal
+            case .mp3: .blue
+            case .mixed: .indigo
+            case .marker: .secondary
+            }
+        }
+
+        var text: String {
+            switch self {
+            case .catalog(let bitDepth, let samplingRate, let hiRes):
+                return Self.audioText(
+                    tier: Self.catalogTier(bitDepth: bitDepth, samplingRate: samplingRate, hiRes: hiRes),
+                    bitDepth: bitDepth,
+                    samplingRate: samplingRate
+                )
+            case .target(let quality):
+                switch quality {
+                case .hiRes: return "Hi-Res FLAC"
+                case .lossless: return "Lossless FLAC"
+                case .mp3: return "MP3 320"
+                }
+            case .archive(let formatID, let bitDepth, let samplingRate):
+                let tier: Tier
+                if formatID == QobuzQuality.mp3.formatID {
+                    tier = .mp3
+                } else if let bitDepth, let samplingRate {
+                    tier = bitDepth > 16 || samplingRate > 48 ? .hiRes : .lossless
+                } else {
+                    tier = formatID == QobuzQuality.hiRes.formatID ? .hiRes : .lossless
+                }
+                return Self.audioText(tier: tier, bitDepth: bitDepth, samplingRate: samplingRate)
+            case .mixed: return "Mixed quality"
+            case .explicitContent: return "E"
+            }
+        }
+
+        var helpText: String {
+            switch self {
+            case .catalog: "Maximum quality Qobuz reports for this catalog item: \(text)"
+            case .target: "Requested download quality: \(text)"
+            case .archive: "Quality recorded for this downloaded file: \(text)"
+            case .mixed: "This downloaded collection contains more than one audio quality."
+            case .explicitContent: "Explicit content"
+            }
+        }
+
+        private var tier: Tier {
+            switch self {
+            case .catalog(let bitDepth, let samplingRate, let hiRes):
+                return Self.catalogTier(bitDepth: bitDepth, samplingRate: samplingRate, hiRes: hiRes)
+            case .target(let quality):
+                switch quality {
+                case .hiRes: return .hiRes
+                case .lossless: return .lossless
+                case .mp3: return .mp3
+                }
+            case .archive(let formatID, let bitDepth, let samplingRate):
+                if formatID == QobuzQuality.mp3.formatID { return .mp3 }
+                if let bitDepth, let samplingRate, bitDepth > 16 || samplingRate > 48 { return .hiRes }
+                return formatID == QobuzQuality.hiRes.formatID && bitDepth == nil ? .hiRes : .lossless
+            case .mixed: return .mixed
+            case .explicitContent: return .marker
+            }
+        }
+
+        private static func catalogTier(bitDepth: Int?, samplingRate: Double?, hiRes: Bool) -> Tier {
+            if hiRes || (bitDepth ?? 0) > 16 || (samplingRate ?? 0) > 48 { return .hiRes }
+            return .lossless
+        }
+
+        private static func audioText(
+            tier: Tier,
+            bitDepth: Int?,
+            samplingRate: Double?
+        ) -> String {
+            let name: String = switch tier {
+            case .hiRes: "Hi-Res"
+            case .lossless: "Lossless"
+            case .mp3: "MP3 320"
+            case .mixed: "Mixed quality"
+            case .marker: ""
+            }
+            guard tier != .mp3, let bitDepth, let samplingRate else { return name }
+            let rate = samplingRate.formatted(.number.precision(.fractionLength(0...1)))
+            return "\(name) · \(bitDepth)/\(rate)"
+        }
+
+        private enum Tier: Equatable {
+            case hiRes
+            case lossless
+            case mp3
+            case mixed
+            case marker
+        }
     }
 
     let kind: Kind
 
     var body: some View {
-        Text(text)
+        Text(kind.text)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(kind.color)
+            .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(.quaternary, in: Capsule())
-    }
-
-    private var text: String {
-        switch kind {
-        case .hiRes(let bitDepth, let samplingRate):
-            guard let bitDepth, let samplingRate else { return "Hi-Res" }
-            let rate = samplingRate.formatted(.number.precision(.fractionLength(0...1)))
-            return "Hi-Res \(bitDepth)-Bit / \(rate) kHz"
-        case .explicitContent:
-            return "E"
-        }
+            .background(kind.color.opacity(0.12), in: Capsule())
+            .overlay { Capsule().stroke(kind.color.opacity(0.22), lineWidth: 0.5) }
+            .help(kind.helpText)
+            .accessibilityLabel(kind.helpText)
     }
 }

@@ -10,6 +10,18 @@ targets:
   OrpheusNative:
     type: application
     platform: macOS
+    info:
+      path: OrpheusNative/Info.plist
+      properties:
+        CFBundleDisplayName: Orpheus Native Preview
+        CFBundleName: Orpheus Native Preview
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Viewer
+            CFBundleURLName: com.orpheus.native.preview.open
+            CFBundleURLSchemes:
+              - orpheus-native
+        LSApplicationCategoryType: public.app-category.music
+        NSHighResolutionCapable: true
     sources:
       - path: OrpheusNative
     dependencies:
@@ -22,11 +34,6 @@ targets:
         CODE_SIGN_STYLE: Automatic
         COMBINE_HIDPI_IMAGES: true
         ENABLE_APP_SANDBOX: false
-        GENERATE_INFOPLIST_FILE: true
-        INFOPLIST_KEY_CFBundleDisplayName: Orpheus Native Preview
-        INFOPLIST_KEY_CFBundleName: Orpheus Native Preview
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
-        INFOPLIST_KEY_NSHighResolutionCapable: true
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.orpheus.native.preview
         PRODUCT_NAME: OrpheusNative

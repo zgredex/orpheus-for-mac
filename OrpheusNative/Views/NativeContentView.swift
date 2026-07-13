@@ -38,12 +38,12 @@ struct NativeContentView: View {
         .toolbar {
             if #available(macOS 26.0, *) {
                 ToolbarItem {
-                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality.displayName)
+                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
                 }
                 .sharedBackgroundVisibility(.hidden)
             } else {
                 ToolbarItem {
-                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality.displayName)
+                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
                 }
             }
             ToolbarItem {

@@ -1,5 +1,12 @@
 import Foundation
 
+public enum QobuzArchiveKind: String, Codable, CaseIterable, Equatable, Sendable {
+    case album
+    case track
+    case playlist
+    case unclassified
+}
+
 public enum QobuzArchiveIntegrity: String, Codable, Equatable, Sendable {
     case verified
     case missing
@@ -19,6 +26,8 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
     public let actualSHA256: String?
     public let byteCount: Int64?
     public let integrity: QobuzArchiveIntegrity
+    public let archiveKind: QobuzArchiveKind
+    public let isLibraryManaged: Bool
 
     public var id: String { relativePath }
 
@@ -32,7 +41,9 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         expectedSHA256: String,
         actualSHA256: String? = nil,
         byteCount: Int64? = nil,
-        integrity: QobuzArchiveIntegrity
+        integrity: QobuzArchiveIntegrity,
+        archiveKind: QobuzArchiveKind = .unclassified,
+        isLibraryManaged: Bool = false
     ) {
         self.relativePath = relativePath
         self.qobuzTrackID = qobuzTrackID
@@ -44,6 +55,40 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         self.actualSHA256 = actualSHA256
         self.byteCount = byteCount
         self.integrity = integrity
+        self.archiveKind = archiveKind
+        self.isLibraryManaged = isLibraryManaged
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case relativePath
+        case qobuzTrackID
+        case qobuzAlbumID
+        case formatID
+        case bitDepth
+        case samplingRate
+        case expectedSHA256
+        case actualSHA256
+        case byteCount
+        case integrity
+        case archiveKind
+        case isLibraryManaged
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        relativePath = try container.decode(String.self, forKey: .relativePath)
+        qobuzTrackID = try container.decode(String.self, forKey: .qobuzTrackID)
+        qobuzAlbumID = try container.decode(String.self, forKey: .qobuzAlbumID)
+        formatID = try container.decode(Int.self, forKey: .formatID)
+        bitDepth = try container.decodeIfPresent(Int.self, forKey: .bitDepth)
+        samplingRate = try container.decodeIfPresent(Double.self, forKey: .samplingRate)
+        expectedSHA256 = try container.decode(String.self, forKey: .expectedSHA256)
+        actualSHA256 = try container.decodeIfPresent(String.self, forKey: .actualSHA256)
+        byteCount = try container.decodeIfPresent(Int64.self, forKey: .byteCount)
+        integrity = try container.decode(QobuzArchiveIntegrity.self, forKey: .integrity)
+        archiveKind = try container.decodeIfPresent(QobuzArchiveKind.self, forKey: .archiveKind)
+            ?? .unclassified
+        isLibraryManaged = try container.decodeIfPresent(Bool.self, forKey: .isLibraryManaged) ?? false
     }
 }
 
@@ -83,28 +128,205 @@ public struct QobuzArchiveCoverage: Equatable, Sendable {
     }
 }
 
+public struct QobuzArchiveEntry: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let kind: QobuzArchiveKind
+    public let title: String
+    public let subtitle: String
+    public let relativePath: String
+    public let tracks: [QobuzArchiveTrack]
+
+    public var verifiedCount: Int { tracks.count { $0.integrity == .verified } }
+    public var problemCount: Int { tracks.count - verifiedCount }
+    public var byteCount: Int64? {
+        let unique = Dictionary(grouping: tracks, by: \.relativePath).compactMap { $0.value.first }
+        let sizes = unique.compactMap(\.byteCount)
+        return sizes.count == unique.count ? sizes.reduce(0, +) : nil
+    }
+
+    public init(
+        id: String,
+        kind: QobuzArchiveKind,
+        title: String,
+        subtitle: String,
+        relativePath: String,
+        tracks: [QobuzArchiveTrack]
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.subtitle = subtitle
+        self.relativePath = relativePath
+        self.tracks = tracks
+    }
+}
+
+/// The sole projection from physical archive records into user-facing downloads.
+/// Collection records allow one verified file to belong to several playlists or
+/// a standalone-track entry without duplicating the audio on disk.
+public struct QobuzArchiveLibrary: Equatable, Sendable {
+    public let entries: [QobuzArchiveEntry]
+
+    public init(
+        tracks: [QobuzArchiveTrack],
+        collections: [QobuzLibraryCollectionRecord] = []
+    ) {
+        let tracksByPath = Dictionary(uniqueKeysWithValues: tracks.map { ($0.relativePath, $0) })
+        let logicalEntries = collections.compactMap { record -> QobuzArchiveEntry? in
+            let values = record.trackPaths.compactMap { tracksByPath[$0] }
+            guard !values.isEmpty else { return nil }
+            return QobuzArchiveEntry(
+                id: record.id,
+                kind: record.kind,
+                title: record.title,
+                subtitle: record.subtitle,
+                relativePath: record.relativePath,
+                tracks: values
+            )
+        }
+        let referencedPaths = Set(collections.flatMap(\.trackPaths))
+        let fallbackTracks = tracks.filter {
+            !referencedPaths.contains($0.relativePath) && !$0.isLibraryManaged
+        }
+        let grouped = Dictionary(grouping: fallbackTracks, by: Self.groupKey)
+        let fallbackEntries = grouped.keys.compactMap { key -> QobuzArchiveEntry? in
+            guard let values = grouped[key], let first = values.first else { return nil }
+            let sortedTracks = values.sorted { $0.relativePath < $1.relativePath }
+            let directory = Self.directoryPath(for: first.relativePath)
+            let title: String
+            let subtitle: String
+            let relativePath: String
+
+            switch first.archiveKind {
+            case .album:
+                title = Self.lastComponent(directory, fallback: "Album \(first.qobuzAlbumID)")
+                let artist = Self.lastComponent(
+                    Self.directoryPath(for: directory),
+                    fallback: "Album"
+                )
+                subtitle = "\(artist) · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
+                relativePath = directory
+            case .track:
+                title = Self.filenameStem(first.relativePath)
+                subtitle = Self.lastComponent(directory, fallback: "Standalone track")
+                relativePath = first.relativePath
+            case .playlist:
+                title = Self.lastComponent(directory, fallback: "Playlist")
+                subtitle = "Playlist · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
+                relativePath = directory
+            case .unclassified:
+                title = Self.lastComponent(directory, fallback: Self.filenameStem(first.relativePath))
+                subtitle = "Older download · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
+                relativePath = directory.isEmpty ? first.relativePath : directory
+            }
+
+            return QobuzArchiveEntry(
+                id: key,
+                kind: first.archiveKind,
+                title: title,
+                subtitle: subtitle,
+                relativePath: relativePath,
+                tracks: sortedTracks
+            )
+        }
+        entries = (logicalEntries + fallbackEntries).sorted {
+            if $0.kind != $1.kind {
+                return Self.kindOrder($0.kind) < Self.kindOrder($1.kind)
+            }
+            let comparison = $0.title.localizedStandardCompare($1.title)
+            return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
+        }
+    }
+
+    public func entries(of kind: QobuzArchiveKind) -> [QobuzArchiveEntry] {
+        entries.filter { $0.kind == kind }
+    }
+
+    public func count(of kind: QobuzArchiveKind) -> Int {
+        entries.count { $0.kind == kind }
+    }
+
+    private static func groupKey(_ track: QobuzArchiveTrack) -> String {
+        switch track.archiveKind {
+        case .album:
+            "album|\(track.qobuzAlbumID)"
+        case .track:
+            "track|\(track.relativePath)"
+        case .playlist:
+            "playlist|\(directoryPath(for: track.relativePath))"
+        case .unclassified:
+            "unclassified|\(directoryPath(for: track.relativePath))"
+        }
+    }
+
+    private static func kindOrder(_ kind: QobuzArchiveKind) -> Int {
+        switch kind {
+        case .album: 0
+        case .track: 1
+        case .playlist: 2
+        case .unclassified: 3
+        }
+    }
+
+    private static func directoryPath(for relativePath: String) -> String {
+        let value = (relativePath as NSString).deletingLastPathComponent
+        return value == "." ? "" : value
+    }
+
+    private static func lastComponent(_ path: String, fallback: String) -> String {
+        guard !path.isEmpty else { return fallback }
+        let value = (path as NSString).lastPathComponent
+        return value.isEmpty || value == "." ? fallback : value
+    }
+
+    private static func filenameStem(_ path: String) -> String {
+        ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+    }
+}
+
 public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
     public let version: Int
     public let rootPath: String
     public let scannedAt: Date
     public let tracks: [QobuzArchiveTrack]
     public let issues: [QobuzArchiveIssue]
+    public let collections: [QobuzLibraryCollectionRecord]
 
     public init(
         version: Int = 1,
         rootPath: String,
         scannedAt: Date = Date(),
         tracks: [QobuzArchiveTrack],
-        issues: [QobuzArchiveIssue] = []
+        issues: [QobuzArchiveIssue] = [],
+        collections: [QobuzLibraryCollectionRecord] = []
     ) {
         self.version = version
         self.rootPath = rootPath
         self.scannedAt = scannedAt
         self.tracks = tracks
         self.issues = issues
+        self.collections = collections
     }
 
-    public var albumCount: Int { Set(tracks.map(\.qobuzAlbumID)).count }
+    private enum CodingKeys: String, CodingKey {
+        case version, rootPath, scannedAt, tracks, issues, collections
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        rootPath = try container.decode(String.self, forKey: .rootPath)
+        scannedAt = try container.decode(Date.self, forKey: .scannedAt)
+        tracks = try container.decode([QobuzArchiveTrack].self, forKey: .tracks)
+        issues = try container.decodeIfPresent([QobuzArchiveIssue].self, forKey: .issues) ?? []
+        collections = try container.decodeIfPresent([QobuzLibraryCollectionRecord].self, forKey: .collections) ?? []
+    }
+
+    public var library: QobuzArchiveLibrary { QobuzArchiveLibrary(tracks: tracks, collections: collections) }
+    public var albumCount: Int { library.count(of: .album) }
+    public var standaloneTrackCount: Int { library.count(of: .track) }
+    public var playlistCount: Int { library.count(of: .playlist) }
+    public var unclassifiedCount: Int { library.count(of: .unclassified) }
     public var verifiedCount: Int { tracks.count { $0.integrity == .verified } }
     public var problemCount: Int {
         let trackProblemPaths = Set(
@@ -207,6 +429,10 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                 let checksumEntries = (try? checksumEntries(
                     at: folder.appendingPathComponent("checksums.sha256")
                 )) ?? [:]
+                let hasPlaylistManifest = playlistManifestReferencesFiles(
+                    in: folder,
+                    filenames: Set(manifest.files.keys)
+                )
 
                 for filename in manifest.files.keys.sorted() {
                     try Task.checkCancellation()
@@ -219,6 +445,11 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                     }
                     let audioURL = folder.appendingPathComponent(filename).standardizedFileURL
                     let relativePath = Self.relativePath(of: audioURL, root: root)
+                    let archiveKind = Self.resolvedArchiveKind(
+                        provenance.archiveKind,
+                        relativePath: relativePath,
+                        hasPlaylistManifest: hasPlaylistManifest
+                    )
                     let manifestChecksum = checksumEntries[filename]
                     let metadataConflict = manifestChecksum.map {
                         $0.caseInsensitiveCompare(provenance.sha256) != .orderedSame
@@ -261,7 +492,9 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                         expectedSHA256: provenance.sha256,
                         actualSHA256: actualChecksum,
                         byteCount: byteCount,
-                        integrity: integrity
+                        integrity: integrity,
+                        archiveKind: archiveKind,
+                        isLibraryManaged: provenance.isLibraryManaged
                     ))
                 }
             } catch {
@@ -275,7 +508,32 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         tracks.sort {
             ($0.qobuzAlbumID, $0.relativePath) < ($1.qobuzAlbumID, $1.relativePath)
         }
-        return QobuzArchiveSnapshot(rootPath: root.path, tracks: tracks, issues: issues)
+        var collections: [QobuzLibraryCollectionRecord] = []
+        do {
+            let manifest = try QobuzLibraryManifestIO.load(at: root, fileManager: fileManager)
+            collections = manifest.collections.filter { record in
+                let paths = [record.relativePath] + record.trackPaths + [record.artworkRelativePath].compactMap { $0 }
+                let safe = paths.allSatisfy(QobuzLibraryManifestIO.isSafeRelativePath)
+                if !safe {
+                    issues.append(QobuzArchiveIssue(
+                        relativePath: QobuzLibraryManifestIO.filename,
+                        message: "Ignored a collection containing an unsafe relative path."
+                    ))
+                }
+                return safe
+            }
+        } catch {
+            issues.append(QobuzArchiveIssue(
+                relativePath: QobuzLibraryManifestIO.filename,
+                message: error.localizedDescription
+            ))
+        }
+        return QobuzArchiveSnapshot(
+            rootPath: root.path,
+            tracks: tracks,
+            issues: issues,
+            collections: collections
+        )
     }
 
     private func manifestURLs(in root: URL) throws -> (urls: [URL], issues: [QobuzArchiveIssue]) {
@@ -314,6 +572,39 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
             if !filename.isEmpty { result[String(filename)] = String(hash) }
         }
         return result
+    }
+
+    private func playlistManifestReferencesFiles(in folder: URL, filenames: Set<String>) -> Bool {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+        for url in contents where ["m3u", "m3u8"].contains(url.pathExtension.lowercased()) {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let referencesKnownFile = text.split(whereSeparator: \.isNewline).contains { line in
+                guard !line.hasPrefix("#") else { return false }
+                return filenames.contains(URL(fileURLWithPath: String(line)).lastPathComponent)
+            }
+            if referencesKnownFile { return true }
+        }
+        return false
+    }
+
+    private static func resolvedArchiveKind(
+        _ recordedKind: QobuzArchiveKind,
+        relativePath: String,
+        hasPlaylistManifest: Bool
+    ) -> QobuzArchiveKind {
+        guard recordedKind == .unclassified else { return recordedKind }
+
+        // Version-one provenance predates archiveKind. These are the exact
+        // layouts produced by StandardQobuzOutputPlanner, applied only as a
+        // compatibility migration for those older manifests.
+        let components = relativePath.split(separator: "/")
+        if components.count >= 3 { return .album }
+        if components.count == 2 { return hasPlaylistManifest ? .playlist : .track }
+        return .unclassified
     }
 
     private static func isSafeLeafName(_ value: String) -> Bool {

@@ -4,6 +4,25 @@ import NativeQobuzCore
 
 @MainActor
 final class NativeAdapterTests: XCTestCase {
+    func testBrowseResultsOwnEveryCategoryWithoutCrossCategoryMutation() {
+        var results = NativeBrowseResults()
+        results.replace(
+            QobuzSearchResults(artists: [.init(id: .init("artist"), name: "Artist")]),
+            for: .artists
+        )
+        results.replace(
+            QobuzSearchResults(playlists: [.init(id: .init("playlist"), name: "Playlist", tracks: [])]),
+            for: .playlists
+        )
+
+        XCTAssertEqual(results.count(for: .albums), 0)
+        XCTAssertEqual(results.count(for: .artists), 1)
+        XCTAssertEqual(results.count(for: .playlists), 1)
+        XCTAssertEqual(results.count(for: .tracks), 0)
+        XCTAssertEqual(results.totalCount, 2)
+        XCTAssertEqual(results.firstNonemptyCategory, .artists)
+    }
+
     func testSettingsStoreUsesIsolatedRootAndRoundTrips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -40,6 +59,14 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(try permissions(at: paths.applicationSupportRoot), 0o700)
         XCTAssertEqual(try permissions(at: paths.credentialsURL), 0o600)
         XCTAssertTrue(paths.credentialsURL.path.hasPrefix(paths.applicationSupportRoot.path))
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: paths.credentialsURL)) as? [String: String]
+        )
+        XCTAssertEqual(Set(object.keys), Set(["appID", "appSecret", "authToken"]))
+        XCTAssertEqual(object["appID"], "app-id")
+        XCTAssertNil(object["userID"])
+        XCTAssertNil(object["user_id"])
     }
 
     func testDownloadSessionStoreRoundTripsQueueActivityQualityAndRoot() throws {
@@ -60,16 +87,35 @@ final class NativeAdapterTests: XCTestCase {
         activity.progress = 0.42
         activity.bytesWritten = 42
         activity.totalBytes = 100
+        var inboxItem = NativeLinkInboxItem(link: ParsedQobuzLink(
+            original: "https://open.qobuz.com/album/album",
+            request: .album(QobuzID("album"))
+        ))
+        inboxItem.title = "Album"
+        inboxItem.status = .available
         let snapshot = NativeSessionSnapshot(
             queue: [item],
             activities: [activity],
-            selectedQueueID: item.id
+            selectedQueueID: item.id,
+            linkInbox: [inboxItem]
         )
 
         try store.save(snapshot)
 
         XCTAssertEqual(try store.load(), snapshot)
+        XCTAssertEqual(try store.load()?.linkInbox.first?.status, .available)
         XCTAssertTrue(paths.sessionURL.path.hasPrefix(paths.applicationSupportRoot.path))
+    }
+
+    func testVersionOneSessionDefaultsToAnEmptyLinkInbox() throws {
+        let data = Data(
+            #"{"version":1,"queue":[],"activities":[],"selectedQueueID":null}"#.utf8
+        )
+
+        let snapshot = try JSONDecoder().decode(NativeSessionSnapshot.self, from: data)
+
+        XCTAssertEqual(snapshot.version, 1)
+        XCTAssertTrue(snapshot.linkInbox.isEmpty)
     }
 
     func testViewModelRestoresInterruptedDownloadAsPaused() {
@@ -128,22 +174,178 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertTrue(paths.archiveIndexURL.path.hasPrefix(paths.applicationSupportRoot.path))
     }
 
-    func testViewModelAddsSeveralLinksAndSkipsCanonicalDuplicates() {
+    func testPastedAlbumLinkOpensVerifiedBrowsePageBeforeQueueing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let service = FakeQobuzService()
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in service }
+        )
+
+        viewModel.start()
+        viewModel.addText("https://www.qobuz.com/fr-fr/album/30/30")
+
+        XCTAssertTrue(viewModel.queue.isEmpty)
+        XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("30")))
+
+        for _ in 0..<100 where viewModel.browsePath.last?.content == .loading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard case .album(let album)? = viewModel.browsePath.last?.content else {
+            return XCTFail("Expected an account-verified album detail")
+        }
+        XCTAssertEqual(viewModel.browsePath.last?.availability, .available)
+        XCTAssertTrue(viewModel.queue.isEmpty)
+
+        viewModel.addRequest(
+            .album(album.id),
+            title: album.displayTitle,
+            subtitle: album.artist.name,
+            artworkURL: album.image?.bestURL
+        )
+
+        XCTAssertEqual(viewModel.queue.map(\.request), [.album(QobuzID("30"))])
+        XCTAssertEqual(viewModel.queue.first?.subtitle, "Adele")
+        XCTAssertEqual(viewModel.queue.first?.artworkURL, URL(string: "https://example.com/30.jpg"))
+    }
+
+    func testBrowserHandoffOpensPercentEncodedQobuzURLInBrowse() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in FakeQobuzService() }
+        )
+        var components = URLComponents()
+        components.scheme = "orpheus-native"
+        components.host = "open"
+        components.queryItems = [
+            URLQueryItem(name: "url", value: "https://www.qobuz.com/fr-fr/album/30/30")
+        ]
+
+        viewModel.start()
+        viewModel.handleOpenURL(try XCTUnwrap(components.url))
+
+        XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("30")))
+        XCTAssertTrue(viewModel.queue.isEmpty)
+    }
+
+    func testSeveralPastedLinksEnterReviewedInboxAndNeverMutateQueue() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let service = FakeQobuzService()
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in service }
+        )
+
+        viewModel.start()
+        viewModel.addText("https://open.qobuz.com/album/a\nhttps://play.qobuz.com/album/b")
+
+        for _ in 0..<100 where viewModel.linkInbox.contains(where: {
+            $0.status == .pending || $0.status == .checking
+        }) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(viewModel.queue.isEmpty)
+        XCTAssertTrue(viewModel.browsePath.isEmpty)
+        XCTAssertEqual(viewModel.linkInbox.map(\.request), [.album(QobuzID("a")), .album(QobuzID("b"))])
+        XCTAssertTrue(viewModel.linkInbox.allSatisfy { $0.status == .available })
+
+        let firstID = try XCTUnwrap(viewModel.linkInbox.first?.id)
+        viewModel.openInboxItem(firstID)
+        XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("a")))
+    }
+
+    func testInboxClassifiesAccountRegionMissAsUnavailable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in FakeQobuzService() }
+        )
+
+        viewModel.start()
+        viewModel.addText(
+            "https://open.qobuz.com/album/a\nhttps://open.qobuz.com/album/missing-region"
+        )
+        for _ in 0..<100 where viewModel.linkInbox.contains(where: {
+            $0.status == .pending || $0.status == .checking
+        }) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let blocked = try XCTUnwrap(
+            viewModel.linkInbox.first { $0.request == .album(QobuzID("missing-region")) }
+        )
+        guard case .unavailable(let message) = blocked.status else {
+            return XCTFail("Expected an account-region availability result")
+        }
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("account"))
+        XCTAssertTrue(viewModel.queue.isEmpty)
+    }
+
+    func testLabelLinkOpensAccountVerifiedLabelWithoutQueueing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in FakeQobuzService() }
+        )
+
+        viewModel.start()
+        viewModel.addText("https://www.qobuz.com/us-en/label/example/download-streaming-albums/4587")
+        for _ in 0..<100 where viewModel.browsePath.last?.content == .loading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard case .label(let label)? = viewModel.browsePath.last?.content else {
+            return XCTFail("Expected a label detail page")
+        }
+        XCTAssertEqual(label.name, "Test Label")
+        XCTAssertEqual(viewModel.browsePath.last?.availability, .available)
+        XCTAssertTrue(viewModel.queue.isEmpty)
+    }
+
+    func testMixedAlbumAvailabilityAllowsQueueAndExplainsSkippedTracks() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let viewModel = NativeViewModel(
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore()
         )
+        let album = QobuzAlbum(
+            id: QobuzID("mixed"),
+            title: "Mixed",
+            artist: QobuzArtist(id: QobuzID("artist"), name: "Artist"),
+            tracks: [
+                QobuzTrack(id: QobuzID("available"), title: "Available"),
+                QobuzTrack(id: QobuzID("region-blocked"), title: "Blocked", streamable: false),
+                QobuzTrack(id: QobuzID("store-blocked"), title: "Store Blocked", purchasable: false)
+            ]
+        )
 
-        viewModel.addText("""
-        https://open.qobuz.com/album/a
-        https://play.qobuz.com/track/t
-        https://open.qobuz.com/album/a
-        """)
-
-        XCTAssertEqual(viewModel.queue.map(\.request), [.album(.init("a")), .track(.init("t"))])
-        XCTAssertEqual(viewModel.selectedQueueID, viewModel.queue.first?.id)
+        guard case .partial(let message) = viewModel.availability(for: album) else {
+            return XCTFail("Expected partial availability")
+        }
+        XCTAssertTrue(viewModel.availability(for: album).allowsQueue)
+        XCTAssertEqual(album.availableTracks.map(\.id), [QobuzID("available")])
+        XCTAssertTrue(message.contains("1 of 3 tracks"))
+        XCTAssertNotNil(viewModel.unavailabilityMessage(for: album.tracks[1]))
+        XCTAssertNotNil(viewModel.unavailabilityMessage(for: album.tracks[2]))
     }
 
     func testAdeleSearchPopulatesVisibleBrowseStateAndPreservesSelectedCategory() async throws {
@@ -169,9 +371,10 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(viewModel.browseQuery, "adele")
         XCTAssertEqual(viewModel.browseAlbums.map(\.title), ["30", "19"])
         XCTAssertEqual(viewModel.browseArtists.map(\.name), ["Adele"])
+        XCTAssertEqual(viewModel.browsePlaylists.map(\.name), ["Adele Essentials"])
         XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Hello"])
         XCTAssertEqual(viewModel.browseCategory, .tracks)
-        XCTAssertEqual(viewModel.browseStatusText, "4 results")
+        XCTAssertEqual(viewModel.browseStatusText, "5 results")
         XCTAssertFalse(viewModel.isBrowseLoading)
     }
 
@@ -442,6 +645,16 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
             ])
         case .artists:
             return QobuzSearchResults(artists: [.init(id: .init("adele"), name: "Adele")])
+        case .playlists:
+            return QobuzSearchResults(playlists: [
+                QobuzPlaylist(
+                    id: .init("adele-essentials"),
+                    name: "Adele Essentials",
+                    tracks: [],
+                    owner: .init(name: "Qobuz"),
+                    tracksCount: 20
+                )
+            ])
         case .tracks:
             return QobuzSearchResults(tracks: [
                 QobuzTrack(id: .init("hello"), title: "Hello", performer: .init(id: .init("adele"), name: "Adele"))
@@ -455,11 +668,18 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
 
     func album(id: QobuzID) async throws -> QobuzAlbum {
         try await Task.sleep(for: .milliseconds(10))
+        if id == QobuzID("missing-region") {
+            throw NativeQobuzError.unavailable("Album is unavailable for this account region.")
+        }
         return QobuzAlbum(
             id: id,
             title: "30",
             artist: .init(id: .init("adele"), name: "Adele"),
-            tracks: [QobuzTrack(id: .init("easy"), title: "Easy On Me", trackNumber: 1)]
+            image: QobuzImage(large: URL(string: "https://example.com/30.jpg")),
+            tracks: [QobuzTrack(id: .init("easy"), title: "Easy On Me", trackNumber: 1)],
+            maximumSamplingRate: 96,
+            maximumBitDepth: 24,
+            hiresStreamable: true
         )
     }
 
@@ -484,6 +704,15 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
                     streamable: false
                 )
             ]
+        )
+    }
+
+    func label(id: QobuzID) async throws -> QobuzLabelCatalog {
+        let artist = QobuzArtist(id: QobuzID("artist"), name: "Artist")
+        return QobuzLabelCatalog(
+            id: id,
+            name: "Test Label",
+            albums: [QobuzAlbum(id: QobuzID("release"), title: "Release", artist: artist)]
         )
     }
 

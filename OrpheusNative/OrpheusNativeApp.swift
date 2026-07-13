@@ -15,6 +15,7 @@ struct OrpheusNativeApp: App {
                     maxHeight: .infinity
                 )
                 .task { viewModel.start() }
+                .onOpenURL { viewModel.handleOpenURL($0) }
         }
         .defaultSize(width: 1180, height: 760)
         .commands {

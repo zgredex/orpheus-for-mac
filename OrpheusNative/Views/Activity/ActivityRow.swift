@@ -22,6 +22,9 @@ struct ActivityRow: View {
                             .foregroundStyle(.yellow)
                             .help(activity.warnings.joined(separator: "\n"))
                     }
+                    if let quality = activity.quality {
+                        QualityBadge(kind: .target(quality))
+                    }
                     // Kept in the layout and only faded so the row does not
                     // reflow; visible for the whole active download once the
                     // first speed sample arrives.

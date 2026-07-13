@@ -5,6 +5,10 @@ struct NativeQueuePane: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !vm.linkInbox.isEmpty {
+                LinkInboxSection()
+                Divider()
+            }
             PaneHeader(title: "Queue", systemImage: "text.line.first.and.arrowtriangle.forward", count: vm.queue.count) {
                 Button(action: vm.clearQueue) { Image(systemName: "trash") }
                     .buttonStyle(.plain)
@@ -22,7 +26,11 @@ struct NativeQueuePane: View {
                     set: { vm.selectQueueItem($0) }
                 )) {
                     ForEach(vm.queue) { item in
-                        QueueRow(item: item, libraryStatus: vm.libraryStatus(for: item))
+                        QueueRow(
+                            item: item,
+                            targetQuality: item.downloadQuality ?? vm.settings.quality,
+                            libraryStatus: vm.libraryStatus(for: item)
+                        )
                             .tag(item.id)
                             .contextMenu {
                                 Button("Remove", systemImage: "trash") { vm.removeQueueItem(item.id) }

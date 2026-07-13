@@ -97,6 +97,53 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertNotEqual(sources[0], sources[1])
     }
 
+    func testPlaylistReusesCanonicalAlbumAudioAndAddsLogicalLibraryMembership() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let summary = QobuzAlbumSummary(id: album.id, title: album.title, artist: album.artist)
+        let playlistTrack = QobuzTrack(
+            id: QobuzID("one"),
+            title: "One",
+            performer: album.artist,
+            album: summary,
+            duration: 120,
+            trackNumber: 1,
+            mediaNumber: 1
+        )
+        let playlist = QobuzPlaylist(
+            id: QobuzID("playlist"),
+            name: "Favorites",
+            tracks: [playlistTrack],
+            owner: QobuzPlaylistOwner(name: "Curator")
+        )
+        let service = FakeQobuzService(
+            albums: [album.id: album],
+            playlists: [playlist.id: playlist]
+        )
+        let recorder = TransferRecorder()
+        let engine = NativeQobuzDownloadEngine(
+            service: service,
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for try await _ in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {}
+        for try await _ in engine.events(for: .playlist(playlist.id), quality: .hiRes, downloadRoot: root) {}
+
+        let transferCount = await recorder.sources.count
+        XCTAssertEqual(transferCount, 1)
+        let manifest = try QobuzLibraryManifestIO.load(at: root)
+        XCTAssertEqual(Set(manifest.collections.map(\.id)), Set(["album|album", "playlist|playlist"]))
+        XCTAssertEqual(Set(manifest.collections.flatMap(\.trackPaths)).count, 1)
+        let audioFiles = try FileManager.default.subpathsOfDirectory(atPath: root.path)
+            .filter { ["flac", "mp3"].contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
+        XCTAssertEqual(audioFiles.count, 1)
+        let m3u = root.appendingPathComponent("Playlists/Favorites [playlist]/Favorites.m3u")
+        XCTAssertTrue(try String(contentsOf: m3u, encoding: .utf8).contains("../../Artist/Album/01. One.flac"))
+    }
+
     func testDifferentFLACQualitiesCannotShareAPartialFile() async throws {
         let album = makeAlbum(id: "album", trackIDs: ["one"])
         let recorder = DestinationRecorder()
@@ -348,7 +395,8 @@ final class DownloadEngineTests: XCTestCase {
             expectedSHA256: oldHash,
             actualSHA256: try MusicFileIntegrity.sha256(of: destination),
             byteCount: 7,
-            integrity: .checksumMismatch
+            integrity: .checksumMismatch,
+            archiveKind: .album
         )
         let engine = NativeQobuzDownloadEngine(
             service: service,
@@ -366,6 +414,7 @@ final class DownloadEngineTests: XCTestCase {
         let repairedHash = try MusicFileIntegrity.sha256(of: destination)
         XCTAssertEqual(repaired.sha256, repairedHash)
         XCTAssertEqual(repaired.formatID, QobuzQuality.hiRes.formatID)
+        XCTAssertEqual(repaired.archiveKind, .album)
         let checksumManifest = try String(
             contentsOf: destination.deletingLastPathComponent().appendingPathComponent("checksums.sha256"),
             encoding: .utf8

@@ -15,6 +15,18 @@ final class QobuzLinkParserTests: XCTestCase {
             QobuzLinkParser.parse("https://www.qobuz.com/fr-fr/interpreter/sienna-spiro/22407938")?.request,
             .artist(QobuzID("22407938"))
         )
+        XCTAssertEqual(
+            QobuzLinkParser.parse("https://www.qobuz.com/us-en/label/sony-music-entertainment/download-streaming-albums/4587")?.request,
+            .label(QobuzID("4587"))
+        )
+        XCTAssertEqual(
+            QobuzLinkParser.parse("https://open.qobuz.com/label/4587")?.request,
+            .label(QobuzID("4587"))
+        )
+        XCTAssertEqual(
+            QobuzLinkParser.parse("https://www.qobuz.com/us-en/playlists/qobuz-vii/52736446")?.request,
+            .playlist(QobuzID("52736446"))
+        )
     }
 
     func testExtractionPreservesOrderAndReportsDuplicatesAndInvalidQobuzURLs() {

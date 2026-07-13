@@ -141,14 +141,7 @@ struct ArtistPreview: View {
             .buttonStyle(.plain)
             .help("Open \(album.displayTitle)")
 
-            if album.hiresStreamable {
-                QualityBadge(
-                    kind: .hiRes(
-                        bitDepth: album.maximumBitDepth,
-                        samplingRate: album.maximumSamplingRate
-                    )
-                )
-            }
+            QualityBadge(kind: .catalog(album))
             if let status = albumLibraryStatus?(album) {
                 LibraryStatusLabel(status: status, compact: true)
             }

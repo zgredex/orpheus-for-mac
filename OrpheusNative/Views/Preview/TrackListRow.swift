@@ -13,6 +13,8 @@ struct TrackListRow: View {
     let duration: Int?
     var isQueued = false
     var libraryStatus: NativeLibraryStatus?
+    var quality: QualityBadge.Kind?
+    var unavailableReason: String?
     var add: (() -> Void)?
 
     var body: some View {
@@ -37,12 +39,22 @@ struct TrackListRow: View {
                     .padding(.vertical, 1)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
             }
+            if let unavailableReason {
+                Label("Unavailable", systemImage: "nosign")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .help(unavailableReason)
+            }
             Spacer()
             Text(Format.duration(duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            if let quality {
+                QualityBadge(kind: quality)
+            }
             if let libraryStatus {
                 LibraryStatusLabel(status: libraryStatus, compact: true)
             }
-            if add != nil {
+            if add != nil, unavailableReason == nil {
                 AddToQueueButton(isQueued: isQueued, add: add)
             }
         }

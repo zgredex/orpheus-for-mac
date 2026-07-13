@@ -47,7 +47,7 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
     public let title: String
     public let album: String
     public let artists: [String]
-    public let albumArtist: String
+    public let albumArtists: [String]
     public let composer: String?
     public let credits: [String: [String]]
     public let releaseDate: String?
@@ -69,6 +69,7 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
         album: String,
         artists: [String],
         albumArtist: String,
+        albumArtists: [String]? = nil,
         composer: String? = nil,
         credits: [String: [String]] = [:],
         releaseDate: String? = nil,
@@ -88,7 +89,10 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
         self.title = title
         self.album = album
         self.artists = artists
-        self.albumArtist = albumArtist
+        let values = (albumArtists ?? [albumArtist]).filter { !$0.isEmpty }
+        var seenAlbumArtists = Set<String>()
+        let uniqueAlbumArtists = values.filter { seenAlbumArtists.insert($0).inserted }
+        self.albumArtists = uniqueAlbumArtists.isEmpty ? [albumArtist] : uniqueAlbumArtists
         self.composer = composer
         self.credits = credits
         self.releaseDate = releaseDate
@@ -114,6 +118,7 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
             album: item.album.displayTitle,
             artists: parsed.artists,
             albumArtist: item.album.artist.name,
+            albumArtists: item.album.mainArtists.map(\.name),
             composer: item.track.composer?.name,
             credits: parsed.credits,
             releaseDate: item.album.releaseDate,
@@ -131,6 +136,8 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
             qobuzAlbumID: item.album.id.rawValue
         )
     }
+
+    public var albumArtist: String { albumArtists.first ?? "" }
 
     private static func parsePerformers(
         _ rawValue: String?,

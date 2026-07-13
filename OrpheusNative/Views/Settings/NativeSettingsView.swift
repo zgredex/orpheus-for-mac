@@ -16,7 +16,8 @@ struct NativeSettingsView: View {
             Text("Settings").font(.title2.weight(.semibold)).padding(.bottom, DS.Space.l)
             Form {
                 Section {
-                    TextField("App ID", text: $draft.credentials.appID)
+                    TextField("App ID (not User ID)", text: $draft.credentials.appID)
+                        .help("Qobuz application ID. Orpheus for Mac never stores or sends the account User ID.")
                     SecureField("App secret", text: $draft.credentials.appSecret)
                     SecureField("Auth token", text: $draft.credentials.authToken)
                     LabeledContent("Account region", value: vm.regionDisplay)
@@ -24,10 +25,8 @@ struct NativeSettingsView: View {
                     Text("Qobuz")
                 }
                 Section("Download") {
-                    Picker("Quality", selection: $draft.quality) {
-                        ForEach(QobuzQuality.allCases, id: \.self) { quality in
-                            Text(quality.displayName).tag(quality)
-                        }
+                    LabeledContent("Quality") {
+                        QualitySelector(selection: $draft.quality)
                     }
                     LabeledContent("Location") {
                         HStack {
@@ -61,5 +60,48 @@ struct NativeSettingsView: View {
     private func save() {
         do { try vm.saveConfiguration(draft) }
         catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct QualitySelector: View {
+    @Binding var selection: QobuzQuality
+
+    var body: some View {
+        HStack(spacing: 1) {
+            ForEach(QobuzQuality.allCases, id: \.self) { quality in
+                Button {
+                    selection = quality
+                } label: {
+                    HStack(spacing: DS.Space.xs) {
+                        Circle()
+                            .fill(QualityBadge.Kind.target(quality).color)
+                            .frame(width: 8, height: 8)
+                        Text(quality.displayName)
+                            .lineLimit(1)
+                    }
+                    .font(.caption.weight(selection == quality ? .semibold : .regular))
+                    .foregroundStyle(selection == quality ? Color.primary : Color.secondary)
+                    .padding(.horizontal, DS.Space.s)
+                    .frame(height: 28)
+                    .background {
+                        if selection == quality {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(Color.accentColor.opacity(0.18))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Download as \(quality.displayName)")
+                .accessibilityLabel(quality.displayName)
+                .accessibilityAddTraits(selection == quality ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(.quaternary, lineWidth: 0.5)
+        }
     }
 }

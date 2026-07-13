@@ -3,6 +3,7 @@ import SwiftUI
 
 struct QueueRow: View {
     let item: NativeQueueItem
+    let targetQuality: QobuzQuality
     var libraryStatus: NativeLibraryStatus?
 
     var body: some View {
@@ -18,6 +19,7 @@ struct QueueRow: View {
                 }
             }
             Spacer(minLength: DS.Space.xs)
+            QualityBadge(kind: .target(targetQuality))
             if let style = item.status.style {
                 StatusGlyph(style: style)
                     .contentTransition(.symbolEffect(.replace))
@@ -40,6 +42,7 @@ struct QueueRow: View {
         case .artist: "person.crop.circle"
         case .playlist: "music.note.list"
         case .track: "music.note"
+        case .label: "building.2"
         }
     }
 }

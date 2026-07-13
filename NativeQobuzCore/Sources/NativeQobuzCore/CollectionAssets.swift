@@ -20,14 +20,48 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
     public let bitDepth: Int?
     public let samplingRate: Double?
     public let sha256: String
+    public let archiveKind: QobuzArchiveKind
+    public let isLibraryManaged: Bool
 
-    public init(item: QobuzResolvedTrack, fileInfo: QobuzFileInfo, sha256: String) {
+    public init(
+        item: QobuzResolvedTrack,
+        fileInfo: QobuzFileInfo,
+        sha256: String,
+        archiveKind: QobuzArchiveKind? = nil,
+        isLibraryManaged: Bool = false
+    ) {
         qobuzTrackID = item.track.id.rawValue
         qobuzAlbumID = item.album.id.rawValue
         formatID = fileInfo.formatID
         bitDepth = fileInfo.bitDepth
         samplingRate = fileInfo.samplingRate
         self.sha256 = sha256
+        self.archiveKind = archiveKind ?? item.collection.archiveKind
+        self.isLibraryManaged = isLibraryManaged
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case qobuzTrackID
+        case qobuzAlbumID
+        case formatID
+        case bitDepth
+        case samplingRate
+        case sha256
+        case archiveKind
+        case isLibraryManaged
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        qobuzTrackID = try container.decode(String.self, forKey: .qobuzTrackID)
+        qobuzAlbumID = try container.decode(String.self, forKey: .qobuzAlbumID)
+        formatID = try container.decode(Int.self, forKey: .formatID)
+        bitDepth = try container.decodeIfPresent(Int.self, forKey: .bitDepth)
+        samplingRate = try container.decodeIfPresent(Double.self, forKey: .samplingRate)
+        sha256 = try container.decode(String.self, forKey: .sha256)
+        archiveKind = try container.decodeIfPresent(QobuzArchiveKind.self, forKey: .archiveKind)
+            ?? .unclassified
+        isLibraryManaged = try container.decodeIfPresent(Bool.self, forKey: .isLibraryManaged) ?? false
     }
 
     public func belongs(to item: QobuzResolvedTrack) -> Bool {
@@ -41,12 +75,77 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
             && ratesMatch(samplingRate, fileInfo.samplingRate)
     }
 
+    public var reuseKey: String {
+        Self.reuseKey(
+            trackID: qobuzTrackID,
+            albumID: qobuzAlbumID,
+            formatID: formatID,
+            bitDepth: bitDepth,
+            samplingRate: samplingRate
+        )
+    }
+
+    public static func reuseKey(item: QobuzResolvedTrack, fileInfo: QobuzFileInfo) -> String {
+        reuseKey(
+            trackID: item.track.id.rawValue,
+            albumID: item.album.id.rawValue,
+            formatID: fileInfo.formatID,
+            bitDepth: fileInfo.bitDepth,
+            samplingRate: fileInfo.samplingRate
+        )
+    }
+
+    private static func reuseKey(
+        trackID: String,
+        albumID: String,
+        formatID: Int,
+        bitDepth: Int?,
+        samplingRate: Double?
+    ) -> String {
+        let depth = bitDepth.map { String($0) } ?? "-"
+        let rate = samplingRate.map { String($0) } ?? "-"
+        return "\(trackID)|\(albumID)|\(formatID)|\(depth)|\(rate)"
+    }
+
     private func ratesMatch(_ lhs: Double?, _ rhs: Double?) -> Bool {
         switch (lhs, rhs) {
         case (.none, .none): true
         case (.some(let lhs), .some(let rhs)): abs(lhs - rhs) < 0.001
         default: false
         }
+    }
+
+    fileprivate func markingLibraryManaged() -> QobuzFileProvenance {
+        QobuzFileProvenance(
+            qobuzTrackID: qobuzTrackID,
+            qobuzAlbumID: qobuzAlbumID,
+            formatID: formatID,
+            bitDepth: bitDepth,
+            samplingRate: samplingRate,
+            sha256: sha256,
+            archiveKind: archiveKind,
+            isLibraryManaged: true
+        )
+    }
+
+    private init(
+        qobuzTrackID: String,
+        qobuzAlbumID: String,
+        formatID: Int,
+        bitDepth: Int?,
+        samplingRate: Double?,
+        sha256: String,
+        archiveKind: QobuzArchiveKind,
+        isLibraryManaged: Bool
+    ) {
+        self.qobuzTrackID = qobuzTrackID
+        self.qobuzAlbumID = qobuzAlbumID
+        self.formatID = formatID
+        self.bitDepth = bitDepth
+        self.samplingRate = samplingRate
+        self.sha256 = sha256
+        self.archiveKind = archiveKind
+        self.isLibraryManaged = isLibraryManaged
     }
 }
 
@@ -133,12 +232,30 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         return created
     }
 
+    public func writeAlbumDescriptions(
+        for outputs: [(item: QobuzResolvedTrack, audioURL: URL)]
+    ) throws -> [URL] {
+        var visited = Set<QobuzID>()
+        var created: [URL] = []
+        for output in outputs where output.item.collection.writesAlbumCollectionAssets {
+            let album = output.item.album
+            guard visited.insert(album.id).inserted,
+                  let description = album.albumDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !description.isEmpty else { continue }
+            let destination = output.audioURL.deletingLastPathComponent().appendingPathComponent("description.txt")
+            try writeAtomically(Data(description.utf8), to: destination)
+            created.append(destination)
+        }
+        return created
+    }
+
     public func writePlaylist(
         plan: QobuzDownloadPlan,
-        outputs: [(item: QobuzResolvedTrack, audioURL: URL)]
+        outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
+        downloadRoot: URL
     ) throws -> URL? {
-        guard case .playlist = plan.request, let first = outputs.first else { return nil }
-        let folder = first.audioURL.deletingLastPathComponent()
+        guard case .playlist(let id) = plan.request, !outputs.isEmpty else { return nil }
+        let folder = playlistFolder(title: plan.title, id: id, root: downloadRoot)
         let name = StandardQobuzOutputPlanner().sanitize(plan.title)
         let destination = folder.appendingPathComponent("\(name).m3u")
         var lines = ["#EXTM3U"]
@@ -146,11 +263,77 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
             let duration = output.item.track.duration ?? -1
             let artist = output.item.track.performer?.name ?? output.item.album.artist.name
             lines.append("#EXTINF:\(duration), \(artist) - \(output.item.track.displayTitle)")
-            lines.append(output.audioURL.lastPathComponent)
+            lines.append(try portableRelativePath(from: folder, to: output.audioURL, root: downloadRoot))
             lines.append("")
         }
         try writeAtomically(Data(lines.joined(separator: "\n").utf8), to: destination)
         return destination
+    }
+
+    public func writePlaylistMetadata(plan: QobuzDownloadPlan, downloadRoot: URL) async throws -> [URL] {
+        guard case .playlist(let id) = plan.request,
+              case .playlist(let playlist)? = plan.source else { return [] }
+        let folder = playlistFolder(title: plan.title, id: id, root: downloadRoot)
+        var created: [URL] = []
+        if let description = playlist.playlistDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !description.isEmpty {
+            let destination = folder.appendingPathComponent("description.txt")
+            try writeAtomically(Data(description.utf8), to: destination)
+            created.append(destination)
+        }
+        if let source = playlist.artworkURL {
+            let destination = folder.appendingPathComponent("cover.jpg")
+            if !fileManager.fileExists(atPath: destination.path) {
+                let response = try await fetcher.fetch(source)
+                try writeAtomically(response.data, to: destination)
+            }
+            created.append(destination)
+        }
+        return created
+    }
+
+    public func recordLibraryCollections(
+        plan: QobuzDownloadPlan,
+        outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
+        downloadRoot: URL
+    ) throws -> URL {
+        guard !outputs.isEmpty else {
+            throw NativeQobuzError.emptyCollection(plan.title)
+        }
+        let records = try collectionRecords(plan: plan, outputs: outputs, root: downloadRoot)
+        var manifest = try QobuzLibraryManifestIO.load(at: downloadRoot, fileManager: fileManager)
+        let updatedIDs = Set(records.map(\.id))
+        manifest.collections.removeAll { updatedIDs.contains($0.id) }
+        manifest.collections.append(contentsOf: records)
+        manifest.collections.sort { $0.id < $1.id }
+        try QobuzLibraryManifestIO.save(manifest, at: downloadRoot, fileManager: fileManager)
+        return downloadRoot.appendingPathComponent(QobuzLibraryManifestIO.filename)
+    }
+
+    public func reusableAudioIndex(root: URL) throws -> [String: URL] {
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsPackageDescendants]
+        ) else { return [:] }
+        var result: [String: URL] = [:]
+        while let manifestURL = enumerator.nextObject() as? URL {
+            guard manifestURL.lastPathComponent == ".orpheus-provenance.json" else { continue }
+            let values = try? manifestURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values?.isRegularFile == true, values?.isSymbolicLink != true,
+                  let manifest = try? JSONDecoder().decode(
+                    ProvenanceManifest.self,
+                    from: Data(contentsOf: manifestURL)
+                  ), manifest.version == 1 else { continue }
+            let folder = manifestURL.deletingLastPathComponent()
+            for (filename, provenance) in manifest.files where isSafeLeafName(filename) {
+                let audioURL = folder.appendingPathComponent(filename)
+                let audioValues = try? audioURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                guard audioValues?.isRegularFile == true, audioValues?.isSymbolicLink != true else { continue }
+                result[provenance.reuseKey] = audioURL
+            }
+        }
+        return result
     }
 
     public func writeChecksumManifests(
@@ -190,6 +373,122 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try writeAtomically(try encoder.encode(manifest), to: provenanceURL(in: folder))
+    }
+
+    public func markLibraryManaged(_ audioURLs: [URL]) throws {
+        var visited = Set<URL>()
+        for audioURL in audioURLs where visited.insert(audioURL.standardizedFileURL).inserted {
+            guard let provenance = try provenance(for: audioURL), !provenance.isLibraryManaged else { continue }
+            try recordProvenance(provenance.markingLibraryManaged(), for: audioURL)
+        }
+    }
+
+    private func collectionRecords(
+        plan: QobuzDownloadPlan,
+        outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
+        root: URL
+    ) throws -> [QobuzLibraryCollectionRecord] {
+        switch plan.request {
+        case .album:
+            return [try albumRecord(outputs: outputs, root: root)]
+        case .artist, .label:
+            var order: [QobuzID] = []
+            var grouped: [QobuzID: [(item: QobuzResolvedTrack, audioURL: URL)]] = [:]
+            for output in outputs {
+                if grouped[output.item.album.id] == nil { order.append(output.item.album.id) }
+                grouped[output.item.album.id, default: []].append(output)
+            }
+            return try order.compactMap { id in
+                guard let values = grouped[id] else { return nil }
+                return try albumRecord(outputs: values, root: root)
+            }
+        case .track(let id):
+            let output = outputs[0]
+            let relative = try QobuzLibraryManifestIO.relativePath(of: output.audioURL, root: root)
+            return [QobuzLibraryCollectionRecord(
+                id: "track|\(id.rawValue)",
+                kind: .track,
+                qobuzID: id.rawValue,
+                title: output.item.track.displayTitle,
+                subtitle: output.item.track.performer?.name ?? output.item.album.artist.name,
+                relativePath: relative,
+                trackPaths: [relative],
+                duration: output.item.track.duration
+            )]
+        case .playlist(let id):
+            let folder = playlistFolder(title: plan.title, id: id, root: root)
+            let relativeFolder = try QobuzLibraryManifestIO.relativePath(of: folder, root: root)
+            let playlist: QobuzPlaylist? = if case .playlist(let value)? = plan.source { value } else { nil }
+            let owner = playlist?.owner?.name
+            let count = outputs.count
+            return [QobuzLibraryCollectionRecord(
+                id: "playlist|\(id.rawValue)",
+                kind: .playlist,
+                qobuzID: id.rawValue,
+                title: plan.title,
+                subtitle: [owner, "\(count) track\(count == 1 ? "" : "s")"].compactMap { $0 }.joined(separator: " · "),
+                relativePath: relativeFolder,
+                trackPaths: try outputs.map { try QobuzLibraryManifestIO.relativePath(of: $0.audioURL, root: root) },
+                artworkRelativePath: existingRelativePath(folder.appendingPathComponent("cover.jpg"), root: root),
+                collectionDescription: playlist?.playlistDescription,
+                owner: owner,
+                createdAt: playlist?.createdAt,
+                updatedAt: playlist?.updatedAt,
+                duration: playlist?.duration,
+                sourceTrackCount: playlist?.tracksCount ?? playlist?.tracksTotal
+            )]
+        }
+    }
+
+    private func albumRecord(
+        outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
+        root: URL
+    ) throws -> QobuzLibraryCollectionRecord {
+        guard let first = outputs.first else { throw NativeQobuzError.emptyCollection("Album") }
+        let album = first.item.album
+        let folder = first.audioURL.deletingLastPathComponent()
+        let relativeFolder = try QobuzLibraryManifestIO.relativePath(of: folder, root: root)
+        return QobuzLibraryCollectionRecord(
+            id: "album|\(album.id.rawValue)",
+            kind: .album,
+            qobuzID: album.id.rawValue,
+            title: album.displayTitle,
+            subtitle: "\(album.mainArtists.map(\.name).joined(separator: ", ")) · \(outputs.count) track\(outputs.count == 1 ? "" : "s")",
+            relativePath: relativeFolder,
+            trackPaths: try outputs.map { try QobuzLibraryManifestIO.relativePath(of: $0.audioURL, root: root) },
+            artworkRelativePath: existingRelativePath(folder.appendingPathComponent("cover.jpg"), root: root),
+            collectionDescription: album.albumDescription,
+            duration: album.duration
+        )
+    }
+
+    private func playlistFolder(title: String, id: QobuzID, root: URL) -> URL {
+        let planner = StandardQobuzOutputPlanner()
+        return root
+            .appendingPathComponent("Playlists", isDirectory: true)
+            .appendingPathComponent("\(planner.sanitize(title)) [\(planner.sanitize(id.rawValue))]", isDirectory: true)
+    }
+
+    private func portableRelativePath(from folder: URL, to target: URL, root: URL) throws -> String {
+        let folderPath = try QobuzLibraryManifestIO.relativePath(of: folder, root: root)
+        let targetPath = try QobuzLibraryManifestIO.relativePath(of: target, root: root)
+        let folderParts = folderPath.split(separator: "/")
+        let targetParts = targetPath.split(separator: "/")
+        var shared = 0
+        while shared < folderParts.count,
+              shared < targetParts.count,
+              folderParts[shared] == targetParts[shared] { shared += 1 }
+        let parents = Array(repeating: "..", count: folderParts.count - shared)
+        return (parents + targetParts.dropFirst(shared).map(String.init)).joined(separator: "/")
+    }
+
+    private func existingRelativePath(_ url: URL, root: URL) -> String? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try? QobuzLibraryManifestIO.relativePath(of: url, root: root)
+    }
+
+    private func isSafeLeafName(_ value: String) -> Bool {
+        !value.isEmpty && value != "." && value != ".." && !value.contains("/")
     }
 
     private func checksumEntries(in manifest: URL) throws -> [String: String] {
@@ -258,9 +557,23 @@ public extension QobuzAlbum {
 }
 
 private extension QobuzCollection {
+    var archiveKind: QobuzArchiveKind {
+        switch self {
+        case .album, .artist, .label: .album
+        case .track: .track
+        case .playlist: .playlist
+        }
+    }
+
     var usesAlbumFolders: Bool {
         switch self {
-        case .album, .artist: true
+        case .album, .artist, .label, .track, .playlist: true
+        }
+    }
+
+    var writesAlbumCollectionAssets: Bool {
+        switch self {
+        case .album, .artist, .label: true
         case .track, .playlist: false
         }
     }

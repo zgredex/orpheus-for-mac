@@ -46,7 +46,9 @@ public enum QobuzLinkParser {
         }
         let tailCount = parts.distance(from: kindIndex, to: parts.endIndex) - 1
         if host == "www.qobuz.com" {
-            guard (1...2).contains(tailCount) else { return nil }
+            let kind = parts[kindIndex].lowercased()
+            let allowed = kind == "label" ? (1...3).contains(tailCount) : (1...2).contains(tailCount)
+            guard allowed else { return nil }
         } else {
             guard tailCount == 1 else { return nil }
         }
@@ -58,8 +60,9 @@ public enum QobuzLinkParser {
         switch parts[kindIndex].lowercased() {
         case "track": request = .track(id)
         case "album": request = .album(id)
-        case "playlist": request = .playlist(id)
+        case "playlist", "playlists": request = .playlist(id)
         case "artist", "interpreter": request = .artist(id)
+        case "label": request = .label(id)
         default: return nil
         }
         return ParsedQobuzLink(original: value, request: request)
@@ -116,5 +119,5 @@ public enum QobuzLinkParser {
     }
 
     private static let supportedHosts = Set(["open.qobuz.com", "play.qobuz.com", "www.qobuz.com"])
-    private static let supportedKinds = Set(["track", "album", "playlist", "artist", "interpreter"])
+    private static let supportedKinds = Set(["track", "album", "playlist", "playlists", "artist", "interpreter", "label"])
 }

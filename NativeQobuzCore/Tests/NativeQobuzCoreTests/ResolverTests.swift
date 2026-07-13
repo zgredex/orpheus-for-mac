@@ -72,11 +72,17 @@ final class ResolverTests: XCTestCase {
             streamable: false,
             downloadable: true
         )
+        let notPurchasable = QobuzTrack(
+            id: QobuzID("not-purchasable"),
+            title: "Not purchasable",
+            performer: artist,
+            purchasable: false
+        )
         let album = QobuzAlbum(
             id: QobuzID("album"),
             title: "Mixed availability",
             artist: artist,
-            tracks: [available, blocked]
+            tracks: [available, blocked, notPurchasable]
         )
         let service = FakeQobuzService(albums: [album.id: album])
 
@@ -143,6 +149,35 @@ final class ResolverTests: XCTestCase {
         XCTAssertEqual(unavailableRequests, 0)
     }
 
+    func testLabelResolutionDownloadsAvailableAlbumsInCatalogOrder() async throws {
+        let first = makeAlbum(id: "first", title: "First", trackIDs: ["one"])
+        let second = makeAlbum(id: "second", title: "Second", trackIDs: ["two"])
+        let blocked = QobuzAlbum(
+            id: QobuzID("blocked"),
+            title: "Blocked",
+            artist: first.artist,
+            streamable: false
+        )
+        let label = QobuzLabelCatalog(
+            id: QobuzID("label"),
+            name: "Independent Label",
+            albums: [first, blocked, second]
+        )
+        let service = FakeQobuzService(
+            albums: [first.id: first, second.id: second],
+            labels: [label.id: label]
+        )
+
+        let plan = try await QobuzCatalogResolver(service: service).resolve(.label(label.id))
+
+        XCTAssertEqual(plan.title, "Independent Label")
+        XCTAssertEqual(plan.tracks.map(\.track.id.rawValue), ["one", "two"])
+        XCTAssertTrue(plan.tracks.allSatisfy {
+            if case .label(let id, _) = $0.collection { return id == label.id }
+            return false
+        })
+    }
+
 }
 
 func makeAlbum(id: String, title: String = "Album", trackIDs: [String]) -> QobuzAlbum {
@@ -172,6 +207,7 @@ actor FakeQobuzService: QobuzCatalogService {
     private let albums: [QobuzID: QobuzAlbum]
     private let playlists: [QobuzID: QobuzPlaylist]
     private let artists: [QobuzID: QobuzArtistCatalog]
+    private let labels: [QobuzID: QobuzLabelCatalog]
     private var albumRequests: [QobuzID: Int] = [:]
     private var fileInfoRequests = 0
 
@@ -179,12 +215,14 @@ actor FakeQobuzService: QobuzCatalogService {
         tracks: [QobuzID: QobuzTrack] = [:],
         albums: [QobuzID: QobuzAlbum] = [:],
         playlists: [QobuzID: QobuzPlaylist] = [:],
-        artists: [QobuzID: QobuzArtistCatalog] = [:]
+        artists: [QobuzID: QobuzArtistCatalog] = [:],
+        labels: [QobuzID: QobuzLabelCatalog] = [:]
     ) {
         self.tracks = tracks
         self.albums = albums
         self.playlists = playlists
         self.artists = artists
+        self.labels = labels
     }
 
     func validateAccount() async throws -> String { "FR" }
@@ -204,6 +242,10 @@ actor FakeQobuzService: QobuzCatalogService {
 
     func artist(id: QobuzID) async throws -> QobuzArtistCatalog {
         try value(artists[id], name: "artist \(id)")
+    }
+
+    func label(id: QobuzID) async throws -> QobuzLabelCatalog {
+        try value(labels[id], name: "label \(id)")
     }
 
     func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {

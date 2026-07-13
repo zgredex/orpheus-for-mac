@@ -14,17 +14,24 @@ public struct QobuzCatalogResolver: Sendable {
             return try await resolveTrack(id: id, request: request)
         case .album(let id):
             let album = try await service.album(id: id)
-            return try plan(album: album, request: request, collection: .album(id: album.id, title: album.displayTitle))
+            return try plan(
+                album: album,
+                request: request,
+                collection: .album(id: album.id, title: album.displayTitle),
+                source: .album(album)
+            )
         case .playlist(let id):
             return try await resolvePlaylist(id: id, request: request)
         case .artist(let id):
             return try await resolveArtist(id: id, request: request)
+        case .label(let id):
+            return try await resolveLabel(id: id, request: request)
         }
     }
 
     private func resolveTrack(id: QobuzID, request: QobuzRequest) async throws -> QobuzDownloadPlan {
         let track = try await service.track(id: id)
-        guard track.streamable else {
+        guard track.accountAvailabilityIssue == nil else {
             throw NativeQobuzError.unavailable("This track is unavailable for the account region.")
         }
         guard let albumID = track.album?.id else {
@@ -38,12 +45,17 @@ public struct QobuzCatalogResolver: Sendable {
             position: 1,
             total: 1
         )
-        return QobuzDownloadPlan(request: request, title: track.displayTitle, tracks: [resolved])
+        return QobuzDownloadPlan(
+            request: request,
+            title: track.displayTitle,
+            tracks: [resolved],
+            source: .track(track)
+        )
     }
 
     private func resolvePlaylist(id: QobuzID, request: QobuzRequest) async throws -> QobuzDownloadPlan {
         let playlist = try await service.playlist(id: id)
-        let playableTracks = playlist.tracks.filter(\.streamable)
+        let playableTracks = playlist.availableTracks
         guard !playableTracks.isEmpty else {
             throw NativeQobuzError.emptyCollection(playlist.name)
         }
@@ -73,14 +85,55 @@ public struct QobuzCatalogResolver: Sendable {
                 )
             )
         }
-        return QobuzDownloadPlan(request: request, title: playlist.name, tracks: resolved)
+        return QobuzDownloadPlan(
+            request: request,
+            title: playlist.name,
+            tracks: resolved,
+            source: .playlist(playlist)
+        )
     }
 
     private func resolveArtist(id: QobuzID, request: QobuzRequest) async throws -> QobuzDownloadPlan {
         let artist = try await service.artist(id: id)
         var seenAlbums = Set<QobuzID>()
         let summaries = artist.officialAlbums.filter { seenAlbums.insert($0.id).inserted }
-        let albums = try await withThrowingTaskGroup(
+        let albums = try await fetchAlbums(summaries)
+
+        let trackCount = albums.reduce(into: 0) { $0 += $1.availableTracks.count }
+        guard trackCount > 0 else {
+            throw NativeQobuzError.emptyCollection(artist.name)
+        }
+
+        let collection = QobuzCollection.artist(id: artist.id, name: artist.name)
+        let resolved = flatten(albums: albums, collection: collection, total: trackCount)
+        return QobuzDownloadPlan(
+            request: request,
+            title: artist.name,
+            tracks: resolved,
+            source: .artist(artist)
+        )
+    }
+
+    private func resolveLabel(id: QobuzID, request: QobuzRequest) async throws -> QobuzDownloadPlan {
+        let label = try await service.label(id: id)
+        var seenAlbums = Set<QobuzID>()
+        let summaries = label.availableAlbums.filter { seenAlbums.insert($0.id).inserted }
+        let albums = try await fetchAlbums(summaries)
+        let trackCount = albums.reduce(into: 0) { $0 += $1.availableTracks.count }
+        guard trackCount > 0 else {
+            throw NativeQobuzError.emptyCollection(label.name)
+        }
+        let collection = QobuzCollection.label(id: label.id, name: label.name)
+        return QobuzDownloadPlan(
+            request: request,
+            title: label.name,
+            tracks: flatten(albums: albums, collection: collection, total: trackCount),
+            source: .label(label)
+        )
+    }
+
+    private func fetchAlbums(_ summaries: [QobuzAlbum]) async throws -> [QobuzAlbum] {
+        try await withThrowingTaskGroup(
             of: (Int, QobuzAlbum?).self,
             returning: [QobuzAlbum].self
         ) { group in
@@ -91,7 +144,7 @@ public struct QobuzCatalogResolver: Sendable {
             for _ in 0..<concurrency {
                 let index = nextIndex
                 nextIndex += 1
-                group.addTask { try await fetchArtistAlbum(at: index, summary: summaries[index]) }
+                group.addTask { try await fetchAlbum(at: index, summary: summaries[index]) }
             }
 
             while let (index, album) = try await group.next() {
@@ -99,23 +152,23 @@ public struct QobuzCatalogResolver: Sendable {
                 if nextIndex < summaries.count {
                     let index = nextIndex
                     nextIndex += 1
-                    group.addTask { try await fetchArtistAlbum(at: index, summary: summaries[index]) }
+                    group.addTask { try await fetchAlbum(at: index, summary: summaries[index]) }
                 }
             }
             return ordered.compactMap { $0 }
         }
+    }
 
-        let trackCount = albums.reduce(into: 0) { $0 += $1.tracks.filter(\.streamable).count }
-        guard trackCount > 0 else {
-            throw NativeQobuzError.emptyCollection(artist.name)
-        }
-
-        let collection = QobuzCollection.artist(id: artist.id, name: artist.name)
+    private func flatten(
+        albums: [QobuzAlbum],
+        collection: QobuzCollection,
+        total trackCount: Int
+    ) -> [QobuzResolvedTrack] {
         var position = 0
         var resolved: [QobuzResolvedTrack] = []
         resolved.reserveCapacity(trackCount)
         for album in albums {
-            for track in album.tracks where track.streamable {
+            for track in album.availableTracks {
                 position += 1
                 resolved.append(
                     QobuzResolvedTrack(
@@ -128,14 +181,14 @@ public struct QobuzCatalogResolver: Sendable {
                 )
             }
         }
-        return QobuzDownloadPlan(request: request, title: artist.name, tracks: resolved)
+        return resolved
     }
 
-    private func fetchArtistAlbum(at index: Int, summary: QobuzAlbum) async throws -> (Int, QobuzAlbum?) {
+    private func fetchAlbum(at index: Int, summary: QobuzAlbum) async throws -> (Int, QobuzAlbum?) {
         try Task.checkCancellation()
         do {
             let album = try await service.album(id: summary.id)
-            return (index, album.tracks.contains(where: \.streamable) ? album : nil)
+            return (index, album.accountAvailabilityIssue == nil && !album.availableTracks.isEmpty ? album : nil)
         } catch NativeQobuzError.unavailable(_) {
             return (index, nil)
         }
@@ -144,9 +197,13 @@ public struct QobuzCatalogResolver: Sendable {
     private func plan(
         album: QobuzAlbum,
         request: QobuzRequest,
-        collection: QobuzCollection
+        collection: QobuzCollection,
+        source: QobuzDownloadSource
     ) throws -> QobuzDownloadPlan {
-        let playableTracks = album.tracks.filter(\.streamable)
+        guard album.accountAvailabilityIssue == nil else {
+            throw NativeQobuzError.unavailable("This album is unavailable for the account region.")
+        }
+        let playableTracks = album.availableTracks
         guard !playableTracks.isEmpty else {
             throw NativeQobuzError.emptyCollection(album.displayTitle)
         }
@@ -160,7 +217,7 @@ public struct QobuzCatalogResolver: Sendable {
                 total: total
             )
         }
-        return QobuzDownloadPlan(request: request, title: album.displayTitle, tracks: tracks)
+        return QobuzDownloadPlan(request: request, title: album.displayTitle, tracks: tracks, source: source)
     }
 }
 

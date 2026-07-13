@@ -11,7 +11,8 @@ struct TrackPreview: View {
             artworkURL: track.album?.image?.bestURL,
             title: track.displayTitle,
             subtitle: track.performer?.name ?? "Unknown Artist",
-            metadata: [track.album?.title].compactMap { $0 }
+            metadata: [track.album?.title].compactMap { $0 },
+            badges: track.album.map { [.catalog($0)] } ?? []
         )) {
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 if let libraryStatus {

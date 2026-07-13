@@ -20,6 +20,8 @@
 		3CAF01CFE188948221B62CE5 /* QualityBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883C8C758B664D44E168AD01 /* QualityBadge.swift */; };
 		3F2B6D33694006542BA748D3 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E384DA9996171C996D607BDF /* DesignTokens.swift */; };
 		485F3CFA2BF650BD080EC797 /* TrackListRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177F6887E92A0662B72B4E1A /* TrackListRow.swift */; };
+		4A6AE3D6EC56FE0BC3A9C1EA /* LabelPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6EB097B50DA94628D894D48 /* LabelPreview.swift */; };
+		4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */; };
 		561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BE67AA234B02DAC3353CD /* PaneHeader.swift */; };
 		586A981F30D8993655793031 /* NativePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923659614A8B428EF4C2ADE2 /* NativePersistence.swift */; };
 		5C2AC8D7A317969465F84529 /* NativeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A65459F1F88915E30A939C /* NativeAdapterTests.swift */; };
@@ -64,6 +66,7 @@
 		19A65459F1F88915E30A939C /* NativeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAdapterTests.swift; sourceTree = "<group>"; };
 		226B2DEBEC48592C07F09899 /* OrpheusNativeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrpheusNativeApp.swift; sourceTree = "<group>"; };
 		2704F594552DAF12733A3709 /* TrackPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPreview.swift; sourceTree = "<group>"; };
+		2A71E6268E28372DB55B7375 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2C17AACC47CC2470C3287259 /* OrpheusNativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrpheusNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryView.swift; sourceTree = "<group>"; };
 		5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeViewModel.swift; sourceTree = "<group>"; };
@@ -86,8 +89,10 @@
 		AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueuePane.swift; sourceTree = "<group>"; };
 		AB38BF8B7F13870BEF444120 /* NativeQobuzCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NativeQobuzCore; path = NativeQobuzCore; sourceTree = SOURCE_ROOT; };
 		B3D453705AFB21557619B77B /* QueueRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueRow.swift; sourceTree = "<group>"; };
+		B6EB097B50DA94628D894D48 /* LabelPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelPreview.swift; sourceTree = "<group>"; };
 		C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContentView.swift; sourceTree = "<group>"; };
 		C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumPreview.swift; sourceTree = "<group>"; };
+		CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkInboxSection.swift; sourceTree = "<group>"; };
 		D57563958E39251BB8E57A83 /* AddToQueueButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToQueueButton.swift; sourceTree = "<group>"; };
 		D7F84910388BFB4F7DEBB16B /* NativeInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeInputBar.swift; sourceTree = "<group>"; };
 		E2DC716836FF36DF0090471F /* PreviewScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewScaffold.swift; sourceTree = "<group>"; };
@@ -164,6 +169,7 @@
 			isa = PBXGroup;
 			children = (
 				8D922665BFDBFBF675DDD827 /* Assets.xcassets */,
+				2A71E6268E28372DB55B7375 /* Info.plist */,
 				226B2DEBEC48592C07F09899 /* OrpheusNativeApp.swift */,
 				83DF3A2701F8BA58A69F0948 /* README.md */,
 				0F564A4EA055313F2C9E710D /* DesignSystem */,
@@ -203,6 +209,7 @@
 				C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */,
 				624429738F2CC0D9F469EE1C /* ArtistPreview.swift */,
 				F5C98826DBF67A0674794E05 /* CollectionPreview.swift */,
+				B6EB097B50DA94628D894D48 /* LabelPreview.swift */,
 				115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */,
 				E2DC716836FF36DF0090471F /* PreviewScaffold.swift */,
 				177F6887E92A0662B72B4E1A /* TrackListRow.swift */,
@@ -253,6 +260,7 @@
 		D892D9646E03F07A3029D0E3 /* Queue */ = {
 			isa = PBXGroup;
 			children = (
+				CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */,
 				AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */,
 				B3D453705AFB21557619B77B /* QueueRow.swift */,
 			);
@@ -402,7 +410,9 @@
 				3F2B6D33694006542BA748D3 /* DesignTokens.swift in Sources */,
 				F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */,
 				263609391AFCC835C9B62A79 /* Formatters.swift in Sources */,
+				4A6AE3D6EC56FE0BC3A9C1EA /* LabelPreview.swift in Sources */,
 				2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */,
+				4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */,
 				1D9BBAEC775BF03CBC2E70A4 /* NativeActivityView.swift in Sources */,
 				7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */,
 				8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */,
@@ -448,11 +458,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Orpheus Native Preview";
-				INFOPLIST_KEY_CFBundleName = "Orpheus Native Preview";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				INFOPLIST_FILE = OrpheusNative/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -612,11 +618,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Orpheus Native Preview";
-				INFOPLIST_KEY_CFBundleName = "Orpheus Native Preview";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				INFOPLIST_FILE = OrpheusNative/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

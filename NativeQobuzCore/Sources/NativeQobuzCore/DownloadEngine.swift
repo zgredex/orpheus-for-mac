@@ -130,6 +130,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                     var currentTrackBytes: Int64 = 0
                     var outputs: [(item: QobuzResolvedTrack, audioURL: URL)] = []
                     var verifiedOutputs: [(item: QobuzResolvedTrack, audioURL: URL, sha256: String)] = []
+                    var reusableAudio = (try? assetWriter.reusableAudioIndex(root: downloadRoot)) ?? [:]
                     var artworkCache: [QobuzID: EmbeddedArtwork] = [:]
                     var albumsWithoutArtwork = Set<QobuzID>()
                     for item in plan.tracks {
@@ -153,7 +154,12 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                 item: item
                             )
                         } else {
-                            destination = try resolvedDestination(for: item, fileInfo: fileInfo, root: downloadRoot)
+                            let reuseKey = QobuzFileProvenance.reuseKey(item: item, fileInfo: fileInfo)
+                            if let reusable = reusableAudio[reuseKey] {
+                                destination = reusable
+                            } else {
+                                destination = try resolvedDestination(for: item, fileInfo: fileInfo, root: downloadRoot)
+                            }
                         }
 
                         if fileManager.fileExists(atPath: destination.path),
@@ -167,11 +173,24 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                 if provenance.sha256.caseInsensitiveCompare(checksum) != .orderedSame {
                                     throw NativeQobuzError.invalidResponse("Existing file checksum does not match")
                                 }
+                                try assetWriter.recordProvenance(
+                                    QobuzFileProvenance(
+                                        item: item,
+                                        fileInfo: fileInfo,
+                                        sha256: checksum,
+                                        archiveKind: repairTarget?.archiveKind
+                                            ?? (provenance.archiveKind == .unclassified
+                                                ? nil
+                                                : provenance.archiveKind)
+                                    ),
+                                    for: destination
+                                )
                                 let size = try fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber
                                 albumBytes += size?.int64Value ?? 0
                                 skipped += 1
                                 outputs.append((item, destination))
                                 verifiedOutputs.append((item, destination, checksum))
+                                reusableAudio[QobuzFileProvenance.reuseKey(item: item, fileInfo: fileInfo)] = destination
                                 continuation.yield(.integrityVerified(track: item, sha256: checksum))
                                 continuation.yield(.trackSkipped(track: item, destination: destination))
                                 continuation.yield(
@@ -255,10 +274,16 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                             let checksum = try MusicFileIntegrity.sha256(of: staging)
                             try install(staging, at: destination)
                             try assetWriter.recordProvenance(
-                                QobuzFileProvenance(item: item, fileInfo: fileInfo, sha256: checksum),
+                                QobuzFileProvenance(
+                                    item: item,
+                                    fileInfo: fileInfo,
+                                    sha256: checksum,
+                                    archiveKind: repairTarget?.archiveKind
+                                ),
                                 for: destination
                             )
                             verifiedOutputs.append((item, destination, checksum))
+                            reusableAudio[QobuzFileProvenance.reuseKey(item: item, fileInfo: fileInfo)] = destination
                             continuation.yield(.integrityVerified(track: item, sha256: checksum))
                             if let artwork {
                                 do {
@@ -298,7 +323,19 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                     }
                     try Task.checkCancellation()
                     do {
-                        if let playlist = try assetWriter.writePlaylist(plan: plan, outputs: outputs) {
+                        for description in try assetWriter.writeAlbumDescriptions(for: outputs) {
+                            continuation.yield(.assetCreated(description))
+                        }
+                    } catch {
+                        continuation.yield(.warning("Album description: \(error.localizedDescription)"))
+                    }
+                    try Task.checkCancellation()
+                    do {
+                        if let playlist = try assetWriter.writePlaylist(
+                            plan: plan,
+                            outputs: outputs,
+                            downloadRoot: downloadRoot
+                        ) {
                             continuation.yield(.assetCreated(playlist))
                         }
                     } catch {
@@ -311,6 +348,35 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                         }
                     } catch {
                         continuation.yield(.warning("Checksum manifest: \(error.localizedDescription)"))
+                    }
+                    try Task.checkCancellation()
+                    do {
+                        for asset in try await assetWriter.writePlaylistMetadata(
+                            plan: plan,
+                            downloadRoot: downloadRoot
+                        ) {
+                            continuation.yield(.assetCreated(asset))
+                        }
+                    } catch is CancellationError {
+                        throw NativeQobuzError.cancelled
+                    } catch NativeQobuzError.cancelled {
+                        throw NativeQobuzError.cancelled
+                    } catch {
+                        continuation.yield(.warning("Playlist metadata: \(error.localizedDescription)"))
+                    }
+                    if repairTarget == nil {
+                        try Task.checkCancellation()
+                        do {
+                            let manifest = try assetWriter.recordLibraryCollections(
+                                plan: plan,
+                                outputs: outputs,
+                                downloadRoot: downloadRoot
+                            )
+                            try assetWriter.markLibraryManaged(outputs.map(\.audioURL))
+                            continuation.yield(.assetCreated(manifest))
+                        } catch {
+                            continuation.yield(.warning("Library manifest: \(error.localizedDescription)"))
+                        }
                     }
                     continuation.yield(.completed(title: plan.title, downloaded: downloaded, skipped: skipped))
                     continuation.finish()

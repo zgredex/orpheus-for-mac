@@ -58,7 +58,7 @@ enum PreviewSamples {
 }
 
 #Preview("Queue rows") {
-    List(PreviewSamples.queueItems) { QueueRow(item: $0) }
+    List(PreviewSamples.queueItems) { QueueRow(item: $0, targetQuality: .hiRes) }
         .listStyle(.sidebar)
         .frame(width: 300, height: 200)
 }

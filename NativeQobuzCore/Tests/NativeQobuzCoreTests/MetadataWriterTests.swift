@@ -12,6 +12,7 @@ final class MetadataWriterTests: XCTestCase {
         let metadata = QobuzAudioMetadata(item: item)
 
         XCTAssertEqual(metadata.artists, ["Primary", "Guest"])
+        XCTAssertEqual(metadata.albumArtists, ["Primary", "Co-Headliner"])
         XCTAssertEqual(metadata.credits["Composer"], ["Primary"])
         XCTAssertEqual(metadata.credits["Producer"], ["Engineer"])
         XCTAssertNil(metadata.credits["MainArtist"])
@@ -65,6 +66,7 @@ final class MetadataWriterTests: XCTestCase {
         let comments = String(decoding: blocks[1].payload, as: UTF8.self)
         for value in [
             "TITLE=Song", "ALBUM=Album", "ARTIST=Primary", "ALBUMARTIST=Primary",
+            "ALBUMARTIST=Co-Headliner",
             "TRACKNUMBER=1", "TOTALTRACKS=2", "DISCNUMBER=1", "TOTALDISCS=1",
             "ISRC=FR123", "UPC=123456", "LABEL=Label", "RATING=Explicit"
         ] {
@@ -93,6 +95,10 @@ final class MetadataWriterTests: XCTestCase {
             id: QobuzID("album"),
             title: "Album",
             artist: artist,
+            artists: [
+                QobuzArtistCredit(id: artist.id, name: artist.name, roles: ["main-artist"]),
+                QobuzArtistCredit(id: QobuzID("co"), name: "Co-Headliner", roles: ["main-artist"])
+            ],
             tracks: [track],
             tracksCount: 2,
             mediaCount: 1,

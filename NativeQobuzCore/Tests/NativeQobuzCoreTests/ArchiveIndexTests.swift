@@ -144,6 +144,203 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.problemCount, 2)
     }
 
+    func testLibraryProjectionPartitionsEveryFileIntoExactlyOneSection() {
+        let tracks = [
+            archiveTrack(
+                relativePath: "Adele/19/01. Daydreamer.flac",
+                trackID: "album-one",
+                albumID: "19",
+                integrity: .verified,
+                archiveKind: .album
+            ),
+            archiveTrack(
+                relativePath: "Adele/19/02. Best for Last.flac",
+                trackID: "album-two",
+                albumID: "19",
+                integrity: .verified,
+                archiveKind: .album
+            ),
+            archiveTrack(
+                relativePath: "Adele/Hello.flac",
+                trackID: "single",
+                albumID: "25",
+                integrity: .verified,
+                archiveKind: .track
+            ),
+            archiveTrack(
+                relativePath: "Sunday Mix/01. Adele - Easy on Me.flac",
+                trackID: "playlist-one",
+                albumID: "30",
+                integrity: .verified,
+                archiveKind: .playlist
+            ),
+            archiveTrack(
+                relativePath: "Imported/Unknown.flac",
+                trackID: "older",
+                albumID: "old",
+                integrity: .verified,
+                archiveKind: .unclassified
+            )
+        ]
+
+        let library = QobuzArchiveLibrary(tracks: tracks)
+
+        XCTAssertEqual(library.count(of: .album), 1)
+        XCTAssertEqual(library.count(of: .track), 1)
+        XCTAssertEqual(library.count(of: .playlist), 1)
+        XCTAssertEqual(library.count(of: .unclassified), 1)
+        XCTAssertEqual(library.entries(of: .album).first?.tracks.count, 2)
+        XCTAssertEqual(library.entries(of: .album).first?.title, "19")
+        XCTAssertEqual(library.entries(of: .track).first?.title, "Hello")
+
+        let projectedPaths = library.entries.flatMap(\.tracks).map(\.relativePath)
+        XCTAssertEqual(projectedPaths.count, tracks.count)
+        XCTAssertEqual(Set(projectedPaths), Set(tracks.map(\.relativePath)))
+    }
+
+    func testLogicalCollectionsCanShareOnePhysicalTrackWithoutDuplicatingBytes() {
+        let track = archiveTrack(
+            relativePath: "Artist/Album/01. Song.flac",
+            trackID: "song",
+            albumID: "album",
+            integrity: .verified,
+            archiveKind: .album
+        )
+        let sharedPath = track.relativePath
+        let collections = [
+            QobuzLibraryCollectionRecord(
+                id: "album|album",
+                kind: .album,
+                qobuzID: "album",
+                title: "Album",
+                subtitle: "Artist · 1 track",
+                relativePath: "Artist/Album",
+                trackPaths: [sharedPath]
+            ),
+            QobuzLibraryCollectionRecord(
+                id: "track|song",
+                kind: .track,
+                qobuzID: "song",
+                title: "Song",
+                subtitle: "Artist",
+                relativePath: sharedPath,
+                trackPaths: [sharedPath]
+            ),
+            QobuzLibraryCollectionRecord(
+                id: "playlist|mix",
+                kind: .playlist,
+                qobuzID: "mix",
+                title: "Mix",
+                subtitle: "1 track",
+                relativePath: "Playlists/Mix [mix]",
+                trackPaths: [sharedPath]
+            )
+        ]
+
+        let library = QobuzArchiveLibrary(tracks: [track], collections: collections)
+
+        XCTAssertEqual(library.count(of: .album), 1)
+        XCTAssertEqual(library.count(of: .track), 1)
+        XCTAssertEqual(library.count(of: .playlist), 1)
+        XCTAssertTrue(library.entries.allSatisfy { $0.tracks.map(\.relativePath) == [sharedPath] })
+    }
+
+    func testProvenanceRoundTripPersistsArchiveKindAndLegacyDataRemainsReadable() throws {
+        let value = provenance(
+            trackID: "single",
+            albumID: "album",
+            hash: String(repeating: "a", count: 64),
+            collection: .track
+        )
+        let decoded = try JSONDecoder().decode(
+            QobuzFileProvenance.self,
+            from: JSONEncoder().encode(value)
+        )
+        XCTAssertEqual(decoded.archiveKind, .track)
+
+        let legacy = Data("""
+        {
+          "qobuzTrackID": "legacy-track",
+          "qobuzAlbumID": "legacy-album",
+          "formatID": 27,
+          "bitDepth": 24,
+          "samplingRate": 96,
+          "sha256": "\(String(repeating: "b", count: 64))"
+        }
+        """.utf8)
+        XCTAssertEqual(
+            try JSONDecoder().decode(QobuzFileProvenance.self, from: legacy).archiveKind,
+            .unclassified
+        )
+    }
+
+    func testPreviousArchiveCacheDecodesWithoutArchiveKind() throws {
+        let legacy = Data("""
+        {
+          "relativePath": "Artist/Album/01. Track.flac",
+          "qobuzTrackID": "track",
+          "qobuzAlbumID": "album",
+          "formatID": 27,
+          "bitDepth": 24,
+          "samplingRate": 96,
+          "expectedSHA256": "\(String(repeating: "c", count: 64))",
+          "actualSHA256": "\(String(repeating: "c", count: 64))",
+          "byteCount": 1234,
+          "integrity": "verified"
+        }
+        """.utf8)
+
+        let track = try JSONDecoder().decode(QobuzArchiveTrack.self, from: legacy)
+
+        XCTAssertEqual(track.archiveKind, .unclassified)
+        XCTAssertEqual(track.qobuzTrackID, "track")
+    }
+
+    func testScannerMigratesVersionOneOutputLayoutsIntoSeparateSections() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let albumFolder = root.appendingPathComponent("Adele/19", isDirectory: true)
+        let trackFolder = root.appendingPathComponent("Adele", isDirectory: true)
+        let playlistFolder = root.appendingPathComponent("Sunday Mix", isDirectory: true)
+        try FileManager.default.createDirectory(at: albumFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: playlistFolder, withIntermediateDirectories: true)
+
+        try writeLegacyManifest(
+            folder: albumFolder,
+            filename: "01. Daydreamer.flac",
+            trackID: "album-track",
+            albumID: "19"
+        )
+        try writeLegacyManifest(
+            folder: trackFolder,
+            filename: "Hello.flac",
+            trackID: "single-track",
+            albumID: "25"
+        )
+        try writeLegacyManifest(
+            folder: playlistFolder,
+            filename: "01. Adele - Easy on Me.flac",
+            trackID: "playlist-track",
+            albumID: "30"
+        )
+        try Data("""
+        #EXTM3U
+        #EXTINF:221,Adele - Easy on Me
+        01. Adele - Easy on Me.flac
+        """.utf8).write(to: playlistFolder.appendingPathComponent("Sunday Mix.m3u"))
+
+        let snapshot = try await QobuzArchiveScanner().scan(root: root)
+
+        XCTAssertEqual(snapshot.albumCount, 1)
+        XCTAssertEqual(snapshot.standaloneTrackCount, 1)
+        XCTAssertEqual(snapshot.playlistCount, 1)
+        XCTAssertEqual(snapshot.unclassifiedCount, 0)
+        XCTAssertEqual(snapshot.tracks.first { $0.qobuzTrackID == "album-track" }?.archiveKind, .album)
+        XCTAssertEqual(snapshot.tracks.first { $0.qobuzTrackID == "single-track" }?.archiveKind, .track)
+        XCTAssertEqual(snapshot.tracks.first { $0.qobuzTrackID == "playlist-track" }?.archiveKind, .playlist)
+    }
+
     private struct TestManifest: Encodable {
         let version = 1
         let files: [String: QobuzFileProvenance]
@@ -154,11 +351,22 @@ final class ArchiveIndexTests: XCTestCase {
             .appendingPathComponent("OrpheusArchiveTests-\(UUID().uuidString)", isDirectory: true)
     }
 
-    private func provenance(trackID: String, albumID: String, hash: String) -> QobuzFileProvenance {
+    private func provenance(
+        trackID: String,
+        albumID: String,
+        hash: String,
+        collection: QobuzCollection? = nil
+    ) -> QobuzFileProvenance {
         let artist = QobuzArtist(id: QobuzID("artist"), name: "Artist")
         let album = QobuzAlbum(id: QobuzID(albumID), title: "Album", artist: artist)
         let track = QobuzTrack(id: QobuzID(trackID), title: "Track", performer: artist)
-        let item = QobuzResolvedTrack(track: track, album: album, collection: .album(id: album.id, title: album.title), position: 1, total: 1)
+        let item = QobuzResolvedTrack(
+            track: track,
+            album: album,
+            collection: collection ?? .album(id: album.id, title: album.title),
+            position: 1,
+            total: 1
+        )
         return QobuzFileProvenance(
             item: item,
             fileInfo: QobuzFileInfo(url: URL(string: "https://media.example/file.flac")!, formatID: 27, bitDepth: 24, samplingRate: 96),
@@ -170,7 +378,8 @@ final class ArchiveIndexTests: XCTestCase {
         relativePath: String = "track.flac",
         trackID: String,
         albumID: String,
-        integrity: QobuzArchiveIntegrity
+        integrity: QobuzArchiveIntegrity,
+        archiveKind: QobuzArchiveKind = .unclassified
     ) -> QobuzArchiveTrack {
         QobuzArchiveTrack(
             relativePath: relativePath,
@@ -179,7 +388,38 @@ final class ArchiveIndexTests: XCTestCase {
             formatID: 27,
             expectedSHA256: String(repeating: "a", count: 64),
             actualSHA256: integrity == .verified ? String(repeating: "a", count: 64) : nil,
-            integrity: integrity
+            integrity: integrity,
+            archiveKind: archiveKind
+        )
+    }
+
+    private func writeLegacyManifest(
+        folder: URL,
+        filename: String,
+        trackID: String,
+        albumID: String
+    ) throws {
+        let audioURL = folder.appendingPathComponent(filename)
+        try Data(filename.utf8).write(to: audioURL)
+        let hash = try MusicFileIntegrity.sha256(of: audioURL)
+        let manifest = """
+        {
+          "version": 1,
+          "files": {
+            "\(filename)": {
+              "qobuzTrackID": "\(trackID)",
+              "qobuzAlbumID": "\(albumID)",
+              "formatID": 27,
+              "bitDepth": 24,
+              "samplingRate": 96,
+              "sha256": "\(hash)"
+            }
+          }
+        }
+        """
+        try Data(manifest.utf8).write(to: folder.appendingPathComponent(".orpheus-provenance.json"))
+        try Data("\(hash)  \(filename)\n".utf8).write(
+            to: folder.appendingPathComponent("checksums.sha256")
         )
     }
 }
