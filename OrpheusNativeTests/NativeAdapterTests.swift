@@ -23,6 +23,36 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(results.firstNonemptyCategory, .artists)
     }
 
+    func testBrowseResultsAppendPagesWithoutDuplicatingOverlappingItems() {
+        var results = NativeBrowseResults()
+        results.replace(
+            QobuzSearchResults(
+                tracks: [
+                    QobuzTrack(id: .init("one"), title: "One"),
+                    QobuzTrack(id: .init("two"), title: "Two")
+                ],
+                nextOffset: 2,
+                total: 3
+            ),
+            for: .tracks
+        )
+        results.append(
+            QobuzSearchResults(
+                tracks: [
+                    QobuzTrack(id: .init("two"), title: "Two"),
+                    QobuzTrack(id: .init("three"), title: "Three")
+                ],
+                offset: 2,
+                total: 3
+            ),
+            for: .tracks
+        )
+
+        XCTAssertEqual(results.tracks.map(\.title), ["One", "Two", "Three"])
+        XCTAssertEqual(results.total(for: .tracks), 3)
+        XCTAssertNil(results.nextOffset(for: .tracks))
+    }
+
     func testSettingsStoreUsesIsolatedRootAndRoundTrips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -380,6 +410,39 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertFalse(viewModel.isBrowseLoading)
     }
 
+    func testSearchLoadsASecondCategoryPageAndUpdatesReportedCounts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let service = FakeQobuzService(paginatedSearch: true)
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in service }
+        )
+
+        viewModel.start()
+        viewModel.search("Sting")
+        for _ in 0..<100 where viewModel.isBrowseLoading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Track One", "Track Two"])
+        XCTAssertEqual(viewModel.browseCountLabel(for: .tracks), "2/3")
+        XCTAssertEqual(viewModel.browseStatusText, "2 of 3 loaded")
+        XCTAssertTrue(viewModel.canLoadMoreBrowseResults(for: .tracks))
+
+        viewModel.loadMoreBrowseResults(for: .tracks)
+        for _ in 0..<100 where viewModel.isLoadingMoreBrowseResults(for: .tracks) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Track One", "Track Two", "Track Three"])
+        XCTAssertEqual(viewModel.browseCountLabel(for: .tracks), "3")
+        XCTAssertEqual(viewModel.browseStatusText, "3 results")
+        XCTAssertFalse(viewModel.canLoadMoreBrowseResults(for: .tracks))
+    }
+
     func testBrowseDrillDownOpensAlbumPageAndBackReturnsToResults() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -635,10 +698,41 @@ private extension CredentialDraft {
 }
 
 private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable {
+    private let paginatedSearch: Bool
+
+    init(paginatedSearch: Bool = false) {
+        self.paginatedSearch = paginatedSearch
+    }
+
     func validateAccount() async throws -> String { "FR" }
 
-    func search(_ query: String, category: QobuzSearchCategory, limit: Int) async throws -> QobuzSearchResults {
+    func search(
+        _ query: String,
+        category: QobuzSearchCategory,
+        limit: Int,
+        offset: Int
+    ) async throws -> QobuzSearchResults {
         try await Task.sleep(for: .milliseconds(30))
+        if paginatedSearch {
+            guard category == .tracks else {
+                return QobuzSearchResults(offset: offset, total: 0)
+            }
+            if offset == 0 {
+                return QobuzSearchResults(
+                    tracks: [
+                        QobuzTrack(id: .init("track-one"), title: "Track One"),
+                        QobuzTrack(id: .init("track-two"), title: "Track Two")
+                    ],
+                    nextOffset: 2,
+                    total: 3
+                )
+            }
+            return QobuzSearchResults(
+                tracks: [QobuzTrack(id: .init("track-three"), title: "Track Three")],
+                offset: offset,
+                total: 3
+            )
+        }
         switch category {
         case .albums:
             return QobuzSearchResults(albums: [

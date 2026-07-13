@@ -31,7 +31,9 @@ final class NativeViewModel: ObservableObject {
     @Published var browseCategory: NativeBrowseCategory = .albums
     @Published private(set) var browseResults = NativeBrowseResults()
     @Published private(set) var loadingBrowseCategories: Set<NativeBrowseCategory> = []
+    @Published private(set) var loadingMoreBrowseCategories: Set<NativeBrowseCategory> = []
     @Published private(set) var browseErrors: [NativeBrowseCategory: String] = [:]
+    @Published private(set) var browseLoadMoreErrors: [NativeBrowseCategory: String] = [:]
     @Published private(set) var isBrowseOpen = false
     @Published private(set) var browsePath: [BrowsePage] = []
     @Published private(set) var isLibraryOpen = false
@@ -97,14 +99,24 @@ final class NativeViewModel: ObservableObject {
     var isDownloading: Bool { downloadTask != nil }
     var canCancel: Bool { downloadTask != nil }
     var canClearActivity: Bool { activities.contains { $0.status.isClearable } }
-    var isBrowseLoading: Bool { !loadingBrowseCategories.isEmpty }
+    var isBrowseLoading: Bool {
+        !loadingBrowseCategories.isEmpty || !loadingMoreBrowseCategories.isEmpty
+    }
 
     var browseStatusText: String {
-        if isBrowseLoading {
+        if !loadingBrowseCategories.isEmpty {
             return "Searching all categories"
         }
-        let total = browseResults.totalCount
-        return total == 1 ? "1 result" : "\(total) results"
+        let loaded = browseResults.totalCount
+        if !loadingMoreBrowseCategories.isEmpty {
+            return "\(loaded) loaded · Loading more"
+        }
+        if browseResults.hasMoreResults,
+           let reported = browseResults.reportedTotalCount,
+           reported > loaded {
+            return "\(loaded) of \(reported) loaded"
+        }
+        return loaded == 1 ? "1 result" : "\(loaded) results"
     }
 
     var browseAlbums: [QobuzAlbumSummary] { browseResults.albums }
@@ -398,17 +410,24 @@ final class NativeViewModel: ObservableObject {
         browseQuery = query
         browseResults = NativeBrowseResults()
         browseErrors = [:]
+        browseLoadMoreErrors = [:]
         browsePageTask?.cancel()
         browsePath = []
         isLibraryOpen = false
         loadingBrowseCategories = Set(NativeBrowseCategory.allCases)
+        loadingMoreBrowseCategories = []
         browseCategory = .albums
         isBrowseOpen = true
 
         for category in NativeBrowseCategory.allCases {
             browseTasks.append(Task { [weak self] in
                 do {
-                    let results = try await client.search(query, category: category.coreValue, limit: 30)
+                    let results = try await client.search(
+                        query,
+                        category: category.coreValue,
+                        limit: 30,
+                        offset: 0
+                    )
                     guard let self, self.browseRequestID == requestID, !Task.isCancelled else { return }
                     self.apply(results, category: category)
                 } catch {
@@ -423,6 +442,8 @@ final class NativeViewModel: ObservableObject {
     func closeBrowse() {
         browseTasks.forEach { $0.cancel() }
         browseTasks.removeAll()
+        loadingBrowseCategories = []
+        loadingMoreBrowseCategories = []
         browsePageTask?.cancel()
         browsePath = []
         isBrowseOpen = false
@@ -456,7 +477,9 @@ final class NativeViewModel: ObservableObject {
         browseQuery = ""
         browseResults = NativeBrowseResults()
         browseErrors = [:]
+        browseLoadMoreErrors = [:]
         loadingBrowseCategories = []
+        loadingMoreBrowseCategories = []
         browsePath = []
 
         switch request {
@@ -782,6 +805,58 @@ final class NativeViewModel: ObservableObject {
 
     func browseCount(for category: NativeBrowseCategory) -> Int {
         browseResults.count(for: category)
+    }
+
+    func browseCountLabel(for category: NativeBrowseCategory) -> String {
+        let loaded = browseResults.count(for: category)
+        if let total = browseResults.total(for: category), total > loaded {
+            return "\(loaded)/\(total)"
+        }
+        return String(loaded)
+    }
+
+    func canLoadMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
+        browseResults.nextOffset(for: category) != nil
+    }
+
+    func isLoadingMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
+        loadingMoreBrowseCategories.contains(category)
+    }
+
+    func loadMoreBrowseResults(for category: NativeBrowseCategory) {
+        guard let client,
+              let requestID = browseRequestID,
+              let offset = browseResults.nextOffset(for: category),
+              !loadingMoreBrowseCategories.contains(category),
+              !browseQuery.isEmpty else { return }
+
+        let query = browseQuery
+        loadingMoreBrowseCategories.insert(category)
+        browseLoadMoreErrors.removeValue(forKey: category)
+        let task = Task { [weak self] in
+            do {
+                let results = try await client.search(
+                    query,
+                    category: category.coreValue,
+                    limit: 30,
+                    offset: offset
+                )
+                guard let self,
+                      self.browseRequestID == requestID,
+                      self.browseQuery == query,
+                      !Task.isCancelled else { return }
+                self.browseResults.append(results, for: category)
+                self.loadingMoreBrowseCategories.remove(category)
+            } catch {
+                guard let self,
+                      self.browseRequestID == requestID,
+                      self.browseQuery == query,
+                      !Task.isCancelled else { return }
+                self.loadingMoreBrowseCategories.remove(category)
+                self.browseLoadMoreErrors[category] = error.localizedDescription
+            }
+        }
+        browseTasks.append(task)
     }
 
     func downloadSelected() {

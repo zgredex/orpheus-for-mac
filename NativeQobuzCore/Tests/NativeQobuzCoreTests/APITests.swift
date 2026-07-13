@@ -147,8 +147,38 @@ final class APITests: XCTestCase {
         let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         XCTAssertEqual(query["query"], "Adele 19")
         XCTAssertEqual(query["type"], "albums")
-        XCTAssertEqual(query["limit"], "60")
+        XCTAssertEqual(query["limit"], "30")
+        XCTAssertEqual(query["offset"], "0")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-Auth-Token"), "token")
+    }
+
+    func testSearchUsesRequestedOffsetAndReturnsQobuzCursorMetadata() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestBox = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.handler = { request in
+            requestBox.set(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"tracks":{"offset":30,"limit":30,"total":75,"items":[{"id":31,"title":"Page Two A","streamable":true,"purchasable":true},{"id":32,"title":"Page Two B","streamable":true,"purchasable":true}]}}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: session,
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let results = try await client.search("Sting", category: .tracks, limit: 30, offset: 30)
+
+        XCTAssertEqual(results.tracks.map(\.title), ["Page Two A", "Page Two B"])
+        XCTAssertEqual(results.offset, 30)
+        XCTAssertEqual(results.nextOffset, 32)
+        XCTAssertEqual(results.total, 75)
+        let request = try XCTUnwrap(requestBox.value)
+        let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(query["limit"], "30")
+        XCTAssertEqual(query["offset"], "30")
     }
 
     func testSearchFiltersUnstreamableTracksEvenWhenTheyAreDownloadable() async throws {

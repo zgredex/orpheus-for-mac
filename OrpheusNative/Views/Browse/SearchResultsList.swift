@@ -20,14 +20,23 @@ struct SearchResult: Identifiable {
 struct SearchResultsList: View {
     let results: [SearchResult]
     let emptyCategory: String
+    var hasMore = false
+    var isLoadingMore = false
+    var loadMoreError: String?
+    var loadMore: (() -> Void)?
 
     var body: some View {
-        List(results) { result in
-            SearchResultRow(result: result)
+        List {
+            ForEach(results) { result in
+                SearchResultRow(result: result)
+            }
+            if hasMore || isLoadingMore || loadMoreError != nil {
+                paginationRow
+            }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
         .overlay {
-            if results.isEmpty {
+            if results.isEmpty && !hasMore && !isLoadingMore && loadMoreError == nil {
                 ContentUnavailableView(
                     "No \(emptyCategory) found",
                     systemImage: "magnifyingglass",
@@ -35,6 +44,32 @@ struct SearchResultsList: View {
                 )
             }
         }
+    }
+
+    private var paginationRow: some View {
+        HStack(spacing: DS.Space.m) {
+            Spacer()
+            if isLoadingMore {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading more \(emptyCategory)…")
+                    .foregroundStyle(.secondary)
+            } else if let loadMoreError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(loadMoreError)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Button("Try Again") { loadMore?() }
+                    .controlSize(.small)
+            } else {
+                Button("Load More", systemImage: "arrow.down.circle") { loadMore?() }
+                    .controlSize(.small)
+            }
+            Spacer()
+        }
+        .font(.caption)
+        .frame(minHeight: 40)
     }
 }
 

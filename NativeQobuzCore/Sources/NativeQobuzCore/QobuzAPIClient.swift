@@ -18,7 +18,22 @@ public extension QobuzCatalogService {
 }
 
 public protocol QobuzBrowsingService: Sendable {
-    func search(_ query: String, category: QobuzSearchCategory, limit: Int) async throws -> QobuzSearchResults
+    func search(
+        _ query: String,
+        category: QobuzSearchCategory,
+        limit: Int,
+        offset: Int
+    ) async throws -> QobuzSearchResults
+}
+
+public extension QobuzBrowsingService {
+    func search(
+        _ query: String,
+        category: QobuzSearchCategory,
+        limit: Int
+    ) async throws -> QobuzSearchResults {
+        try await search(query, category: category, limit: limit, offset: 0)
+    }
 }
 
 public struct QobuzRetryPolicy: Equatable, Sendable {
@@ -237,36 +252,76 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func search(
         _ query: String,
         category: QobuzSearchCategory,
-        limit: Int = 30
+        limit: Int = 30,
+        offset: Int = 0
     ) async throws -> QobuzSearchResults {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return QobuzSearchResults() }
         let requestedLimit = min(max(limit, 1), 100)
-        let apiLimit = category == .artists ? requestedLimit : min(requestedLimit * 2, 100)
+        let requestedOffset = max(offset, 0)
         let (value, _): (SearchResponse, HTTPURLResponse) = try await get(
             endpoint: "catalog/search",
             parameters: [
                 "query": trimmed,
                 "type": category.rawValue,
-                "limit": String(apiLimit),
-                "offset": "0",
+                "limit": String(requestedLimit),
+                "offset": String(requestedOffset),
                 "app_id": credentials.appID
             ]
         )
         switch category {
         case .albums:
-            let albums = (value.albums?.items ?? [])
+            let page = value.albums
+            let raw = page?.items ?? []
+            let albums = raw
                 .filter { $0.accountAvailabilityIssue == nil }
-                .prefix(requestedLimit)
-            return QobuzSearchResults(albums: Array(albums))
-        case .artists: return QobuzSearchResults(artists: value.artists?.items ?? [])
-        case .playlists: return QobuzSearchResults(playlists: value.playlists?.items ?? [])
+            return QobuzSearchResults(
+                albums: albums,
+                offset: page?.offset ?? requestedOffset,
+                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                total: page?.total
+            )
+        case .artists:
+            let page = value.artists
+            return QobuzSearchResults(
+                artists: page?.items ?? [],
+                offset: page?.offset ?? requestedOffset,
+                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                total: page?.total
+            )
+        case .playlists:
+            let page = value.playlists
+            return QobuzSearchResults(
+                playlists: page?.items ?? [],
+                offset: page?.offset ?? requestedOffset,
+                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                total: page?.total
+            )
         case .tracks:
-            let tracks = (value.tracks?.items ?? [])
+            let page = value.tracks
+            let raw = page?.items ?? []
+            let tracks = raw
                 .filter { $0.accountAvailabilityIssue == nil }
-                .prefix(requestedLimit)
-            return QobuzSearchResults(tracks: Array(tracks))
+            return QobuzSearchResults(
+                tracks: tracks,
+                offset: page?.offset ?? requestedOffset,
+                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                total: page?.total
+            )
         }
+    }
+
+    private func nextOffset<Value>(
+        for page: SearchResponse.Items<Value>?,
+        fallbackOffset: Int,
+        requestedLimit: Int
+    ) -> Int? {
+        guard let page, !page.items.isEmpty else { return nil }
+        let candidate = (page.offset ?? fallbackOffset) + page.items.count
+        if let total = page.total {
+            return candidate < total ? candidate : nil
+        }
+        return page.items.count >= requestedLimit ? candidate : nil
     }
 
     static func signature(
@@ -423,6 +478,9 @@ private struct SearchResponse: Decodable {
 
     struct Items<Value: Decodable>: Decodable {
         let items: [Value]
+        let offset: Int?
+        let limit: Int?
+        let total: Int?
     }
 }
 

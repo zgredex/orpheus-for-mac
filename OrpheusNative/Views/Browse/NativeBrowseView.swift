@@ -45,7 +45,7 @@ struct NativeBrowseView: View {
         HStack(spacing: DS.Space.m) {
             Picker("Category", selection: $vm.browseCategory) {
                 ForEach(NativeBrowseCategory.allCases) { category in
-                    Text("\(category.rawValue)  \(vm.browseCount(for: category))")
+                    Text("\(category.rawValue)  \(vm.browseCountLabel(for: category))")
                         .monospacedDigit()
                         .tag(category)
                 }
@@ -191,12 +191,26 @@ struct NativeBrowseView: View {
             }
         } else {
             switch vm.browseCategory {
-            case .albums: SearchResultsList(results: albumResults, emptyCategory: "albums")
-            case .artists: SearchResultsList(results: artistResults, emptyCategory: "artists")
-            case .playlists: SearchResultsList(results: playlistResults, emptyCategory: "playlists")
-            case .tracks: SearchResultsList(results: trackResults, emptyCategory: "tracks")
+            case .albums: paginatedResults(albumResults, category: .albums)
+            case .artists: paginatedResults(artistResults, category: .artists)
+            case .playlists: paginatedResults(playlistResults, category: .playlists)
+            case .tracks: paginatedResults(trackResults, category: .tracks)
             }
         }
+    }
+
+    private func paginatedResults(
+        _ results: [SearchResult],
+        category: NativeBrowseCategory
+    ) -> some View {
+        SearchResultsList(
+            results: results,
+            emptyCategory: category.rawValue.lowercased(),
+            hasMore: vm.canLoadMoreBrowseResults(for: category),
+            isLoadingMore: vm.isLoadingMoreBrowseResults(for: category),
+            loadMoreError: vm.browseLoadMoreErrors[category],
+            loadMore: { vm.loadMoreBrowseResults(for: category) }
+        )
     }
 
     @ViewBuilder private func pageContent(_ page: BrowsePage) -> some View {
