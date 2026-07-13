@@ -55,6 +55,8 @@ final class NativeViewModel: ObservableObject {
     private var linkInboxTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
     private var downloadTask: Task<Void, Never>?
+    private var activeItemDownloadTask: Task<Void, Never>?
+    private var activeItemQueueID: UUID?
     private var sessionPersistenceTask: Task<Void, Never>?
     private var lastProgressUpdate: [UUID: Date] = [:]
     private var started = false
@@ -878,8 +880,38 @@ final class NativeViewModel: ObservableObject {
     }
 
     func resume(_ activity: NativeDownloadActivity) {
-        guard activity.status == .paused else { return }
+        guard activity.status.canResume else { return }
         startDownloads(ids: [activity.queueID])
+    }
+
+    func retry(_ activity: NativeDownloadActivity) {
+        guard activity.status.canRetry else { return }
+        startDownloads(ids: [activity.queueID])
+    }
+
+    func canRestart(_ activity: NativeDownloadActivity) -> Bool {
+        guard !isDownloading else { return false }
+        return queue.first(where: { $0.id == activity.queueID })?.status.canStart == true
+    }
+
+    func canCancel(_ activity: NativeDownloadActivity) -> Bool {
+        activity.status.isActive && activeItemQueueID == activity.queueID
+    }
+
+    func cancel(_ activity: NativeDownloadActivity) {
+        guard canCancel(activity) else { return }
+        activeItemDownloadTask?.cancel()
+    }
+
+    func removeActivity(_ activity: NativeDownloadActivity) {
+        guard !activity.status.isActive else { return }
+        activities.removeAll { $0.id == activity.id }
+        lastProgressUpdate.removeValue(forKey: activity.id)
+    }
+
+    func resumablePartial(for activity: NativeDownloadActivity) -> NativePartialDownload? {
+        guard activity.status.canResume || activity.status.canRetry else { return nil }
+        return partialArtifact(for: activity)
     }
 
     func repairArchiveTracks(_ tracks: [QobuzArchiveTrack]) {
@@ -933,6 +965,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func cancelDownloads() {
+        activeItemDownloadTask?.cancel()
         downloadTask?.cancel()
     }
 
@@ -947,16 +980,40 @@ final class NativeViewModel: ObservableObject {
         linkInboxTask?.cancel()
         markActiveDownloadsPaused(phase: "Paused after app closed")
         persistSessionNow(reportErrors: false)
+        activeItemDownloadTask?.cancel()
         downloadTask?.cancel()
     }
 
     func reveal(_ activity: NativeDownloadActivity) {
-        let target = activity.outputURL ?? URL(fileURLWithPath: settings.downloadPath, isDirectory: true)
+        let fileManager = FileManager.default
+        let target: URL
+        if let output = activity.outputURL, fileManager.fileExists(atPath: output.path) {
+            target = output
+        } else if let partial = partialArtifact(for: activity) {
+            target = partial.url
+        } else if let output = activity.outputURL,
+                  fileManager.fileExists(atPath: output.deletingLastPathComponent().path) {
+            target = output.deletingLastPathComponent()
+        } else {
+            target = URL(fileURLWithPath: settings.downloadPath, isDirectory: true)
+        }
         NSWorkspace.shared.activateFileViewerSelecting([target])
     }
 
     func revealDownloadRoot() {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: settings.downloadPath, isDirectory: true)])
+    }
+
+    private func partialArtifact(for activity: NativeDownloadActivity) -> NativePartialDownload? {
+        guard let output = activity.outputURL, let quality = activity.quality else { return nil }
+        let url = QobuzDownloadArtifacts.partialURL(for: output, formatID: quality.formatID)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path),
+              (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
+              let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let value = attributes[.size] as? NSNumber,
+              value.int64Value > 0 else { return nil }
+        return NativePartialDownload(url: url, bytes: value.int64Value)
     }
 
     private func configureClient() {
@@ -1119,6 +1176,9 @@ final class NativeViewModel: ObservableObject {
         downloadTask = Task { [weak self] in
             guard let self else { return }
             defer {
+                activeItemDownloadTask?.cancel()
+                activeItemDownloadTask = nil
+                activeItemQueueID = nil
                 downloadTask = nil
                 if !isTerminating { refreshArchive() }
             }
@@ -1135,7 +1195,17 @@ final class NativeViewModel: ObservableObject {
                         fileURLWithPath: item.downloadRootPath ?? defaultRootPath,
                         isDirectory: true
                     )
-                    await runDownload(id: id, engine: engine, quality: quality, root: root)
+                    let itemTask = Task { [weak self] in
+                        guard let self else { return }
+                        await runDownload(id: id, engine: engine, quality: quality, root: root)
+                    }
+                    activeItemDownloadTask = itemTask
+                    activeItemQueueID = id
+                    await itemTask.value
+                    if activeItemQueueID == id {
+                        activeItemDownloadTask = nil
+                        activeItemQueueID = nil
+                    }
                 }
             } catch is CancellationError {
                 if isTerminating { markActiveDownloadsPaused(phase: "Paused after app closed") }
@@ -1162,12 +1232,19 @@ final class NativeViewModel: ObservableObject {
             $0.downloadRootPath = root.standardizedFileURL.path
         }
         let activityID: UUID
-        if let index = activities.firstIndex(where: { $0.queueID == queueID && $0.status == .paused }) {
+        if let index = activities.firstIndex(where: {
+            $0.queueID == queueID && ($0.status.canResume || $0.status.canRetry)
+        }) {
             activityID = activities[index].id
+            let partial = resumablePartial(for: activities[index])
+            let isRetry = activities[index].status.canRetry
             activities[index].status = .queued
-            activities[index].phase = "Resuming"
+            activities[index].phase = partial == nil
+                ? (isRetry ? "Retrying" : "Resuming")
+                : "Resuming existing partial file"
             activities[index].quality = quality
             activities[index].bytesPerSecond = nil
+            activities[index].errorMessage = nil
         } else {
             activityID = UUID()
             activities.insert(
@@ -1198,7 +1275,12 @@ final class NativeViewModel: ObservableObject {
                 updateActivity(activityID) { $0.status = .paused; $0.phase = "Paused after app closed" }
             } else {
                 updateQueue(queueID) { $0.status = .cancelled }
-                updateActivity(activityID) { $0.status = .cancelled; $0.phase = "Cancelled" }
+                updateActivity(activityID) {
+                    $0.status = .cancelled
+                    $0.phase = "Cancelled"
+                    $0.errorMessage = nil
+                    $0.bytesPerSecond = nil
+                }
             }
         } catch NativeQobuzError.cancelled {
             if isTerminating {
@@ -1206,13 +1288,19 @@ final class NativeViewModel: ObservableObject {
                 updateActivity(activityID) { $0.status = .paused; $0.phase = "Paused after app closed" }
             } else {
                 updateQueue(queueID) { $0.status = .cancelled }
-                updateActivity(activityID) { $0.status = .cancelled; $0.phase = "Cancelled" }
+                updateActivity(activityID) {
+                    $0.status = .cancelled
+                    $0.phase = "Cancelled"
+                    $0.errorMessage = nil
+                    $0.bytesPerSecond = nil
+                }
             }
         } catch let error as NativeQobuzError where error.canResumeTransfer {
             updateQueue(queueID) { $0.status = .paused }
             updateActivity(activityID) {
                 $0.status = .paused
                 $0.phase = "Paused · \(error.localizedDescription)"
+                $0.errorMessage = error.localizedDescription
                 $0.bytesPerSecond = nil
             }
         } catch {
@@ -1220,6 +1308,8 @@ final class NativeViewModel: ObservableObject {
             updateActivity(activityID) {
                 $0.status = .failed(error.localizedDescription)
                 $0.phase = error.localizedDescription
+                $0.errorMessage = error.localizedDescription
+                $0.bytesPerSecond = nil
             }
         }
     }
@@ -1273,7 +1363,7 @@ final class NativeViewModel: ObservableObject {
             case .assetCreated(let url):
                 activity.phase = "Created \(url.lastPathComponent)"
             case .warning(let message):
-                activity.warnings.append(message)
+                if !activity.warnings.contains(message) { activity.warnings.append(message) }
                 activity.phase = "Finishing with warnings"
             case .trackCompleted(_, let destination), .trackSkipped(_, let destination):
                 activity.outputURL = destination

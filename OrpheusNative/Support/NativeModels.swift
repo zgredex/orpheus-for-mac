@@ -371,6 +371,23 @@ enum NativeActivityStatus: Codable, Equatable {
         }
     }
 
+    var canResume: Bool {
+        switch self {
+        case .paused, .cancelled: true
+        default: false
+        }
+    }
+
+    var canRetry: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+
+    var failureMessage: String? {
+        if case .failed(let message) = self { return message }
+        return nil
+    }
+
     private enum CodingKeys: String, CodingKey { case kind, message }
     private enum Kind: String, Codable { case queued, resolving, downloading, tagging, validating, paused, completed, failed, cancelled }
 
@@ -424,7 +441,15 @@ struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     var albumBytesWritten: Int64?
     var checksum: String?
     var warnings: [String] = []
+    var errorMessage: String?
     var outputURL: URL?
+
+    var detailError: String? { errorMessage ?? status.failureMessage }
+}
+
+struct NativePartialDownload: Equatable {
+    let url: URL
+    let bytes: Int64
 }
 
 enum BrowseDestination: Equatable {

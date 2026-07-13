@@ -3,6 +3,19 @@ import XCTest
 @testable import NativeQobuzCore
 
 final class DownloadEngineTests: XCTestCase {
+    func testDownloadArtifactsExposeTheResumablePartialPath() {
+        let destination = URL(fileURLWithPath: "/downloads/Artist/Album/01. Track.flac")
+
+        XCTAssertEqual(
+            QobuzDownloadArtifacts.processingURL(for: destination, formatID: 27).path,
+            "/downloads/Artist/Album/.01. Track.qobuz-27.processing.flac"
+        )
+        XCTAssertEqual(
+            QobuzDownloadArtifacts.partialURL(for: destination, formatID: 27).path,
+            "/downloads/Artist/Album/.01. Track.qobuz-27.processing.flac.partial"
+        )
+    }
+
     func testOutputPlannerSanitizesPathsAndUsesDiscPrefix() {
         let artist = QobuzArtist(id: QobuzID("artist"), name: "Artist/Name")
         let track = QobuzTrack(

@@ -48,6 +48,27 @@ public enum QobuzDownloadEvent: Equatable, Sendable {
     case completed(title: String, downloaded: Int, skipped: Int)
 }
 
+/// Stable locations used while an audio download is being processed.
+///
+/// The transfer client appends `.partial` to the processing URL and preserves
+/// that file when a transfer is interrupted. Keeping this calculation public
+/// lets clients accurately report resumable work without duplicating the
+/// engine's filename rules.
+public enum QobuzDownloadArtifacts {
+    public static func processingURL(for destination: URL, formatID: Int) -> URL {
+        destination.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(destination.deletingPathExtension().lastPathComponent).qobuz-\(formatID).processing"
+            )
+            .appendingPathExtension(destination.pathExtension)
+    }
+
+    public static func partialURL(for destination: URL, formatID: Int) -> URL {
+        processingURL(for: destination, formatID: formatID)
+            .appendingPathExtension("partial")
+    }
+}
+
 public final class NativeQobuzDownloadEngine: @unchecked Sendable {
     private let service: any QobuzCatalogService
     private let resolver: QobuzCatalogResolver
@@ -219,7 +240,10 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                         } else {
                             artworkTask = Task { try await assetWriter.artwork(for: item.album) }
                         }
-                        let staging = processingURL(for: destination, formatID: fileInfo.formatID)
+                        let staging = QobuzDownloadArtifacts.processingURL(
+                            for: destination,
+                            formatID: fileInfo.formatID
+                        )
                         defer { try? fileManager.removeItem(at: staging) }
                         do {
                             for try await transferEvent in transfer.events(from: fileInfo.url, to: staging) {
@@ -388,14 +412,6 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             }
             continuation.onTermination = { @Sendable _ in task.cancel() }
         }
-    }
-
-    private func processingURL(for destination: URL, formatID: Int) -> URL {
-        destination.deletingLastPathComponent()
-            .appendingPathComponent(
-                ".\(destination.deletingPathExtension().lastPathComponent).qobuz-\(formatID).processing"
-            )
-            .appendingPathExtension(destination.pathExtension)
     }
 
     private func validateRepairPlan(

@@ -158,6 +158,8 @@ final class NativeAdapterTests: XCTestCase {
         activity.progress = 0.42
         activity.bytesWritten = 42
         activity.totalBytes = 100
+        activity.warnings = ["Cover artwork could not be saved."]
+        activity.errorMessage = "The transfer was interrupted."
         var inboxItem = NativeLinkInboxItem(link: ParsedQobuzLink(
             original: "https://open.qobuz.com/album/album",
             request: .album(QobuzID("album"))
@@ -176,6 +178,49 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(try store.load(), snapshot)
         XCTAssertEqual(try store.load()?.linkInbox.first?.status, .available)
         XCTAssertTrue(paths.sessionURL.path.hasPrefix(paths.applicationSupportRoot.path))
+    }
+
+    func testActivityFindsOnlyRecoverableNonemptyPartialFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        let output = paths.defaultDownloadRoot
+            .appendingPathComponent("Artist/Album/01. Track.flac")
+        let partial = QobuzDownloadArtifacts.partialURL(
+            for: output,
+            formatID: QobuzQuality.hiRes.formatID
+        )
+        try FileManager.default.createDirectory(
+            at: partial.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(repeating: 7, count: 4_096).write(to: partial)
+
+        var activity = NativeDownloadActivity(id: UUID(), queueID: UUID(), title: "Album")
+        activity.status = .paused
+        activity.quality = .hiRes
+        activity.outputURL = output
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore()
+        )
+
+        XCTAssertEqual(
+            viewModel.resumablePartial(for: activity),
+            NativePartialDownload(url: partial, bytes: 4_096)
+        )
+
+        activity.status = .completed
+        XCTAssertNil(viewModel.resumablePartial(for: activity))
+
+        activity.status = .failed("Network unavailable")
+        XCTAssertEqual(viewModel.resumablePartial(for: activity)?.bytes, 4_096)
+
+        try Data().write(to: partial)
+        XCTAssertNil(viewModel.resumablePartial(for: activity))
     }
 
     func testVersionOneSessionDefaultsToAnEmptyLinkInbox() throws {

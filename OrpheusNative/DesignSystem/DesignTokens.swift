@@ -37,7 +37,7 @@ enum DS {
         static let rowAction: CGFloat = 30
         static let activityQuality: CGFloat = 132
         static let activityTransfer: CGFloat = 112
-        static let activityActions: CGFloat = 56
+        static let activityActions: CGFloat = 154
     }
 }
 
