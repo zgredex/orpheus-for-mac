@@ -21,8 +21,8 @@ Live integration tests accept credentials only through environment variables and
 3. Artwork, booklet, playlist, duplicate, and partial-file behavior. Complete.
 4. Minimal mandatory FFmpeg media validator built from pinned source. Complete.
 5. Native app adapter and a separate preview bundle identifier/Application Support root. Complete.
-6. Differential testing against the frozen Python behavior.
-7. Remove Python packaging only after the native backend passes the parity matrix.
+6. Native acceptance matrix and release packaging pipeline. Complete.
+7. Developer ID signing, notarization, and clean-account release evidence. Pending release credentials and external verification.
 
 ## Current Milestone
 
@@ -50,11 +50,16 @@ Live French-account checks confirm direct MP3/FLAC transfer, metadata and
 1400x1400 cover embedding, complete decode validation, and final SHA-256
 generation. Native album search has also been verified against the FR account.
 
-`OrpheusNative.xcodeproj` now provides a runnable adapter with an isolated
-bundle identifier, owner-only credential file, Application Support root, and
-download directory. It supports multi-link queueing, text import, native
-account-region search, metadata previews, sequential downloads, persistent
-queue/activity recovery, resumable partial transfers, progress/speed,
-cancellation, integrity state, and Finder reveal. It remains a preview and does
-not replace the production app until the differential parity milestone is
-complete.
+`OrpheusNative.xcodeproj` now builds the 1.0 release app as `com.orpheus.formac`.
+It uses an owner-only credential file, release Application Support root, and
+release download directory. On first launch it safely copies native Preview
+state without overwriting release data or deleting the rollback source. It
+supports multi-link queueing, text import, native account-region search,
+metadata previews, sequential downloads, persistent queue/activity recovery,
+resumable partial transfers, progress/speed, cancellation, integrity state, and
+Finder reveal.
+
+Release qualification runs app and core tests, a redacted live French-account
+matrix, app and DMG packaging, moved-bundle portability checks, clean-account
+evidence, Developer ID verification, and notarization validation. A report may
+only mark the release qualified when every required gate passes.

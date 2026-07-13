@@ -1,130 +1,94 @@
 # Orpheus for Mac
 
-Native macOS companion app for [OrpheusDL](https://github.com/OrfiTeam/OrpheusDL), focused on Qobuz browsing, queueing, and downloads in a portable `.app` bundle.
-
-Orpheus for Mac keeps the familiar power of the OrpheusDL command line, but wraps the common flow in a compact SwiftUI interface: paste links, browse Qobuz, preview albums/tracks/artists, queue several items, and monitor downloads with track counts, byte progress, speed, and Finder reveal actions.
+Orpheus for Mac is a native Apple Silicon macOS client for browsing and downloading Qobuz. The application, Qobuz client, download engine, metadata writers, integrity checks, and mandatory media validator are bundled in one portable `.app`. Python, Homebrew, OrpheusDL, and a helper daemon are not required at runtime.
 
 ## Highlights
 
-- Native SwiftUI macOS app for Apple Silicon.
-- Qobuz link queue for albums, tracks, playlists, and artists.
-- Multi-link paste and text-file import.
-- Qobuz browse/search with dense album, artist, and track lists.
-- Account-region-aware browsing and preview.
-- Sequential downloads through bundled OrpheusDL runtime.
-- Live activity rows with phase, track/album count, byte progress, speed, cancel, and reveal.
-- Self-contained portable `.app` packaging with bundled helper, OrpheusDL template, and optional `ffmpeg`.
+- Account-region-aware Qobuz search and direct-link browsing.
+- Albums, tracks, playlists, artist catalogs, and label catalogs.
+- Mixed-availability albums with unavailable tracks clearly excluded.
+- MP3 320, lossless FLAC, and Hi-Res FLAC without lossy re-encoding.
+- Crash-safe `.partial` transfers, fresh signed URLs, validated HTTP Range resume, and clean restart fallback.
+- Native FLAC and ID3 metadata, embedded and external artwork, booklets, relative M3U playlists, and SHA-256 manifests.
+- One canonical physical audio file with explicit Library membership for albums, standalone tracks, and playlists.
+- A mandatory arm64 FFmpeg-derived validator containing only the components used for MP3 and FLAC decode checks.
 
-## Portability Model
+## Portability
 
-The app bundle is treated as immutable. Mutable data lives outside the bundle:
+The app bundle is immutable. Mutable state is stored in:
 
-- Runtime copy: `~/Library/Application Support/OrpheusUI/OrpheusDL`
-- Settings: `~/Library/Application Support/OrpheusUI/OrpheusDL/config/settings.json`
-- Logs: `~/Library/Application Support/OrpheusUI/orpheus-ui.log`
-- Default downloads: `~/Music/OrpheusUI`
+- Application Support: `~/Library/Application Support/Orpheus for Mac`
+- Default downloads: `~/Music/Orpheus for Mac`
 
-The packaged app does not include local Qobuz credentials. First launch installs a sanitized OrpheusDL runtime template into Application Support; later launches refresh runtime code while preserving user settings, credentials, logs, downloads, and temp files.
+Version 1.0 safely migrates the former native Preview data from `~/Library/Application Support/OrpheusNativePreview`. Migration copies data, preserves an existing custom download path, never overwrites newer release data, and leaves the Preview directory intact for rollback.
 
-## Upstream Projects and Credits
-
-Orpheus for Mac is a graphical companion and packaging layer built on the work of the OrpheusDL community. It does not replace or claim authorship of the downloader or Qobuz integration:
-
-- [OrfiTeam/OrpheusDL](https://github.com/OrfiTeam/OrpheusDL) provides the core modular music downloader.
-- [OrfiDev/orpheusdl-qobuz](https://github.com/OrfiDev/orpheusdl-qobuz) is an upstream Qobuz module implementation and part of the module's development lineage.
-- [TheKVT/orpheusdl-qobuz](https://github.com/TheKVT/orpheusdl-qobuz) provides the Qobuz module revision currently used by the portable build.
-
-All credit for those projects belongs to their respective maintainers and contributors. Their licenses and notices continue to apply to the bundled upstream code.
-
-## Repository Layout
-
-```text
-OrpheusUI/
-  OrpheusUI/                 SwiftUI app source
-  OrpheusUITests/            Unit tests for parsing, queueing, runtime, runner behavior
-  Packaging/                 Frozen helper entrypoint and OrpheusDL staging patches
-  scripts/build_portable.sh  Portable .app build script
-```
-
-The build script expects an upstream OrpheusDL checkout next to this repository, with the Qobuz module installed from [TheKVT/orpheusdl-qobuz](https://github.com/TheKVT/orpheusdl-qobuz):
-
-```text
-workspace/
-  OrpheusUI/
-  OrpheusDL/
-    modules/
-      qobuz/
-```
-
-During packaging, `scripts/build_portable.sh` copies `../OrpheusDL` into a staged template, strips local credentials, applies app-specific packaging patches, freezes the Python helper, and embeds the result in `dist/Orpheus for Mac.app`.
+Credentials are stored in an owner-only `credentials.json` file. It contains the Qobuz App ID, App Secret, and auth token. A Qobuz account user ID is neither stored nor sent as an App ID.
 
 ## Build
 
 Requirements:
 
-- macOS 14 or newer.
-- Apple Silicon Mac.
+- macOS 14 or newer on Apple Silicon.
 - Full Xcode installation.
-- Python 3 with `venv`.
-- Adjacent OrpheusDL checkout at `../OrpheusDL`.
-- Qobuz module from `TheKVT/orpheusdl-qobuz` installed at `../OrpheusDL/modules/qobuz`.
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
-Prepare OrpheusDL and the Qobuz module:
+Build the release app and DMG:
 
-```bash
-git clone https://github.com/OrfiTeam/OrpheusDL.git OrpheusDL
-git clone https://github.com/TheKVT/orpheusdl-qobuz OrpheusDL/modules/qobuz
+```sh
+scripts/build_native_release.sh
 ```
 
-Then prepare the helper build environment:
+Development output is ad-hoc signed. For a distributable release, install a Developer ID Application certificate and a `notarytool` Keychain profile, then run:
 
-```bash
-cd OrpheusUI
-python3 -m venv Build/pyinstaller-venv
-Build/pyinstaller-venv/bin/pip install pyinstaller -r ../OrpheusDL/requirements.txt
+```sh
+CODESIGN_IDENTITY='Developer ID Application: Example (TEAMID)' \
+NOTARYTOOL_PROFILE='orpheus-notary' \
+REQUIRE_NOTARIZATION=1 \
+scripts/build_native_release.sh
 ```
 
-Build the portable app:
-
-```bash
-scripts/build_portable.sh
-```
-
-The output is:
+Artifacts:
 
 ```text
-dist/Orpheus for Mac.app
+dist-native/Orpheus for Mac.app
+dist-native/Orpheus-for-Mac-1.0.0.dmg
+dist-native/Orpheus-for-Mac-1.0.0.dmg.sha256
 ```
 
-`ffmpeg` is bundled when the script can find a portable arm64 binary. If none is found, packaged default settings disable codec conversions.
+The build fails if a bundled executable is not arm64 or links to Homebrew, `/usr/local`, or a user-specific path. `REQUIRE_NOTARIZATION=1` fails closed when signing or notarization credentials are unavailable.
 
-## Test
+## Qualification
 
-```bash
-env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild \
-  -project OrpheusUI.xcodeproj \
-  -scheme OrpheusUI \
-  -destination 'platform=macOS' \
-  -derivedDataPath Build/DerivedData \
-  test
+The release harness runs app and core tests, the live French-account matrix, packaging, a moved-bundle launch, clean-account evidence, and notarization validation. It writes redacted logs and JSON reports under `Build/Acceptance`.
+
+```sh
+QOBUZ_CREDENTIALS_FILE="$HOME/Library/Application Support/Orpheus for Mac/credentials.json" \
+scripts/run_native_release_qualification.sh
 ```
 
-Useful release checks after packaging:
+The live matrix covers album, track, playlist, artist, label, all search categories, mixed availability, all three qualities, cancellation, persisted resume state, fresh signed URLs, decode validation, metadata, artwork, checksums, duplicate reuse, and Library segregation. Release qualification remains false until a separate clean macOS login has been tested and the DMG has a valid notarization ticket.
 
-```bash
-codesign --verify --deep --strict --verbose=2 'dist/Orpheus for Mac.app'
-file 'dist/Orpheus for Mac.app/Contents/MacOS/OrpheusUI'
-file 'dist/Orpheus for Mac.app/Contents/Resources/orpheus-helper/orpheus-helper'
-file 'dist/Orpheus for Mac.app/Contents/Resources/ffmpeg'
+## Repository Layout
+
+```text
+NativeQobuzCore/                 Qobuz API, download, media, integrity, and Library core
+OrpheusNative/                   SwiftUI application
+OrpheusNativeTests/              App adapter, persistence, migration, and workflow tests
+orpheus-native.yml               XcodeGen project and release identity
+scripts/build_native_release.sh  App/DMG signing and notarization pipeline
+scripts/run_native_release_qualification.sh
 ```
 
-## Credentials
+## Browser Handoff
 
-Open Settings in the app and enter Qobuz credentials. The app stores them only in the mutable Application Support runtime copy. Build output and committed source should never contain personal Qobuz auth tokens or user IDs.
+The release registers `orpheus-for-mac://open?url=...`. The former `orpheus-native://` scheme remains registered for compatibility. Both routes open account-verified Browse detail and never bypass availability checks or add directly to the queue.
 
-## Notes
+## Attribution
 
-- Downloads are sequential by design to avoid shared OrpheusDL settings conflicts and reduce rate-limit risk.
-- The app disables App Sandbox for this first portable release so it can run the bundled helper, write downloads, and reveal files in Finder.
-- Multi-region credential fallback is intentionally out of scope; the app reports the account region and lets the user replace credentials when needed.
+The native implementation was independently written in Swift, using Qobuz API responses and the established Orpheus projects as behavioral references:
+
+- [OrfiTeam/OrpheusDL](https://github.com/OrfiTeam/OrpheusDL)
+- [OrfiDev/orpheusdl-qobuz](https://github.com/OrfiDev/orpheusdl-qobuz)
+- [TheKVT/orpheusdl-qobuz](https://github.com/TheKVT/orpheusdl-qobuz)
+
+Those projects and their contributors deserve credit for documenting and refining the Qobuz/Orpheus workflows that informed compatibility. Their code is not required by the native app at runtime.

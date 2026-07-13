@@ -7,10 +7,10 @@ struct NativePaths: Sendable {
 
     init(fileManager: FileManager = .default) {
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        applicationSupportRoot = support.appendingPathComponent("OrpheusNativePreview", isDirectory: true)
+        applicationSupportRoot = support.appendingPathComponent("Orpheus for Mac", isDirectory: true)
         defaultDownloadRoot = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Music", isDirectory: true)
-            .appendingPathComponent("Orpheus Native Preview", isDirectory: true)
+            .appendingPathComponent("Orpheus for Mac", isDirectory: true)
     }
 
     init(applicationSupportRoot: URL, defaultDownloadRoot: URL) {
@@ -22,6 +22,93 @@ struct NativePaths: Sendable {
     var archiveIndexURL: URL { applicationSupportRoot.appendingPathComponent("archive-index.json") }
     var credentialsURL: URL { applicationSupportRoot.appendingPathComponent("credentials.json") }
     var sessionURL: URL { applicationSupportRoot.appendingPathComponent("download-session.json") }
+}
+
+protocol NativeDataMigrating: Sendable {
+    func migrateIfNeeded() throws
+}
+
+struct NoOpNativeDataMigrator: NativeDataMigrating {
+    func migrateIfNeeded() throws {}
+}
+
+struct NativePreviewDataMigrator: NativeDataMigrating, @unchecked Sendable {
+    static let markerName = ".migration-v1-from-native-preview"
+
+    let sourceRoot: URL
+    let destinationRoot: URL
+    let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        self.init(
+            sourceRoot: support.appendingPathComponent("OrpheusNativePreview", isDirectory: true),
+            destinationRoot: support.appendingPathComponent("Orpheus for Mac", isDirectory: true),
+            fileManager: fileManager
+        )
+    }
+
+    init(sourceRoot: URL, destinationRoot: URL, fileManager: FileManager = .default) {
+        self.sourceRoot = sourceRoot
+        self.destinationRoot = destinationRoot
+        self.fileManager = fileManager
+    }
+
+    func migrateIfNeeded() throws {
+        var sourceIsDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: sourceRoot.path, isDirectory: &sourceIsDirectory),
+              sourceIsDirectory.boolValue else { return }
+
+        let marker = destinationRoot.appendingPathComponent(Self.markerName)
+        guard !fileManager.fileExists(atPath: marker.path) else { return }
+
+        if !fileManager.fileExists(atPath: destinationRoot.path) {
+            try installCompleteCopy()
+        } else {
+            try mergeMissingItems(marker: marker)
+        }
+        try secureMigratedCredentials()
+    }
+
+    private func installCompleteCopy() throws {
+        let parent = destinationRoot.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        let staging = parent.appendingPathComponent(".orpheus-migration-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: staging) }
+
+        try fileManager.copyItem(at: sourceRoot, to: staging)
+        try writeMarker(at: staging.appendingPathComponent(Self.markerName))
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+        try fileManager.moveItem(at: staging, to: destinationRoot)
+    }
+
+    private func mergeMissingItems(marker: URL) throws {
+        try fileManager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+        for source in try fileManager.contentsOfDirectory(
+            at: sourceRoot,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: []
+        ) {
+            if (try? source.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                continue
+            }
+            let destination = destinationRoot.appendingPathComponent(source.lastPathComponent)
+            guard !fileManager.fileExists(atPath: destination.path) else { continue }
+            try fileManager.copyItem(at: source, to: destination)
+        }
+        try writeMarker(at: marker)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: destinationRoot.path)
+    }
+
+    private func writeMarker(at url: URL) throws {
+        try Data("Orpheus Native Preview migration v1\n".utf8).write(to: url, options: .atomic)
+    }
+
+    private func secureMigratedCredentials() throws {
+        let credentials = destinationRoot.appendingPathComponent("credentials.json")
+        guard fileManager.fileExists(atPath: credentials.path) else { return }
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: credentials.path)
+    }
 }
 
 protocol NativeSettingsStoring: Sendable {

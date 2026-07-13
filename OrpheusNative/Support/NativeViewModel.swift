@@ -39,6 +39,7 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var isArchiveScanning = false
 
     private let settingsStore: any NativeSettingsStoring
+    private let dataMigrator: any NativeDataMigrating
     private let credentialStore: any NativeCredentialStoring
     private let archiveStore: any NativeArchiveIndexStoring
     private let sessionStore: any NativeSessionStoring
@@ -59,6 +60,7 @@ final class NativeViewModel: ObservableObject {
     private var isTerminating = false
 
     init(
+        dataMigrator: any NativeDataMigrating = NoOpNativeDataMigrator(),
         settingsStore: any NativeSettingsStoring = NativeSettingsStore(),
         credentialStore: any NativeCredentialStoring = FileCredentialStore(),
         archiveStore: any NativeArchiveIndexStoring = NativeArchiveIndexStore(),
@@ -68,6 +70,7 @@ final class NativeViewModel: ObservableObject {
             QobuzAPIClient(credentials: $0)
         }
     ) {
+        self.dataMigrator = dataMigrator
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
         self.archiveStore = archiveStore
@@ -118,6 +121,7 @@ final class NativeViewModel: ObservableObject {
         guard !started else { return }
         started = true
         do {
+            try dataMigrator.migrateIfNeeded()
             settings = try settingsStore.load()
             credentials = try credentialStore.load() ?? CredentialDraft()
             loadArchiveCache()
@@ -220,7 +224,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func handleOpenURL(_ url: URL) {
-        if url.scheme?.lowercased() == "orpheus-native" {
+        if ["orpheus-for-mac", "orpheus-native"].contains(url.scheme?.lowercased() ?? "") {
             guard let submitted = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "url" })?.value else {
                 notice = "The Orpheus link did not contain a Qobuz URL."

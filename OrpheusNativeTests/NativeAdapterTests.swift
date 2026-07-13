@@ -214,26 +214,28 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testBrowserHandoffOpensPercentEncodedQobuzURLInBrowse() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let viewModel = NativeViewModel(
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in FakeQobuzService() }
-        )
-        var components = URLComponents()
-        components.scheme = "orpheus-native"
-        components.host = "open"
-        components.queryItems = [
-            URLQueryItem(name: "url", value: "https://www.qobuz.com/fr-fr/album/30/30")
-        ]
+        for scheme in ["orpheus-for-mac", "orpheus-native"] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+            let viewModel = NativeViewModel(
+                settingsStore: NativeSettingsStore(paths: paths),
+                credentialStore: MemoryCredentialStore(credentials: .complete),
+                clientFactory: { _ in FakeQobuzService() }
+            )
+            var components = URLComponents()
+            components.scheme = scheme
+            components.host = "open"
+            components.queryItems = [
+                URLQueryItem(name: "url", value: "https://www.qobuz.com/fr-fr/album/30/30")
+            ]
 
-        viewModel.start()
-        viewModel.handleOpenURL(try XCTUnwrap(components.url))
+            viewModel.start()
+            viewModel.handleOpenURL(try XCTUnwrap(components.url))
 
-        XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("30")))
-        XCTAssertTrue(viewModel.queue.isEmpty)
+            XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("30")), scheme)
+            XCTAssertTrue(viewModel.queue.isEmpty, scheme)
+        }
     }
 
     func testSeveralPastedLinksEnterReviewedInboxAndNeverMutateQueue() async throws {

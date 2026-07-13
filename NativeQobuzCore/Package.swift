@@ -9,7 +9,8 @@ let package = Package(
     ],
     products: [
         .library(name: "NativeQobuzCore", targets: ["NativeQobuzCore"]),
-        .executable(name: "native-qobuz-audit", targets: ["NativeQobuzAudit"])
+        .executable(name: "native-qobuz-audit", targets: ["NativeQobuzAudit"]),
+        .executable(name: "native-qobuz-acceptance", targets: ["NativeQobuzAcceptance"])
     ],
     targets: [
         .target(
@@ -18,6 +19,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "NativeQobuzAudit",
+            dependencies: ["NativeQobuzCore"]
+        ),
+        .executableTarget(
+            name: "NativeQobuzAcceptance",
             dependencies: ["NativeQobuzCore"]
         ),
         .testTarget(
