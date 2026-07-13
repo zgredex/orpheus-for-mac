@@ -22,10 +22,6 @@ struct NativeSettingsView: View {
                     LabeledContent("Account region", value: vm.regionDisplay)
                 } header: {
                     Text("Qobuz")
-                } footer: {
-                    Text("Credentials are stored in the macOS Keychain.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 Section("Download") {
                     Picker("Quality", selection: $draft.quality) {

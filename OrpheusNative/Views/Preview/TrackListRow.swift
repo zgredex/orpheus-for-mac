@@ -12,6 +12,7 @@ struct TrackListRow: View {
     var isExplicit = false
     let duration: Int?
     var isQueued = false
+    var libraryStatus: NativeLibraryStatus?
     var add: (() -> Void)?
 
     var body: some View {
@@ -38,6 +39,9 @@ struct TrackListRow: View {
             }
             Spacer()
             Text(Format.duration(duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            if let libraryStatus {
+                LibraryStatusLabel(status: libraryStatus, compact: true)
+            }
             if add != nil {
                 AddToQueueButton(isQueued: isQueued, add: add)
             }

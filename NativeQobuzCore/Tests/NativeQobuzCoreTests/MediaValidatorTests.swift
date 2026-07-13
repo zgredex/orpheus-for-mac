@@ -1,3 +1,5 @@
+import Darwin
+import Foundation
 import XCTest
 @testable import NativeQobuzCore
 
@@ -19,5 +21,30 @@ final class MediaValidatorTests: XCTestCase {
                 return XCTFail("Unexpected validation error: \(error)")
             }
         }
+    }
+
+    func testCancellationTerminatesRunningValidatorPromptly() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("slow-validator")
+        try Data("#!/bin/sh\nexec /bin/sleep 10\n".utf8).write(to: executable)
+        XCTAssertEqual(chmod(executable.path, 0o755), 0)
+        let input = root.appendingPathComponent("input.flac")
+        try Data("input".utf8).write(to: input)
+        let validator = FFmpegMediaValidator(executableURL: executable)
+        let started = Date()
+        let task = Task { try await validator.validate(input) }
+
+        try await Task.sleep(for: .milliseconds(100))
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("Cancelled validation must not complete successfully")
+        } catch let error as NativeQobuzError {
+            XCTAssertEqual(error, .cancelled)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
     }
 }

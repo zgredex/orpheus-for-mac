@@ -7,6 +7,7 @@ struct SearchResult: Identifiable {
     let title: String
     let subtitle: String
     let isQueued: Bool
+    var libraryStatus: NativeLibraryStatus?
     var placeholderSymbol = "music.note"
     var circularArtwork = false
     /// Drill into the item (album page, artist page, or a track's album).
@@ -52,6 +53,9 @@ private struct SearchResultRow: View {
                 Text(result.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if let status = result.libraryStatus {
+                LibraryStatusLabel(status: status)
+            }
             Button(action: { result.add?() }) { Image(systemName: result.isQueued ? "checkmark" : "plus") }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

@@ -5,6 +5,7 @@ DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export DEVELOPER_DIR
 
 FFMPEG_VERSION="7.1.1"
+FFMPEG_SHA256="733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/orpheus-ffmpeg-${FFMPEG_VERSION}"
 PREFIX="$WORK/install"
@@ -15,11 +16,17 @@ SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 
 mkdir -p "$WORK"
 if [ ! -f "$ARCHIVE" ]; then
-    curl -L "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" -o "$ARCHIVE"
+    DOWNLOAD="$ARCHIVE.download"
+    rm -f "$DOWNLOAD"
+    curl --fail --location --proto '=https' --tlsv1.2 \
+        "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+        -o "$DOWNLOAD"
+    printf '%s  %s\n' "$FFMPEG_SHA256" "$DOWNLOAD" | shasum -a 256 -c -
+    mv "$DOWNLOAD" "$ARCHIVE"
 fi
-if [ ! -d "$SOURCE" ]; then
-    tar -xf "$ARCHIVE" -C "$WORK"
-fi
+printf '%s  %s\n' "$FFMPEG_SHA256" "$ARCHIVE" | shasum -a 256 -c -
+rm -rf "$SOURCE" "$PREFIX"
+tar -xf "$ARCHIVE" -C "$WORK"
 
 cd "$SOURCE"
 ./configure \
@@ -76,4 +83,10 @@ cp "$ROOT/Tools/FFMPEG_NOTICE.txt" "$DESTINATION/NOTICE.txt"
     -o "$DESTINATION/bin/orpheus-media-validator"
 
 strip -x "$DESTINATION/bin/orpheus-media-validator" "$DESTINATION"/lib/*.dylib
+for binary in "$DESTINATION/bin/orpheus-media-validator" "$DESTINATION"/lib/*.dylib; do
+    if [ "$(lipo -archs "$binary")" != "arm64" ]; then
+        printf 'Expected an arm64 binary: %s\n' "$binary" >&2
+        exit 1
+    fi
+done
 printf 'Built minimal FFmpeg %s validator at %s\n' "$FFMPEG_VERSION" "$DESTINATION"

@@ -22,7 +22,7 @@ struct NativeQueuePane: View {
                     set: { vm.selectQueueItem($0) }
                 )) {
                     ForEach(vm.queue) { item in
-                        QueueRow(item: item)
+                        QueueRow(item: item, libraryStatus: vm.libraryStatus(for: item))
                             .tag(item.id)
                             .contextMenu {
                                 Button("Remove", systemImage: "trash") { vm.removeQueueItem(item.id) }

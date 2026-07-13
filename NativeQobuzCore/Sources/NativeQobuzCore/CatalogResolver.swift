@@ -79,17 +79,30 @@ public struct QobuzCatalogResolver: Sendable {
     private func resolveArtist(id: QobuzID, request: QobuzRequest) async throws -> QobuzDownloadPlan {
         let artist = try await service.artist(id: id)
         var seenAlbums = Set<QobuzID>()
-        var albums: [QobuzAlbum] = []
-        for summary in artist.albums where seenAlbums.insert(summary.id).inserted {
-            try Task.checkCancellation()
-            do {
-                let album = try await service.album(id: summary.id)
-                if album.tracks.contains(where: \.streamable) {
-                    albums.append(album)
-                }
-            } catch NativeQobuzError.unavailable(_) {
-                continue
+        let summaries = artist.officialAlbums.filter { seenAlbums.insert($0.id).inserted }
+        let albums = try await withThrowingTaskGroup(
+            of: (Int, QobuzAlbum?).self,
+            returning: [QobuzAlbum].self
+        ) { group in
+            let concurrency = min(6, summaries.count)
+            var nextIndex = 0
+            var ordered = Array<QobuzAlbum?>(repeating: nil, count: summaries.count)
+
+            for _ in 0..<concurrency {
+                let index = nextIndex
+                nextIndex += 1
+                group.addTask { try await fetchArtistAlbum(at: index, summary: summaries[index]) }
             }
+
+            while let (index, album) = try await group.next() {
+                ordered[index] = album
+                if nextIndex < summaries.count {
+                    let index = nextIndex
+                    nextIndex += 1
+                    group.addTask { try await fetchArtistAlbum(at: index, summary: summaries[index]) }
+                }
+            }
+            return ordered.compactMap { $0 }
         }
 
         let trackCount = albums.reduce(into: 0) { $0 += $1.tracks.filter(\.streamable).count }
@@ -116,6 +129,16 @@ public struct QobuzCatalogResolver: Sendable {
             }
         }
         return QobuzDownloadPlan(request: request, title: artist.name, tracks: resolved)
+    }
+
+    private func fetchArtistAlbum(at index: Int, summary: QobuzAlbum) async throws -> (Int, QobuzAlbum?) {
+        try Task.checkCancellation()
+        do {
+            let album = try await service.album(id: summary.id)
+            return (index, album.tracks.contains(where: \.streamable) ? album : nil)
+        } catch NativeQobuzError.unavailable(_) {
+            return (index, nil)
+        }
     }
 
     private func plan(

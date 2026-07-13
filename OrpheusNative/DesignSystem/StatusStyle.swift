@@ -14,6 +14,7 @@ extension NativeQueueStatus {
         case .ready: nil
         case .loading: StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
         case .downloading: StatusStyle(systemImage: "arrow.down.circle.fill", tint: .accentColor)
+        case .paused: StatusStyle(systemImage: "pause.circle.fill", tint: .orange)
         case .completed: StatusStyle(systemImage: "checkmark.circle.fill", tint: .green)
         case .failed: StatusStyle(systemImage: "exclamationmark.circle.fill", tint: .red)
         case .cancelled: StatusStyle(systemImage: "xmark.circle", tint: .secondary)
@@ -30,6 +31,7 @@ extension NativeActivityStatus {
         // styles per flap makes the row flicker.
         case .resolving, .downloading, .tagging, .validating:
             StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
+        case .paused: StatusStyle(systemImage: "pause.circle.fill", tint: .orange)
         case .completed: StatusStyle(systemImage: "checkmark.circle.fill", tint: .green)
         case .failed: StatusStyle(systemImage: "exclamationmark.circle.fill", tint: .red)
         case .cancelled: StatusStyle(systemImage: "xmark.circle", tint: .secondary)

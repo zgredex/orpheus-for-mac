@@ -13,6 +13,43 @@ public struct QobuzAssetResponse: Sendable {
     }
 }
 
+public struct QobuzFileProvenance: Codable, Equatable, Sendable {
+    public let qobuzTrackID: String
+    public let qobuzAlbumID: String
+    public let formatID: Int
+    public let bitDepth: Int?
+    public let samplingRate: Double?
+    public let sha256: String
+
+    public init(item: QobuzResolvedTrack, fileInfo: QobuzFileInfo, sha256: String) {
+        qobuzTrackID = item.track.id.rawValue
+        qobuzAlbumID = item.album.id.rawValue
+        formatID = fileInfo.formatID
+        bitDepth = fileInfo.bitDepth
+        samplingRate = fileInfo.samplingRate
+        self.sha256 = sha256
+    }
+
+    public func belongs(to item: QobuzResolvedTrack) -> Bool {
+        qobuzTrackID == item.track.id.rawValue && qobuzAlbumID == item.album.id.rawValue
+    }
+
+    public func matches(item: QobuzResolvedTrack, fileInfo: QobuzFileInfo) -> Bool {
+        belongs(to: item)
+            && formatID == fileInfo.formatID
+            && bitDepth == fileInfo.bitDepth
+            && ratesMatch(samplingRate, fileInfo.samplingRate)
+    }
+
+    private func ratesMatch(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none): true
+        case (.some(let lhs), .some(let rhs)): abs(lhs - rhs) < 0.001
+        default: false
+        }
+    }
+}
+
 public protocol QobuzAssetFetching: Sendable {
     func fetch(_ url: URL) async throws -> QobuzAssetResponse
 }
@@ -45,6 +82,11 @@ public struct URLSessionQobuzAssetFetcher: QobuzAssetFetching, Sendable {
 }
 
 public struct QobuzCollectionAssetWriter: @unchecked Sendable {
+    private struct ProvenanceManifest: Codable {
+        var version = 1
+        var files: [String: QobuzFileProvenance] = [:]
+    }
+
     private let fetcher: any QobuzAssetFetching
     private let fileManager: FileManager
 
@@ -137,6 +179,19 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         return try checksumEntries(in: manifest)[audioURL.lastPathComponent]
     }
 
+    public func provenance(for audioURL: URL) throws -> QobuzFileProvenance? {
+        try provenanceManifest(in: audioURL.deletingLastPathComponent()).files[audioURL.lastPathComponent]
+    }
+
+    public func recordProvenance(_ provenance: QobuzFileProvenance, for audioURL: URL) throws {
+        let folder = audioURL.deletingLastPathComponent()
+        var manifest = (try? provenanceManifest(in: folder)) ?? ProvenanceManifest()
+        manifest.files[audioURL.lastPathComponent] = provenance
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try writeAtomically(try encoder.encode(manifest), to: provenanceURL(in: folder))
+    }
+
     private func checksumEntries(in manifest: URL) throws -> [String: String] {
         guard fileManager.fileExists(atPath: manifest.path) else { return [:] }
         let contents = try String(contentsOf: manifest, encoding: .utf8)
@@ -153,6 +208,26 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         return result
     }
 
+    private func provenanceManifest(in folder: URL) throws -> ProvenanceManifest {
+        let url = provenanceURL(in: folder)
+        guard fileManager.fileExists(atPath: url.path) else { return ProvenanceManifest() }
+        do {
+            let manifest = try JSONDecoder().decode(ProvenanceManifest.self, from: Data(contentsOf: url))
+            guard manifest.version == 1 else {
+                throw NativeQobuzError.invalidResponse("Unsupported provenance manifest version")
+            }
+            return manifest
+        } catch let error as NativeQobuzError {
+            throw error
+        } catch {
+            throw NativeQobuzError.invalidResponse("Could not read download provenance: \(error.localizedDescription)")
+        }
+    }
+
+    private func provenanceURL(in folder: URL) -> URL {
+        folder.appendingPathComponent(".orpheus-provenance.json")
+    }
+
     private func writeAtomically(_ data: Data, to destination: URL) throws {
         var temporary: URL?
         do {
@@ -160,9 +235,12 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
             let staging = destination.deletingLastPathComponent()
                 .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
             temporary = staging
-            try data.write(to: staging, options: .atomic)
-            if fileManager.fileExists(atPath: destination.path) { try fileManager.removeItem(at: destination) }
-            try fileManager.moveItem(at: staging, to: destination)
+            try data.write(to: staging)
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
+            } else {
+                try fileManager.moveItem(at: staging, to: destination)
+            }
         } catch {
             if let temporary { try? fileManager.removeItem(at: temporary) }
             throw NativeQobuzError.fileSystem(error.localizedDescription)

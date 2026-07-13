@@ -12,10 +12,18 @@ struct NativeCommandBar: View {
             .help(vm.settings.downloadPath)
             Spacer()
             Button("Cancel", systemImage: "xmark.circle", action: vm.cancelDownloads).disabled(!vm.canCancel)
-            Button("Download Selected", systemImage: "arrow.down.circle", action: vm.downloadSelected)
+            Button(selectedTitle, systemImage: selectedIcon, action: vm.downloadSelected)
                 .disabled(!vm.canDownloadSelected)
             Button("Download All", systemImage: "arrow.down.circle.fill", action: vm.downloadAll)
                 .buttonStyle(.borderedProminent).disabled(!vm.canDownloadAll)
         }
+    }
+
+    private var selectedTitle: String {
+        vm.selectedQueueItem?.status == .paused ? "Resume Selected" : "Download Selected"
+    }
+
+    private var selectedIcon: String {
+        vm.selectedQueueItem?.status == .paused ? "play.circle" : "arrow.down.circle"
     }
 }

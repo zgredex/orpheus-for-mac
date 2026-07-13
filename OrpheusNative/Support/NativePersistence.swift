@@ -1,5 +1,5 @@
 import Foundation
-import Security
+import NativeQobuzCore
 
 struct NativePaths: Sendable {
     let applicationSupportRoot: URL
@@ -19,6 +19,9 @@ struct NativePaths: Sendable {
     }
 
     var settingsURL: URL { applicationSupportRoot.appendingPathComponent("settings.json") }
+    var archiveIndexURL: URL { applicationSupportRoot.appendingPathComponent("archive-index.json") }
+    var credentialsURL: URL { applicationSupportRoot.appendingPathComponent("credentials.json") }
+    var sessionURL: URL { applicationSupportRoot.appendingPathComponent("download-session.json") }
 }
 
 protocol NativeSettingsStoring: Sendable {
@@ -51,55 +54,122 @@ struct NativeSettingsStore: NativeSettingsStoring, @unchecked Sendable {
     }
 }
 
+protocol NativeArchiveIndexStoring: Sendable {
+    func load() throws -> QobuzArchiveSnapshot?
+    func save(_ snapshot: QobuzArchiveSnapshot) throws
+}
+
+struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
+    let paths: NativePaths
+    let fileManager: FileManager
+
+    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+        self.paths = paths
+        self.fileManager = fileManager
+    }
+
+    func load() throws -> QobuzArchiveSnapshot? {
+        guard fileManager.fileExists(atPath: paths.archiveIndexURL.path) else { return nil }
+        let snapshot = try JSONDecoder().decode(
+            QobuzArchiveSnapshot.self,
+            from: Data(contentsOf: paths.archiveIndexURL)
+        )
+        guard snapshot.version == 1 else {
+            throw NativeQobuzError.invalidResponse("Unsupported archive index version.")
+        }
+        return snapshot
+    }
+
+    func save(_ snapshot: QobuzArchiveSnapshot) throws {
+        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        try JSONEncoder.pretty.encode(snapshot).write(to: paths.archiveIndexURL, options: .atomic)
+    }
+}
+
+struct NativeSessionSnapshot: Codable, Equatable {
+    let version: Int
+    var queue: [NativeQueueItem]
+    var activities: [NativeDownloadActivity]
+    var selectedQueueID: UUID?
+
+    init(
+        version: Int = 1,
+        queue: [NativeQueueItem],
+        activities: [NativeDownloadActivity],
+        selectedQueueID: UUID?
+    ) {
+        self.version = version
+        self.queue = queue
+        self.activities = activities
+        self.selectedQueueID = selectedQueueID
+    }
+}
+
+protocol NativeSessionStoring: Sendable {
+    func load() throws -> NativeSessionSnapshot?
+    func save(_ snapshot: NativeSessionSnapshot) throws
+}
+
+struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
+    let paths: NativePaths
+    let fileManager: FileManager
+
+    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+        self.paths = paths
+        self.fileManager = fileManager
+    }
+
+    func load() throws -> NativeSessionSnapshot? {
+        guard fileManager.fileExists(atPath: paths.sessionURL.path) else { return nil }
+        let snapshot = try JSONDecoder().decode(
+            NativeSessionSnapshot.self,
+            from: Data(contentsOf: paths.sessionURL)
+        )
+        guard snapshot.version == 1 else {
+            throw NativeQobuzError.invalidResponse("Unsupported download session version.")
+        }
+        return snapshot
+    }
+
+    func save(_ snapshot: NativeSessionSnapshot) throws {
+        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        try JSONEncoder.pretty.encode(snapshot).write(to: paths.sessionURL, options: .atomic)
+    }
+}
+
 protocol NativeCredentialStoring: Sendable {
     func load() throws -> CredentialDraft?
     func save(_ credentials: CredentialDraft) throws
 }
 
-struct KeychainCredentialStore: NativeCredentialStoring, Sendable {
-    private let service = "com.orpheus.native.preview.qobuz"
-    private let account = "credentials"
+struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
+    let paths: NativePaths
+    let fileManager: FileManager
+
+    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+        self.paths = paths
+        self.fileManager = fileManager
+    }
 
     func load() throws -> CredentialDraft? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else { throw KeychainError(status) }
-        return try JSONDecoder().decode(CredentialDraft.self, from: data)
+        guard fileManager.fileExists(atPath: paths.credentialsURL.path) else { return nil }
+        return try JSONDecoder().decode(
+            CredentialDraft.self,
+            from: Data(contentsOf: paths.credentialsURL)
+        )
     }
 
     func save(_ credentials: CredentialDraft) throws {
-        let data = try JSONEncoder().encode(credentials)
-        let query = baseQuery
-        let update = [kSecValueData as String: data]
-        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = query
-            item[kSecValueData as String] = data
-            let addStatus = SecItemAdd(item as CFDictionary, nil)
-            guard addStatus == errSecSuccess else { throw KeychainError(addStatus) }
-        } else if status != errSecSuccess {
-            throw KeychainError(status)
-        }
-    }
-
-    private var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-    }
-}
-
-private struct KeychainError: LocalizedError {
-    let status: OSStatus
-    init(_ status: OSStatus) { self.status = status }
-    var errorDescription: String? {
-        SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)"
+        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: paths.applicationSupportRoot.path
+        )
+        try JSONEncoder.pretty.encode(credentials).write(to: paths.credentialsURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: paths.credentialsURL.path
+        )
     }
 }
 

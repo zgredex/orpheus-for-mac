@@ -31,8 +31,8 @@ The native core currently provides:
 - signed account and file URL requests
 - track, album, playlist, and artist expansion
 - stable ordering and artist album deduplication
-- direct URLSession downloads
-- atomic `.partial` file installation
+- direct URLSession downloads with validated HTTP Range resume
+- persistent `.partial` files and safe full-transfer fallback
 - byte progress, speed, cancellation, and aggregate track progress
 - deterministic Qobuz output paths
 - atomic ID3v2.3 and FLAC Vorbis/Picture metadata writing
@@ -51,8 +51,10 @@ Live French-account checks confirm direct MP3/FLAC transfer, metadata and
 generation. Native album search has also been verified against the FR account.
 
 `OrpheusNative.xcodeproj` now provides a runnable adapter with an isolated
-bundle identifier, Keychain service, Application Support root, and download
-directory. It supports multi-link queueing, text import, native account-region
-search, metadata previews, sequential downloads, progress/speed, cancellation,
-integrity state, and Finder reveal. It remains a preview and does not replace
-the production app until the differential parity milestone is complete.
+bundle identifier, owner-only credential file, Application Support root, and
+download directory. It supports multi-link queueing, text import, native
+account-region search, metadata previews, sequential downloads, persistent
+queue/activity recovery, resumable partial transfers, progress/speed,
+cancellation, integrity state, and Finder reveal. It remains a preview and does
+not replace the production app until the differential parity milestone is
+complete.

@@ -4,6 +4,7 @@ import SwiftUI
 struct TrackPreview: View {
     let track: QobuzTrack
     var onOpenAlbum: (() -> Void)?
+    var libraryStatus: NativeLibraryStatus?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
@@ -13,6 +14,9 @@ struct TrackPreview: View {
             metadata: [track.album?.title].compactMap { $0 }
         )) {
             VStack(alignment: .leading, spacing: DS.Space.s) {
+                if let libraryStatus {
+                    LibraryStatusLabel(status: libraryStatus)
+                }
                 if let composer = track.composer?.name { LabeledContent("Composer", value: composer) }
                 if let isrc = track.isrc { LabeledContent("ISRC", value: isrc) }
                 if let onOpenAlbum {

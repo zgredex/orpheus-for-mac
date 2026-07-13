@@ -59,6 +59,30 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertTrue(results.2.tracks.allSatisfy(\.streamable))
     }
 
+    func testFrenchAccountPaginatesAdeleArtistCatalog() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["QOBUZ_INTEGRATION"] == "1" else {
+            throw XCTSkip("Set QOBUZ_INTEGRATION=1 and credential environment variables to run live Qobuz tests.")
+        }
+        let client = QobuzAPIClient(credentials: try credentials(from: environment))
+        let search = try await client.search("Adele", category: .artists, limit: 30)
+        let adele = try XCTUnwrap(search.artists.first { $0.name.caseInsensitiveCompare("Adele") == .orderedSame })
+
+        let catalog = try await client.artist(id: try XCTUnwrap(adele.id))
+
+        XCTAssertGreaterThan(catalog.albums.count, 500)
+        XCTAssertEqual(catalog.albums.count, catalog.albumsTotal)
+        XCTAssertFalse(catalog.officialAlbums.isEmpty)
+        XCTAssertFalse(catalog.appearanceAlbums.isEmpty)
+        XCTAssertLessThan(catalog.officialAlbums.count, catalog.appearanceAlbums.count)
+        XCTAssertTrue(catalog.officialAlbums.allSatisfy {
+            catalog.relationship(of: $0) == .official && $0.streamable && $0.displayable
+        })
+        XCTAssertTrue(catalog.appearanceAlbums.allSatisfy {
+            catalog.relationship(of: $0) == .appearance && $0.streamable && $0.displayable
+        })
+    }
+
     func testFrenchAccountCanTransferOneTrackToTemporaryFile() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["QOBUZ_DOWNLOAD_INTEGRATION"] == "1" else {

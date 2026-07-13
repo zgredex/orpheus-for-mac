@@ -87,6 +87,39 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertFalse(try MusicFileIntegrity.verify(audio, expectedSHA256: checksum))
     }
 
+    func testProvenanceRoundTripRecordsIdentityQualityAndIntegrity() throws {
+        let item = makeItem(collection: .album(id: QobuzID("album"), title: "Album"))
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let audio = root.appendingPathComponent("Artist/Album/01. Song.flac")
+        try FileManager.default.createDirectory(at: audio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: audio)
+        let fileInfo = QobuzFileInfo(
+            url: URL(string: "https://media.example/song.flac")!,
+            formatID: 27,
+            bitDepth: 24,
+            samplingRate: 96
+        )
+        let provenance = QobuzFileProvenance(
+            item: item,
+            fileInfo: fileInfo,
+            sha256: try MusicFileIntegrity.sha256(of: audio)
+        )
+        let writer = QobuzCollectionAssetWriter()
+
+        try writer.recordProvenance(provenance, for: audio)
+
+        XCTAssertEqual(try writer.provenance(for: audio), provenance)
+        XCTAssertTrue(provenance.belongs(to: item))
+        XCTAssertTrue(provenance.matches(item: item, fileInfo: fileInfo))
+        XCTAssertFalse(
+            provenance.matches(
+                item: item,
+                fileInfo: QobuzFileInfo(url: fileInfo.url, formatID: 6, bitDepth: 16, samplingRate: 44.1)
+            )
+        )
+    }
+
     private func makeItem(collection: QobuzCollection, bookletURL: URL? = nil) -> QobuzResolvedTrack {
         let artist = QobuzArtist(id: QobuzID("artist"), name: "Primary")
         let image = QobuzImage(large: URL(string: "https://static.qobuz.com/images/covers/ab/cd/cover_600.jpg"))

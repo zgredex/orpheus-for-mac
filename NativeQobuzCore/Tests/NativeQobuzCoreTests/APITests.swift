@@ -138,6 +138,44 @@ final class APITests: XCTestCase {
         XCTAssertEqual(results.tracks.map(\.title), ["Hello"])
         XCTAssertTrue(results.tracks.allSatisfy(\.streamable))
     }
+
+    func testArtistFetchesEveryAlbumPageAndPreservesOrder() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let offsets = LockedBox<[String]>([])
+        StubURLProtocol.handler = { request in
+            let query = Dictionary(
+                uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                    .map { ($0.name, $0.value ?? "") }
+            )
+            let offset = query["offset"] ?? ""
+            offsets.set(offsets.value + [offset])
+            let items: String
+            switch offset {
+            case "0":
+                items = #"[{"id":"one","title":"One","artist":{"id":"artist","name":"Artist"}},{"id":"two","title":"Two","artist":{"id":"artist","name":"Artist"}}]"#
+            case "2":
+                items = #"[{"id":"three","title":"Three","artist":{"id":"artist","name":"Artist"}}]"#
+            default:
+                items = "[]"
+            }
+            let body = #"{"id":"artist","name":"Artist","albums":{"items":\#(items),"total":3,"offset":\#(offset),"limit":500}}"#
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: session,
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let artist = try await client.artist(id: QobuzID("artist"))
+
+        XCTAssertEqual(artist.albums.map(\.id.rawValue), ["one", "two", "three"])
+        XCTAssertEqual(artist.albumsTotal, 3)
+        XCTAssertEqual(offsets.value, ["0", "2"])
+    }
 }
 
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {

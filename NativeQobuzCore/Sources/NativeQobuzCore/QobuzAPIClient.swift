@@ -106,14 +106,38 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     }
 
     public func artist(id: QobuzID) async throws -> QobuzArtistCatalog {
+        let pageSize = 500
+        let first = try await artistPage(id: id, offset: 0, limit: pageSize)
+        var albums = first.albums
+        let total = first.albumsTotal ?? albums.count
+        var offset = (first.albumsOffset ?? 0) + albums.count
+        while offset < total {
+            try Task.checkCancellation()
+            let page = try await artistPage(id: id, offset: offset, limit: pageSize)
+            guard !page.albums.isEmpty else { break }
+            albums.append(contentsOf: page.albums)
+            offset += page.albums.count
+        }
+        return QobuzArtistCatalog(
+            id: first.id,
+            name: first.name,
+            image: first.image,
+            albums: albums,
+            albumsTotal: total,
+            albumsOffset: 0,
+            albumsLimit: albums.count
+        )
+    }
+
+    private func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
         let (value, _): (QobuzArtistCatalog, HTTPURLResponse) = try await get(
             endpoint: "artist/get",
             parameters: [
                 "artist_id": id.rawValue,
                 "app_id": credentials.appID,
                 "extra": "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
-                "limit": "1000",
-                "offset": "0"
+                "limit": String(limit),
+                "offset": String(offset)
             ]
         )
         return value

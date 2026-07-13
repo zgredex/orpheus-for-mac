@@ -15,7 +15,6 @@ targets:
     dependencies:
       - package: NativeQobuzCore
         product: NativeQobuzCore
-      - sdk: Security.framework
     settings:
       base:
         ARCHS: arm64

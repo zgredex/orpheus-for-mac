@@ -4,6 +4,7 @@ import NativeQobuzCore
 import SwiftUI
 
 /// Sample data for Xcode canvas previews — never compiled into release builds.
+@MainActor
 enum PreviewSamples {
     static let album = QobuzAlbum(
         id: QobuzID("abc123"),

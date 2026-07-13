@@ -6,6 +6,8 @@ struct AlbumPreview: View {
     var onOpenArtist: (() -> Void)?
     var onAddTrack: ((QobuzTrack) -> Void)?
     var isTrackQueued: ((QobuzTrack) -> Bool)?
+    var libraryStatus: NativeLibraryStatus?
+    var trackLibraryStatus: ((QobuzTrack) -> NativeLibraryStatus?)?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
@@ -21,17 +23,29 @@ struct AlbumPreview: View {
             ].compactMap { $0 },
             badges: badges
         )) {
-            List(playableTracks, id: \.id) { track in
-                TrackListRow(
-                    leading: .number(track.trackNumber),
-                    title: track.displayTitle,
-                    isExplicit: track.parentalWarning,
-                    duration: track.duration,
-                    isQueued: isTrackQueued?(track) ?? false,
-                    add: onAddTrack.map { add in { add(track) } }
-                )
+            VStack(spacing: 0) {
+                if let libraryStatus {
+                    HStack {
+                        LibraryStatusLabel(status: libraryStatus)
+                        Spacer()
+                    }
+                    .padding(.horizontal, DS.Space.l)
+                    .padding(.vertical, DS.Space.s)
+                    Divider()
+                }
+                List(playableTracks, id: \.id) { track in
+                    TrackListRow(
+                        leading: .number(track.trackNumber),
+                        title: track.displayTitle,
+                        isExplicit: track.parentalWarning,
+                        duration: track.duration,
+                        isQueued: isTrackQueued?(track) ?? false,
+                        libraryStatus: trackLibraryStatus?(track),
+                        add: onAddTrack.map { add in { add(track) } }
+                    )
+                }
+                .listStyle(.inset)
             }
-            .listStyle(.inset)
         }
     }
 

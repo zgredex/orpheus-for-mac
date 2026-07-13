@@ -16,12 +16,18 @@ struct ActivityRow: View {
                         .foregroundStyle(activity.status == .completed ? .secondary : .primary)
                         .lineLimit(1)
                     Spacer()
+                    if !activity.warnings.isEmpty {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .help(activity.warnings.joined(separator: "\n"))
+                    }
                     // Kept in the layout and only faded so the row does not
                     // reflow; visible for the whole active download once the
                     // first speed sample arrives.
                     Label("\(Format.bytes(Int64(activity.bytesPerSecond ?? 0)))/s", systemImage: "arrow.down")
                         .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        .opacity(activity.status.isActive && (activity.bytesPerSecond ?? 0) > 0 ? 1 : 0)
+                        .opacity(activity.status == .downloading && (activity.bytesPerSecond ?? 0) > 0 ? 1 : 0)
                 }
                 if activity.status != .completed {
                     ProgressView(value: activity.progress)
@@ -44,6 +50,11 @@ struct ActivityRow: View {
                     }
                 }
                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
+            }
+            if activity.status == .paused {
+                Button("Resume", systemImage: "play.fill") { vm.resume(activity) }
+                    .controlSize(.small)
+                    .disabled(vm.isDownloading)
             }
             if activity.outputURL != nil {
                 Button { vm.reveal(activity) } label: { Image(systemName: "folder") }

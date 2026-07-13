@@ -15,7 +15,8 @@ struct NativeContentView: View {
                     .frame(minWidth: 250, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
                 VSplitView {
                     Group {
-                        if vm.isBrowseOpen { NativeBrowseView().transition(.opacity) }
+                        if vm.isLibraryOpen { NativeLibraryView().transition(.opacity) }
+                        else if vm.isBrowseOpen { NativeBrowseView().transition(.opacity) }
                         else { NativePreviewView().transition(.opacity) }
                     }
                     .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
@@ -46,6 +47,15 @@ struct NativeContentView: View {
                 }
             }
             ToolbarItem {
+                Button {
+                    if vm.isLibraryOpen { vm.closeLibrary() }
+                    else { vm.openLibrary() }
+                } label: {
+                    Image(systemName: "books.vertical")
+                }
+                .help(vm.isLibraryOpen ? "Close Library" : "Open Library")
+            }
+            ToolbarItem {
                 Button { vm.showSettings = true } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
@@ -58,6 +68,9 @@ struct NativeContentView: View {
             Button("OK") { vm.notice = nil }
         } message: {
             Text(vm.notice ?? "")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            vm.prepareForTermination()
         }
     }
 }

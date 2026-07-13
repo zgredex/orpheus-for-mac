@@ -8,11 +8,16 @@ separate from the Python-backed production application.
 - Project: `OrpheusNative.xcodeproj`
 - Bundle identifier: `com.orpheus.native.preview`
 - Settings: `~/Library/Application Support/OrpheusNativePreview/settings.json`
-- Credentials: macOS Keychain service `com.orpheus.native.preview.qobuz`
+- Credentials: owner-only `credentials.json` in Application Support
+- Queue and activity recovery: `download-session.json` in Application Support
 - Default downloads: `~/Music/Orpheus Native Preview`
 
 It does not read or write the production OrpheusDL runtime, settings, helper,
 credentials, or Application Support folder.
+
+Active transfers retain hidden partial files and reopen as paused after an app
+restart. Resume preserves the original quality and destination while obtaining
+a fresh signed Qobuz media URL.
 
 ## Build
 
@@ -34,3 +39,4 @@ bundle, and stages `dist-native/Orpheus Native Preview.app`.
 - Inspect aggregate track/file progress, speed, tagging, validation, and
   SHA-256 state in Activity.
 - Cancel active work, clear completed activity, or reveal output in Finder.
+- Resume interrupted work after a network failure or app restart.

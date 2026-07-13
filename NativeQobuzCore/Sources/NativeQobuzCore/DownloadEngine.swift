@@ -42,6 +42,7 @@ public enum QobuzDownloadEvent: Equatable, Sendable {
     case tagging(track: QobuzResolvedTrack)
     case integrityVerified(track: QobuzResolvedTrack, sha256: String)
     case assetCreated(URL)
+    case warning(String)
     case trackCompleted(track: QobuzResolvedTrack, destination: URL)
     case trackSkipped(track: QobuzResolvedTrack, destination: URL)
     case completed(title: String, downloaded: Int, skipped: Int)
@@ -81,12 +82,46 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         quality: QobuzQuality,
         downloadRoot: URL
     ) -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
+        makeEvents(
+            for: request,
+            quality: quality,
+            downloadRoot: downloadRoot,
+            repairTarget: nil
+        )
+    }
+
+    public func repairEvents(
+        for target: QobuzArchiveTrack,
+        downloadRoot: URL
+    ) throws -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
+        guard let quality = QobuzQuality(formatID: target.formatID) else {
+            throw NativeQobuzError.unavailable(
+                "The archived Qobuz format \(target.formatID) is not supported for automatic repair."
+            )
+        }
+        return makeEvents(
+            for: .track(QobuzID(target.qobuzTrackID)),
+            quality: quality,
+            downloadRoot: downloadRoot,
+            repairTarget: target
+        )
+    }
+
+    private func makeEvents(
+        for request: QobuzRequest,
+        quality: QobuzQuality,
+        downloadRoot: URL,
+        repairTarget: QobuzArchiveTrack?
+    ) -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     continuation.yield(.resolving(request))
                     let plan = try await resolver.resolve(request)
                     try Task.checkCancellation()
+                    if let repairTarget {
+                        try validateRepairPlan(plan, target: repairTarget)
+                    }
                     continuation.yield(.planReady(title: plan.title, trackCount: plan.tracks.count))
 
                     var downloaded = 0
@@ -100,18 +135,40 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                     for item in plan.tracks {
                         try Task.checkCancellation()
                         let fileInfo = try await service.fileInfo(trackID: item.track.id, quality: quality)
-                        let destination = outputPlanner.destination(for: item, fileInfo: fileInfo, root: downloadRoot)
+                        let destination: URL
+                        if let repairTarget {
+                            guard fileInfo.formatID == repairTarget.formatID else {
+                                throw NativeQobuzError.unavailable(
+                                    "Qobuz no longer offers this track in its archived format. No file was changed."
+                                )
+                            }
+                            destination = try repairDestination(
+                                for: repairTarget,
+                                item: item,
+                                root: downloadRoot
+                            )
+                            try validateRepairProvenance(
+                                at: destination,
+                                target: repairTarget,
+                                item: item
+                            )
+                        } else {
+                            destination = try resolvedDestination(for: item, fileInfo: fileInfo, root: downloadRoot)
+                        }
 
-                        if fileManager.fileExists(atPath: destination.path) {
+                        if fileManager.fileExists(atPath: destination.path),
+                           let provenance = try? assetWriter.provenance(for: destination),
+                           provenance.matches(item: item, fileInfo: fileInfo) {
                             do {
                                 continuation.yield(.validating(track: item))
                                 try await validator.validate(destination)
                                 try Task.checkCancellation()
                                 let checksum = try MusicFileIntegrity.sha256(of: destination)
-                                if let expected = try assetWriter.expectedChecksum(for: destination),
-                                   expected.caseInsensitiveCompare(checksum) != .orderedSame {
+                                if provenance.sha256.caseInsensitiveCompare(checksum) != .orderedSame {
                                     throw NativeQobuzError.invalidResponse("Existing file checksum does not match")
                                 }
+                                let size = try fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber
+                                albumBytes += size?.int64Value ?? 0
                                 skipped += 1
                                 outputs.append((item, destination))
                                 verifiedOutputs.append((item, destination, checksum))
@@ -131,9 +188,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                 throw NativeQobuzError.cancelled
                             } catch NativeQobuzError.cancelled {
                                 throw NativeQobuzError.cancelled
-                            } catch {
-                                try? fileManager.removeItem(at: destination)
-                            }
+                            } catch {}
                         }
 
                         continuation.yield(.trackStarted(track: item, destination: destination))
@@ -145,7 +200,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                         } else {
                             artworkTask = Task { try await assetWriter.artwork(for: item.album) }
                         }
-                        let staging = processingURL(for: destination)
+                        let staging = processingURL(for: destination, formatID: fileInfo.formatID)
                         defer { try? fileManager.removeItem(at: staging) }
                         do {
                             for try await transferEvent in transfer.events(from: fileInfo.url, to: staging) {
@@ -158,7 +213,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                     let overall = (
                                         Double(item.position - 1) + (fileFraction ?? 0)
                                     ) / Double(max(item.total, 1))
-                                    currentTrackBytes = progress.bytesWritten ?? currentTrackBytes
+                                    currentTrackBytes = progress.bytesWritten
                                     continuation.yield(
                                         .progress(
                                             QobuzDownloadProgress(
@@ -175,7 +230,18 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                     )
                                 }
                             }
-                            let artwork = try await artworkTask.value
+                            let artwork: EmbeddedArtwork?
+                            do {
+                                artwork = try await artworkTask.value
+                            } catch is CancellationError {
+                                throw NativeQobuzError.cancelled
+                            } catch NativeQobuzError.cancelled {
+                                throw NativeQobuzError.cancelled
+                            } catch {
+                                albumsWithoutArtwork.insert(item.album.id)
+                                artwork = nil
+                                continuation.yield(.warning("Artwork: \(error.localizedDescription)"))
+                            }
                             if let artwork {
                                 artworkCache[item.album.id] = artwork
                             } else {
@@ -188,31 +254,63 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                             try Task.checkCancellation()
                             let checksum = try MusicFileIntegrity.sha256(of: staging)
                             try install(staging, at: destination)
+                            try assetWriter.recordProvenance(
+                                QobuzFileProvenance(item: item, fileInfo: fileInfo, sha256: checksum),
+                                for: destination
+                            )
                             verifiedOutputs.append((item, destination, checksum))
                             continuation.yield(.integrityVerified(track: item, sha256: checksum))
-                            if let artwork,
-                               let cover = try assetWriter.saveExternalArtwork(artwork, for: item, audioURL: destination) {
-                                continuation.yield(.assetCreated(cover))
+                            if let artwork {
+                                do {
+                                    if let cover = try assetWriter.saveExternalArtwork(
+                                        artwork,
+                                        for: item,
+                                        audioURL: destination
+                                    ) {
+                                        continuation.yield(.assetCreated(cover))
+                                    }
+                                } catch {
+                                    continuation.yield(.warning("Cover: \(error.localizedDescription)"))
+                                }
                             }
                         } catch {
                             artworkTask.cancel()
                             throw error
                         }
-                        albumBytes += currentTrackBytes
+                        let installedSize = try fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber
+                        albumBytes += installedSize?.int64Value ?? currentTrackBytes
                         currentTrackBytes = 0
                         downloaded += 1
                         outputs.append((item, destination))
                         continuation.yield(.trackCompleted(track: item, destination: destination))
                         continuation.yield(.progress(completedProgress(completed: item.position, total: item.total, albumBytes: albumBytes)))
                     }
-                    for booklet in try await assetWriter.downloadBooklets(for: outputs) {
-                        continuation.yield(.assetCreated(booklet))
+                    do {
+                        for booklet in try await assetWriter.downloadBooklets(for: outputs) {
+                            continuation.yield(.assetCreated(booklet))
+                        }
+                    } catch is CancellationError {
+                        throw NativeQobuzError.cancelled
+                    } catch NativeQobuzError.cancelled {
+                        throw NativeQobuzError.cancelled
+                    } catch {
+                        continuation.yield(.warning("Booklet: \(error.localizedDescription)"))
                     }
-                    if let playlist = try assetWriter.writePlaylist(plan: plan, outputs: outputs) {
-                        continuation.yield(.assetCreated(playlist))
+                    try Task.checkCancellation()
+                    do {
+                        if let playlist = try assetWriter.writePlaylist(plan: plan, outputs: outputs) {
+                            continuation.yield(.assetCreated(playlist))
+                        }
+                    } catch {
+                        continuation.yield(.warning("Playlist: \(error.localizedDescription)"))
                     }
-                    for manifest in try assetWriter.writeChecksumManifests(for: verifiedOutputs) {
-                        continuation.yield(.assetCreated(manifest))
+                    try Task.checkCancellation()
+                    do {
+                        for manifest in try assetWriter.writeChecksumManifests(for: verifiedOutputs) {
+                            continuation.yield(.assetCreated(manifest))
+                        }
+                    } catch {
+                        continuation.yield(.warning("Checksum manifest: \(error.localizedDescription)"))
                     }
                     continuation.yield(.completed(title: plan.title, downloaded: downloaded, skipped: skipped))
                     continuation.finish()
@@ -226,10 +324,117 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         }
     }
 
-    private func processingURL(for destination: URL) -> URL {
+    private func processingURL(for destination: URL, formatID: Int) -> URL {
         destination.deletingLastPathComponent()
-            .appendingPathComponent(".\(destination.deletingPathExtension().lastPathComponent).processing")
+            .appendingPathComponent(
+                ".\(destination.deletingPathExtension().lastPathComponent).qobuz-\(formatID).processing"
+            )
             .appendingPathExtension(destination.pathExtension)
+    }
+
+    private func validateRepairPlan(
+        _ plan: QobuzDownloadPlan,
+        target: QobuzArchiveTrack
+    ) throws {
+        guard plan.tracks.count == 1,
+              let item = plan.tracks.first,
+              item.track.id.rawValue == target.qobuzTrackID,
+              item.album.id.rawValue == target.qobuzAlbumID else {
+            throw NativeQobuzError.unavailable(
+                "Qobuz metadata no longer matches this archive record. Refresh the Library before retrying."
+            )
+        }
+    }
+
+    private func repairDestination(
+        for target: QobuzArchiveTrack,
+        item: QobuzResolvedTrack,
+        root: URL
+    ) throws -> URL {
+        guard item.track.id.rawValue == target.qobuzTrackID,
+              item.album.id.rawValue == target.qobuzAlbumID else {
+            throw NativeQobuzError.unavailable("The repair target no longer matches Qobuz metadata.")
+        }
+        let components = target.relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard !target.relativePath.hasPrefix("/"),
+              !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw NativeQobuzError.fileSystem("The archived repair path is unsafe.")
+        }
+
+        let root = root.standardizedFileURL
+        let destination = root.appendingPathComponent(target.relativePath).standardizedFileURL
+        let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard destination.path.hasPrefix(rootPrefix) else {
+            throw NativeQobuzError.fileSystem("The archived repair path escapes the download folder.")
+        }
+        let expectedExtension = target.formatID == QobuzQuality.mp3.formatID ? "mp3" : "flac"
+        guard destination.pathExtension.lowercased() == expectedExtension else {
+            throw NativeQobuzError.fileSystem("The archived repair path has the wrong audio extension.")
+        }
+        let resolvedRoot = root.resolvingSymlinksInPath()
+        let resolvedParent = destination.deletingLastPathComponent().resolvingSymlinksInPath()
+        let resolvedPrefix = resolvedRoot.path.hasSuffix("/") ? resolvedRoot.path : resolvedRoot.path + "/"
+        guard resolvedParent.path == resolvedRoot.path || resolvedParent.path.hasPrefix(resolvedPrefix) else {
+            throw NativeQobuzError.fileSystem("The archived repair path follows a link outside the download folder.")
+        }
+        if fileManager.fileExists(atPath: destination.path),
+           (try? destination.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw NativeQobuzError.fileSystem("Symbolic-link audio files cannot be repaired automatically.")
+        }
+        return destination
+    }
+
+    private func validateRepairProvenance(
+        at destination: URL,
+        target: QobuzArchiveTrack,
+        item: QobuzResolvedTrack
+    ) throws {
+        let provenance: QobuzFileProvenance
+        do {
+            guard let value = try assetWriter.provenance(for: destination) else {
+                throw NativeQobuzError.invalidResponse("The archive record changed after verification.")
+            }
+            provenance = value
+        } catch let error as NativeQobuzError {
+            throw error
+        } catch {
+            throw NativeQobuzError.invalidResponse("Could not re-check repair provenance: \(error.localizedDescription)")
+        }
+        guard provenance.belongs(to: item),
+              provenance.qobuzTrackID == target.qobuzTrackID,
+              provenance.qobuzAlbumID == target.qobuzAlbumID,
+              provenance.formatID == target.formatID else {
+            throw NativeQobuzError.unavailable(
+                "The archive record changed after verification. Refresh the Library before retrying."
+            )
+        }
+    }
+
+    private func resolvedDestination(
+        for item: QobuzResolvedTrack,
+        fileInfo: QobuzFileInfo,
+        root: URL
+    ) throws -> URL {
+        let planned = outputPlanner.destination(for: item, fileInfo: fileInfo, root: root)
+        guard fileManager.fileExists(atPath: planned.path) else { return planned }
+        if let provenance = try? assetWriter.provenance(for: planned), provenance.belongs(to: item) {
+            return planned
+        }
+
+        let folder = planned.deletingLastPathComponent()
+        let stem = planned.deletingPathExtension().lastPathComponent
+        let ext = planned.pathExtension
+        let identifier = StandardQobuzOutputPlanner().sanitize(item.track.id.rawValue)
+        for collisionIndex in 1...999 {
+            let suffix = collisionIndex == 1 ? " [\(identifier)]" : " [\(identifier)-\(collisionIndex)]"
+            let candidate = folder.appendingPathComponent("\(stem)\(suffix).\(ext)")
+            guard fileManager.fileExists(atPath: candidate.path) else { return candidate }
+            if let provenance = try? assetWriter.provenance(for: candidate), provenance.belongs(to: item) {
+                return candidate
+            }
+        }
+        throw NativeQobuzError.fileSystem("Could not resolve a collision-safe output path")
     }
 
     private func install(_ staging: URL, at destination: URL) throws {

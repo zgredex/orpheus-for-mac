@@ -57,13 +57,55 @@ public enum QobuzQuality: String, Codable, CaseIterable, Sendable {
         case .hiRes: 27
         }
     }
+
+    public init?(formatID: Int) {
+        guard let quality = Self.allCases.first(where: { $0.formatID == formatID }) else {
+            return nil
+        }
+        self = quality
+    }
 }
 
-public enum QobuzRequest: Equatable, Sendable {
+public enum QobuzRequest: Codable, Equatable, Sendable {
     case track(QobuzID)
     case album(QobuzID)
     case playlist(QobuzID)
     case artist(QobuzID)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case id
+    }
+
+    private enum Kind: String, Codable {
+        case track
+        case album
+        case playlist
+        case artist
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(QobuzID.self, forKey: .id)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .track: self = .track(id)
+        case .album: self = .album(id)
+        case .playlist: self = .playlist(id)
+        case .artist: self = .artist(id)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        let kind: Kind = switch self {
+        case .track: .track
+        case .album: .album
+        case .playlist: .playlist
+        case .artist: .artist
+        }
+        try container.encode(kind, forKey: .kind)
+    }
 }
 
 public extension QobuzRequest {
@@ -282,9 +324,13 @@ public struct QobuzAlbum: Decodable, Equatable, Sendable {
     public let maximumBitDepth: Int?
     public let hiresStreamable: Bool
     public let bookletURL: URL?
+    public let streamable: Bool
+    public let downloadable: Bool
+    public let displayable: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, title, version, artist, image, tracks, duration, upc, copyright, goodies
+        case streamable, downloadable, displayable
         case tracksCount = "tracks_count"
         case mediaCount = "media_count"
         case releaseDate = "release_date_original"
@@ -318,7 +364,10 @@ public struct QobuzAlbum: Decodable, Equatable, Sendable {
         maximumSamplingRate: Double? = nil,
         maximumBitDepth: Int? = nil,
         hiresStreamable: Bool = false,
-        bookletURL: URL? = nil
+        bookletURL: URL? = nil,
+        streamable: Bool = true,
+        downloadable: Bool = true,
+        displayable: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -339,6 +388,9 @@ public struct QobuzAlbum: Decodable, Equatable, Sendable {
         self.maximumBitDepth = maximumBitDepth
         self.hiresStreamable = hiresStreamable
         self.bookletURL = bookletURL
+        self.streamable = streamable
+        self.downloadable = downloadable
+        self.displayable = displayable
     }
 
     public init(from decoder: Decoder) throws {
@@ -363,6 +415,9 @@ public struct QobuzAlbum: Decodable, Equatable, Sendable {
         maximumBitDepth = try container.decodeIfPresent(Int.self, forKey: .maximumBitDepth)
         hiresStreamable = try container.decodeIfPresent(Bool.self, forKey: .hiresStreamable) ?? false
         bookletURL = try container.decodeIfPresent([Goodie].self, forKey: .goodies)?.first?.url
+        streamable = try container.decodeIfPresent(Bool.self, forKey: .streamable) ?? true
+        downloadable = try container.decodeIfPresent(Bool.self, forKey: .downloadable) ?? true
+        displayable = try container.decodeIfPresent(Bool.self, forKey: .displayable) ?? true
     }
 
     public var displayTitle: String {
@@ -399,15 +454,34 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
     public let name: String
     public let image: QobuzImage?
     public let albums: [QobuzAlbum]
+    public let albumsTotal: Int?
+    public let albumsOffset: Int?
+    public let albumsLimit: Int?
 
     enum CodingKeys: String, CodingKey { case id, name, image, albums }
-    private struct AlbumsContainer: Decodable { let items: [QobuzAlbum] }
+    private struct AlbumsContainer: Decodable {
+        let items: [QobuzAlbum]
+        let total: Int?
+        let offset: Int?
+        let limit: Int?
+    }
 
-    public init(id: QobuzID, name: String, image: QobuzImage? = nil, albums: [QobuzAlbum]) {
+    public init(
+        id: QobuzID,
+        name: String,
+        image: QobuzImage? = nil,
+        albums: [QobuzAlbum],
+        albumsTotal: Int? = nil,
+        albumsOffset: Int? = nil,
+        albumsLimit: Int? = nil
+    ) {
         self.id = id
         self.name = name
         self.image = image
         self.albums = albums
+        self.albumsTotal = albumsTotal
+        self.albumsOffset = albumsOffset
+        self.albumsLimit = albumsLimit
     }
 
     public init(from decoder: Decoder) throws {
@@ -415,7 +489,45 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
         id = try container.decode(QobuzID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         image = try container.decodeIfPresent(QobuzImage.self, forKey: .image)
-        albums = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)?.items ?? []
+        let albumPage = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
+        albums = albumPage?.items ?? []
+        albumsTotal = albumPage?.total
+        albumsOffset = albumPage?.offset
+        albumsLimit = albumPage?.limit
+    }
+}
+
+public enum QobuzArtistReleaseRelationship: Equatable, Sendable {
+    case official
+    case appearance
+}
+
+public extension QobuzArtistCatalog {
+    var availableAlbums: [QobuzAlbum] {
+        albums.filter { $0.streamable && $0.displayable }
+    }
+
+    var officialAlbums: [QobuzAlbum] {
+        availableAlbums.filter { relationship(of: $0) == .official }
+    }
+
+    var appearanceAlbums: [QobuzAlbum] {
+        availableAlbums.filter { relationship(of: $0) == .appearance }
+    }
+
+    func relationship(of album: QobuzAlbum) -> QobuzArtistReleaseRelationship {
+        if let albumArtistID = album.artist.id {
+            return albumArtistID == id ? .official : .appearance
+        }
+        return normalizedArtistName(album.artist.name) == normalizedArtistName(name)
+            ? .official
+            : .appearance
+    }
+
+    private func normalizedArtistName(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
     }
 }
 
@@ -503,6 +615,18 @@ public enum NativeQobuzError: LocalizedError, Equatable, Sendable {
         case .missingAlbum(let id): "Track metadata is missing album \(id.rawValue)."
         case .cancelled: "Download cancelled."
         case .fileSystem(let message): "File operation failed: \(message)"
+        }
+    }
+
+    public var canResumeTransfer: Bool {
+        switch self {
+        case .network:
+            true
+        case .http(let status, _):
+            status == 403 || status == 408 || status == 409 || status == 416
+                || status == 425 || status == 429 || (500...599).contains(status)
+        default:
+            false
         }
     }
 }

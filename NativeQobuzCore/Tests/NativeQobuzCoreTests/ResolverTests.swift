@@ -86,6 +86,63 @@ final class ResolverTests: XCTestCase {
         XCTAssertEqual(plan.tracks.first?.position, 1)
         XCTAssertEqual(plan.tracks.first?.total, 1)
     }
+
+    func testArtistAlbumResolutionUsesBoundedConcurrencyAndKeepsCatalogOrder() async throws {
+        let albums = (0..<9).map { index in
+            makeAlbum(id: "album-\(index)", title: "Album \(index)", trackIDs: ["track-\(index)"])
+        }
+        let artist = QobuzArtistCatalog(
+            id: QobuzID("artist"),
+            name: "Artist",
+            albums: albums
+        )
+        let service = DelayedArtistService(artist: artist, albums: albums)
+
+        let plan = try await QobuzCatalogResolver(service: service).resolve(.artist(artist.id))
+
+        XCTAssertEqual(plan.tracks.map(\.track.id.rawValue), albums.map { $0.tracks[0].id.rawValue })
+        let peak = await service.peakConcurrentAlbumRequests
+        XCTAssertGreaterThan(peak, 1)
+        XCTAssertLessThanOrEqual(peak, 6)
+    }
+
+    func testArtistResolutionDownloadsOnlyAvailableOfficialReleases() async throws {
+        let official = makeAlbum(id: "official", title: "Official", trackIDs: ["one"])
+        let otherArtist = QobuzArtist(id: QobuzID("other"), name: "Tribute Artist")
+        let appearance = QobuzAlbum(
+            id: QobuzID("appearance"),
+            title: "Appearance",
+            artist: otherArtist,
+            tracks: [QobuzTrack(id: QobuzID("cover"), title: "Cover", performer: otherArtist)]
+        )
+        let unavailable = QobuzAlbum(
+            id: QobuzID("unavailable"),
+            title: "Unavailable",
+            artist: official.artist,
+            tracks: [QobuzTrack(id: QobuzID("blocked"), title: "Blocked", performer: official.artist)],
+            streamable: false
+        )
+        let artist = QobuzArtistCatalog(
+            id: QobuzID("artist"),
+            name: "Artist",
+            albums: [official, appearance, unavailable]
+        )
+        let service = FakeQobuzService(
+            albums: [official.id: official, appearance.id: appearance, unavailable.id: unavailable],
+            artists: [artist.id: artist]
+        )
+
+        let plan = try await QobuzCatalogResolver(service: service).resolve(.artist(artist.id))
+
+        XCTAssertEqual(plan.tracks.map(\.track.id.rawValue), ["one"])
+        let officialRequests = await service.albumRequestCount(for: official.id)
+        let appearanceRequests = await service.albumRequestCount(for: appearance.id)
+        let unavailableRequests = await service.albumRequestCount(for: unavailable.id)
+        XCTAssertEqual(officialRequests, 1)
+        XCTAssertEqual(appearanceRequests, 0)
+        XCTAssertEqual(unavailableRequests, 0)
+    }
+
 }
 
 func makeAlbum(id: String, title: String = "Album", trackIDs: [String]) -> QobuzAlbum {
@@ -116,6 +173,7 @@ actor FakeQobuzService: QobuzCatalogService {
     private let playlists: [QobuzID: QobuzPlaylist]
     private let artists: [QobuzID: QobuzArtistCatalog]
     private var albumRequests: [QobuzID: Int] = [:]
+    private var fileInfoRequests = 0
 
     init(
         tracks: [QobuzID: QobuzTrack] = [:],
@@ -149,13 +207,49 @@ actor FakeQobuzService: QobuzCatalogService {
     }
 
     func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
-        QobuzFileInfo(url: URL(string: "https://media.example/\(trackID).flac")!, formatID: quality.formatID)
+        fileInfoRequests += 1
+        return QobuzFileInfo(
+            url: URL(string: "https://media.example/\(trackID).flac?signature=\(fileInfoRequests)")!,
+            formatID: quality.formatID
+        )
     }
 
     func albumRequestCount(for id: QobuzID) -> Int { albumRequests[id, default: 0] }
+    var fileInfoRequestCount: Int { fileInfoRequests }
 
     private func value<T>(_ value: T?, name: String) throws -> T {
         guard let value else { throw NativeQobuzError.invalidResponse("Missing fake \(name)") }
         return value
+    }
+}
+
+private actor DelayedArtistService: QobuzCatalogService {
+    private let artistValue: QobuzArtistCatalog
+    private let albums: [QobuzID: QobuzAlbum]
+    private var activeAlbumRequests = 0
+    private(set) var peakConcurrentAlbumRequests = 0
+
+    init(artist: QobuzArtistCatalog, albums: [QobuzAlbum]) {
+        artistValue = artist
+        self.albums = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
+    }
+
+    func validateAccount() async throws -> String { "FR" }
+    func track(id: QobuzID) async throws -> QobuzTrack { throw NativeQobuzError.unavailable("Unused") }
+
+    func album(id: QobuzID) async throws -> QobuzAlbum {
+        activeAlbumRequests += 1
+        peakConcurrentAlbumRequests = max(peakConcurrentAlbumRequests, activeAlbumRequests)
+        defer { activeAlbumRequests -= 1 }
+        try await Task.sleep(for: .milliseconds(30))
+        guard let album = albums[id] else { throw NativeQobuzError.unavailable("Missing album") }
+        return album
+    }
+
+    func playlist(id: QobuzID) async throws -> QobuzPlaylist { throw NativeQobuzError.unavailable("Unused") }
+    func artist(id: QobuzID) async throws -> QobuzArtistCatalog { artistValue }
+
+    func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
+        throw NativeQobuzError.unavailable("Unused")
     }
 }

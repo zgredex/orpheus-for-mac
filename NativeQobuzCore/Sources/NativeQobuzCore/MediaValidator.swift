@@ -31,26 +31,25 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
         process.arguments = [fileURL.path]
         let errors = Pipe()
         let state = ValidatorProcessState()
+        let output = ValidatorOutput()
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errors
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            output.append(handle.availableData)
+        }
 
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                guard !state.isCancelled else {
-                    continuation.resume(throwing: NativeQobuzError.cancelled)
-                    return
-                }
                 process.terminationHandler = { process in
-                    if state.isCancelled {
+                    errors.fileHandleForReading.readabilityHandler = nil
+                    output.append(errors.fileHandleForReading.readDataToEndOfFile())
+                    if state.complete() {
                         continuation.resume(throwing: NativeQobuzError.cancelled)
                         return
                     }
                     guard process.terminationStatus == 0 else {
-                        let detail = String(
-                            decoding: errors.fileHandleForReading.readDataToEndOfFile(),
-                            as: UTF8.self
-                        ).trimmingCharacters(in: .whitespacesAndNewlines)
+                        let detail = output.text
                         continuation.resume(
                             throwing: NativeQobuzError.invalidResponse(
                                 detail.isEmpty
@@ -63,15 +62,19 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
                     continuation.resume()
                 }
                 do {
-                    try process.run()
+                    try state.run(process)
+                } catch let error as NativeQobuzError {
+                    errors.fileHandleForReading.readabilityHandler = nil
+                    process.terminationHandler = nil
+                    continuation.resume(throwing: error)
                 } catch {
+                    errors.fileHandleForReading.readabilityHandler = nil
                     process.terminationHandler = nil
                     continuation.resume(throwing: NativeQobuzError.fileSystem(error.localizedDescription))
                 }
             }
         } onCancel: {
             state.cancel()
-            if process.isRunning { process.terminate() }
         }
     }
 }
@@ -79,16 +82,51 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
 private final class ValidatorProcessState: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
+    private var process: Process?
 
-    var isCancelled: Bool {
+    func run(_ process: Process) throws {
         lock.lock()
         defer { lock.unlock() }
-        return cancelled
+        guard !cancelled else { throw NativeQobuzError.cancelled }
+        self.process = process
+        do {
+            try process.run()
+        } catch {
+            self.process = nil
+            throw error
+        }
     }
 
     func cancel() {
         lock.lock()
         cancelled = true
+        if let process, process.isRunning { process.terminate() }
         lock.unlock()
+    }
+
+    func complete() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        process = nil
+        return cancelled
+    }
+}
+
+private final class ValidatorOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        data.append(chunk)
+        if data.count > 16_384 { data = Data(data.suffix(16_384)) }
+        lock.unlock()
+    }
+
+    var text: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

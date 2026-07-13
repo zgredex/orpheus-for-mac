@@ -94,21 +94,18 @@ struct NativeBrowseView: View {
         switch page.content {
         case .album(let album):
             let queued = queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
-            Button(queued ? "In Queue" : "Add Album", systemImage: queued ? "checkmark" : "plus") {
-                vm.addRequest(.album(album.id), title: album.displayTitle, artworkURL: album.image?.bestURL)
+            HStack(spacing: DS.Space.m) {
+                if let status = vm.libraryStatus(for: album) {
+                    LibraryStatusLabel(status: status)
+                }
+                Button(queued ? "In Queue" : "Add Album", systemImage: queued ? "checkmark" : "plus") {
+                    vm.addRequest(.album(album.id), title: album.displayTitle, artworkURL: album.image?.bestURL)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(queued)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(queued)
-        case .artist(let catalog):
-            let queued = queuedURLs.contains(QobuzRequest.artist(catalog.id).canonicalURL)
-            Button(queued ? "In Queue" : "Add All Albums", systemImage: queued ? "checkmark" : "plus") {
-                vm.addRequest(.artist(catalog.id), title: catalog.name, artworkURL: catalog.image?.bestURL)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(queued)
-        case .loading, .error:
+        case .artist, .loading, .error:
             EmptyView()
         }
     }
@@ -160,18 +157,18 @@ struct NativeBrowseView: View {
                 },
                 isTrackQueued: { track in
                     queuedURLs.contains(QobuzRequest.track(track.id).canonicalURL)
-                }
+                },
+                trackLibraryStatus: { vm.libraryStatus(for: $0) }
             )
         case .artist(let catalog):
             ArtistPreview(
                 artist: catalog,
                 onOpenAlbum: { album in vm.openAlbum(album.id) },
-                onAddAlbum: { album in
-                    vm.addRequest(.album(album.id), title: album.displayTitle, artworkURL: album.image?.bestURL)
-                },
+                onAddAlbums: vm.addAlbums,
                 isAlbumQueued: { album in
                     queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
-                }
+                },
+                albumLibraryStatus: { vm.libraryStatus(for: $0) }
             )
         }
     }
@@ -189,6 +186,7 @@ struct NativeBrowseView: View {
                 title: album.title,
                 subtitle: album.artist?.name ?? "Album",
                 isQueued: queued.contains(QobuzRequest.album(album.id).canonicalURL),
+                libraryStatus: vm.libraryStatus(for: album),
                 open: { vm.openAlbum(album.id) },
                 add: { vm.addRequest(.album(album.id), title: album.title, artworkURL: album.image?.bestURL) }
             )
@@ -223,6 +221,7 @@ struct NativeBrowseView: View {
                 title: track.displayTitle,
                 subtitle: track.performer?.name ?? track.album?.title ?? "Track",
                 isQueued: queued.contains(QobuzRequest.track(track.id).canonicalURL),
+                libraryStatus: vm.libraryStatus(for: track),
                 open: track.album.map { summary in { vm.openAlbum(summary.id) } },
                 add: { vm.addRequest(.track(track.id), title: track.displayTitle, artworkURL: track.album?.image?.bestURL) }
             )

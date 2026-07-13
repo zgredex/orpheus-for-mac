@@ -3,13 +3,19 @@ import SwiftUI
 
 struct QueueRow: View {
     let item: NativeQueueItem
+    var libraryStatus: NativeLibraryStatus?
 
     var body: some View {
         HStack(spacing: 9) {
             ArtworkView(url: item.artworkURL, size: DS.Artwork.queue, placeholderSymbol: icon)
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text(item.title).font(.rowTitle).lineLimit(1)
-                Text(item.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: DS.Space.xs) {
+                    Text(item.subtitle).font(.rowSubtitle).foregroundStyle(.secondary).lineLimit(1)
+                    if let libraryStatus {
+                        LibraryStatusLabel(status: libraryStatus, compact: true)
+                    }
+                }
             }
             Spacer(minLength: DS.Space.xs)
             if let style = item.status.style {
@@ -24,6 +30,7 @@ struct QueueRow: View {
 
     private var failureMessage: String? {
         if case .failed(let message) = item.status { return message }
+        if item.status == .paused { return "Paused. Resume to continue the existing partial download." }
         return nil
     }
 
