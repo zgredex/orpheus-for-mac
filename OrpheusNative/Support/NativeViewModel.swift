@@ -754,6 +754,19 @@ final class NativeViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([target])
     }
 
+    func revealArchiveIssue(_ issue: NativeLibraryIndexProblem) {
+        guard let snapshot = archiveSnapshot else { return }
+        let root = URL(fileURLWithPath: snapshot.rootPath, isDirectory: true).standardizedFileURL
+        let target = root.appendingPathComponent(issue.relativePath).standardizedFileURL
+        let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard target.path == root.path || target.path.hasPrefix(rootPrefix),
+              FileManager.default.fileExists(atPath: target.path) else {
+            NSWorkspace.shared.activateFileViewerSelecting([root])
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([target])
+    }
+
     func libraryStatus(for item: NativeQueueItem) -> NativeLibraryStatus? {
         guard let snapshot = archiveSnapshot else { return nil }
         let coverage: QobuzArchiveCoverage
@@ -1105,7 +1118,10 @@ final class NativeViewModel: ObservableObject {
 
         downloadTask = Task { [weak self] in
             guard let self else { return }
-            defer { downloadTask = nil }
+            defer {
+                downloadTask = nil
+                if !isTerminating { refreshArchive() }
+            }
             do {
                 let validator = try FFmpegMediaValidator.bundled()
                 let engine = NativeQobuzDownloadEngine(service: client, validator: validator)
@@ -1121,7 +1137,6 @@ final class NativeViewModel: ObservableObject {
                     )
                     await runDownload(id: id, engine: engine, quality: quality, root: root)
                 }
-                refreshArchive()
             } catch is CancellationError {
                 if isTerminating { markActiveDownloadsPaused(phase: "Paused after app closed") }
                 else { markActiveDownloadsCancelled() }

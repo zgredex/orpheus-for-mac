@@ -53,6 +53,47 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertNil(results.nextOffset(for: .tracks))
     }
 
+    func testLibraryProblemsExplainIntegrityAndSeparateManualIndexIssues() throws {
+        let tracks = [
+            Self.archiveTrack(relativePath: "Album/01.flac", trackID: "missing", integrity: .missing),
+            Self.archiveTrack(relativePath: "Album/02.flac", trackID: "changed", integrity: .checksumMismatch),
+            Self.archiveTrack(
+                relativePath: "Album/03.flac",
+                trackID: "conflict",
+                formatID: 999,
+                integrity: .metadataConflict
+            ),
+            Self.archiveTrack(relativePath: "Album/04.flac", trackID: "unreadable", integrity: .unreadable),
+            Self.archiveTrack(relativePath: "Album/05.flac", trackID: "verified")
+        ]
+        let snapshot = QobuzArchiveSnapshot(
+            rootPath: "/tmp/library",
+            tracks: tracks,
+            issues: [
+                QobuzArchiveIssue(relativePath: "Album/04.flac", message: "Permission denied"),
+                QobuzArchiveIssue(relativePath: ".orpheus-library.json", message: "Malformed collection record")
+            ]
+        )
+
+        let problems = Dictionary(uniqueKeysWithValues: snapshot.nativeFileProblems.map {
+            ($0.track.qobuzTrackID, $0)
+        })
+
+        XCTAssertEqual(snapshot.problemCount, 5)
+        XCTAssertEqual(problems["missing"]?.reasonTitle, "Missing")
+        XCTAssertEqual(problems["changed"]?.reasonTitle, "Changed")
+        XCTAssertEqual(problems["conflict"]?.reasonTitle, "Conflict")
+        XCTAssertEqual(problems["unreadable"]?.reasonTitle, "Unreadable")
+        XCTAssertEqual(problems["unreadable"]?.reasonDetail, "Permission denied")
+        XCTAssertEqual(problems["missing"]?.isAutomaticallyRepairable, true)
+        XCTAssertEqual(problems["changed"]?.isAutomaticallyRepairable, true)
+        XCTAssertEqual(problems["conflict"]?.isAutomaticallyRepairable, false)
+        XCTAssertTrue(problems["conflict"]?.repairabilityDetail.contains("999") == true)
+        XCTAssertEqual(snapshot.nativeIndexProblems.count, 1)
+        XCTAssertEqual(snapshot.nativeIndexProblems[0].relativePath, ".orpheus-library.json")
+        XCTAssertEqual(snapshot.nativeIndexProblems[0].message, "Malformed collection record")
+    }
+
     func testSettingsStoreUsesIsolatedRootAndRoundTrips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
