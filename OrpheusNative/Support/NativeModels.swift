@@ -442,11 +442,6 @@ struct NativeBrowseResults: Equatable {
         nextOffsets[category]
     }
 
-    var reportedTotalCount: Int? {
-        guard totals.count == NativeBrowseCategory.allCases.count else { return nil }
-        return totals.values.reduce(0, +)
-    }
-
     var hasMoreResults: Bool {
         !nextOffsets.isEmpty
     }

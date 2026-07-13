@@ -410,7 +410,7 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertFalse(viewModel.isBrowseLoading)
     }
 
-    func testSearchLoadsASecondCategoryPageAndUpdatesReportedCounts() async throws {
+    func testSearchLoadsASecondCategoryPageAndUpdatesLoadedCounts() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
@@ -428,8 +428,8 @@ final class NativeAdapterTests: XCTestCase {
         }
 
         XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Track One", "Track Two"])
-        XCTAssertEqual(viewModel.browseCountLabel(for: .tracks), "2/3")
-        XCTAssertEqual(viewModel.browseStatusText, "2 of 3 loaded")
+        XCTAssertEqual(viewModel.browseCountLabel(for: .tracks), "2+")
+        XCTAssertEqual(viewModel.browseStatusText, "2 loaded")
         XCTAssertTrue(viewModel.canLoadMoreBrowseResults(for: .tracks))
 
         viewModel.loadMoreBrowseResults(for: .tracks)

@@ -42,23 +42,42 @@ struct NativeBrowseView: View {
     }
 
     private var categoryRow: some View {
-        HStack(spacing: DS.Space.m) {
-            Picker("Category", selection: $vm.browseCategory) {
-                ForEach(NativeBrowseCategory.allCases) { category in
-                    Text("\(category.rawValue)  \(vm.browseCountLabel(for: category))")
-                        .monospacedDigit()
-                        .tag(category)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: DS.Space.m) {
+                categoryPicker
+                    .frame(width: 430)
+                    .clipped()
+                Spacer(minLength: DS.Space.m)
+                categoryStatus
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 430)
-            Spacer()
-            Text(vm.browseStatusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                categoryPicker
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                categoryStatus
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
+    }
+
+    private var categoryPicker: some View {
+        Picker("Category", selection: $vm.browseCategory) {
+            ForEach(NativeBrowseCategory.allCases) { category in
+                Text("\(category.rawValue)  \(vm.browseCountLabel(for: category))")
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .tag(category)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+    }
+
+    private var categoryStatus: some View {
+        Text(vm.browseStatusText)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
     }
 
     private func detailHeader(_ page: BrowsePage) -> some View {

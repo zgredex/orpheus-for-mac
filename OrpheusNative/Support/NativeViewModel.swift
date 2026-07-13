@@ -111,10 +111,8 @@ final class NativeViewModel: ObservableObject {
         if !loadingMoreBrowseCategories.isEmpty {
             return "\(loaded) loaded · Loading more"
         }
-        if browseResults.hasMoreResults,
-           let reported = browseResults.reportedTotalCount,
-           reported > loaded {
-            return "\(loaded) of \(reported) loaded"
+        if browseResults.hasMoreResults {
+            return "\(loaded) loaded"
         }
         return loaded == 1 ? "1 result" : "\(loaded) results"
     }
@@ -809,10 +807,8 @@ final class NativeViewModel: ObservableObject {
 
     func browseCountLabel(for category: NativeBrowseCategory) -> String {
         let loaded = browseResults.count(for: category)
-        if let total = browseResults.total(for: category), total > loaded {
-            return "\(loaded)/\(total)"
-        }
-        return String(loaded)
+        let hasMore = browseResults.nextOffset(for: category) != nil
+        return "\(loaded)\(hasMore ? "+" : "")"
     }
 
     func canLoadMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
