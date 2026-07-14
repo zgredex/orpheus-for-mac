@@ -141,7 +141,7 @@ struct NativeSettingsStore: NativeSettingsStoring, @unchecked Sendable {
     let paths: NativePaths
     let fileManager: FileManager
 
-    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+    init(paths: NativePaths, fileManager: FileManager = .default) {
         self.paths = paths
         self.fileManager = fileManager
     }
@@ -201,7 +201,7 @@ struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
     let paths: NativePaths
     let fileManager: FileManager
 
-    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+    init(paths: NativePaths, fileManager: FileManager = .default) {
         self.paths = paths
         self.fileManager = fileManager
     }
@@ -218,6 +218,13 @@ struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
             )
             guard snapshot.version == 1 else {
                 throw NativeQobuzError.invalidResponse("Unsupported archive index version.")
+            }
+            guard snapshot.tracks.allSatisfy({
+                QobuzPathSafety.isSafeRelativePath($0.relativePath)
+            }) else {
+                throw NativeQobuzError.invalidResponse(
+                    "The cached archive index contains an unsafe track path."
+                )
             }
             qobuzLog.debug(
                 "persistence.archive",
@@ -299,7 +306,7 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
     let paths: NativePaths
     let fileManager: FileManager
 
-    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+    init(paths: NativePaths, fileManager: FileManager = .default) {
         self.paths = paths
         self.fileManager = fileManager
     }
@@ -365,7 +372,7 @@ struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
     let paths: NativePaths
     let fileManager: FileManager
 
-    init(paths: NativePaths = NativePaths(), fileManager: FileManager = .default) {
+    init(paths: NativePaths, fileManager: FileManager = .default) {
         self.paths = paths
         self.fileManager = fileManager
     }
@@ -402,15 +409,10 @@ struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
     }
 
     func save(_ credentials: CredentialDraft) throws {
-        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: paths.applicationSupportRoot.path
-        )
-        try JSONEncoder.pretty.encode(credentials).write(to: paths.credentialsURL, options: .atomic)
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: paths.credentialsURL.path
+        try NativeSecureFileWriter.write(
+            JSONEncoder.pretty.encode(credentials),
+            to: paths.credentialsURL,
+            fileManager: fileManager
         )
         qobuzLog.notice(
             "persistence.credentials",

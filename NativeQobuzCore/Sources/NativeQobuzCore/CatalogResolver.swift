@@ -43,7 +43,7 @@ public struct QobuzCatalogResolver: Sendable {
                     ]
                 )
                 return result
-            } catch is CancellationError {
+            } catch let error where error.isQobuzCancellation {
                 qobuzLog.notice("catalog.resolve", "Catalog resolution cancelled")
                 throw NativeQobuzError.cancelled
             } catch {
@@ -89,7 +89,18 @@ public struct QobuzCatalogResolver: Sendable {
             throw NativeQobuzError.emptyCollection(playlist.name)
         }
 
-        var albumCache: [QobuzID: QobuzAlbum] = [:]
+        var albumIDs: [QobuzID] = []
+        var seenAlbumIDs = Set<QobuzID>()
+        for track in playableTracks {
+            guard let albumID = track.album?.id else {
+                throw NativeQobuzError.missingAlbum(track.id)
+            }
+            if seenAlbumIDs.insert(albumID).inserted { albumIDs.append(albumID) }
+        }
+        let albums = try await fetchAlbums(ids: albumIDs, omittingUnavailable: false)
+        let albumCache = Dictionary(uniqueKeysWithValues: zip(albumIDs, albums).compactMap { id, album in
+            album.map { (id, $0) }
+        })
         var resolved: [QobuzResolvedTrack] = []
         qobuzLog.debug(
             "catalog.playlist",
@@ -102,13 +113,7 @@ public struct QobuzCatalogResolver: Sendable {
             guard let albumID = track.album?.id else {
                 throw NativeQobuzError.missingAlbum(track.id)
             }
-            let album: QobuzAlbum
-            if let cached = albumCache[albumID] {
-                album = cached
-            } else {
-                album = try await service.album(id: albumID)
-                albumCache[albumID] = album
-            }
+            guard let album = albumCache[albumID] else { throw NativeQobuzError.missingAlbum(track.id) }
             resolved.append(
                 QobuzResolvedTrack(
                     track: track,
@@ -131,7 +136,10 @@ public struct QobuzCatalogResolver: Sendable {
         let artist = try await service.artist(id: id)
         var seenAlbums = Set<QobuzID>()
         let summaries = artist.officialAlbums.filter { seenAlbums.insert($0.id).inserted }
-        let albums = try await fetchAlbums(summaries)
+        let albums = try await fetchAlbums(
+            ids: summaries.map(\.id),
+            omittingUnavailable: true
+        ).compactMap { $0 }
 
         let trackCount = albums.reduce(into: 0) { $0 += $1.availableTracks.count }
         guard trackCount > 0 else {
@@ -152,7 +160,10 @@ public struct QobuzCatalogResolver: Sendable {
         let label = try await service.label(id: id)
         var seenAlbums = Set<QobuzID>()
         let summaries = label.availableAlbums.filter { seenAlbums.insert($0.id).inserted }
-        let albums = try await fetchAlbums(summaries)
+        let albums = try await fetchAlbums(
+            ids: summaries.map(\.id),
+            omittingUnavailable: true
+        ).compactMap { $0 }
         let trackCount = albums.reduce(into: 0) { $0 += $1.availableTracks.count }
         guard trackCount > 0 else {
             throw NativeQobuzError.emptyCollection(label.name)
@@ -166,45 +177,60 @@ public struct QobuzCatalogResolver: Sendable {
         )
     }
 
-    private func fetchAlbums(_ summaries: [QobuzAlbum]) async throws -> [QobuzAlbum] {
+    private func fetchAlbums(
+        ids: [QobuzID],
+        omittingUnavailable: Bool
+    ) async throws -> [QobuzAlbum?] {
         qobuzLog.debug(
             "catalog.collection",
             "Fetching collection albums",
-            metadata: ["albumCount": String(summaries.count), "maximumConcurrency": "6"]
+            metadata: ["albumCount": String(ids.count), "maximumConcurrency": "6"]
         )
         return try await withThrowingTaskGroup(
             of: (Int, QobuzAlbum?).self,
-            returning: [QobuzAlbum].self
+            returning: [QobuzAlbum?].self
         ) { group in
-            let concurrency = min(6, summaries.count)
+            let concurrency = min(6, ids.count)
             var nextIndex = 0
-            var ordered = Array<QobuzAlbum?>(repeating: nil, count: summaries.count)
+            var ordered = Array<QobuzAlbum?>(repeating: nil, count: ids.count)
 
             for _ in 0..<concurrency {
                 let index = nextIndex
                 nextIndex += 1
-                group.addTask { try await fetchAlbum(at: index, summary: summaries[index]) }
+                group.addTask {
+                    try await fetchAlbum(
+                        at: index,
+                        id: ids[index],
+                        omittingUnavailable: omittingUnavailable
+                    )
+                }
             }
 
             while let (index, album) = try await group.next() {
                 ordered[index] = album
-                if nextIndex < summaries.count {
+                if nextIndex < ids.count {
                     let index = nextIndex
                     nextIndex += 1
-                    group.addTask { try await fetchAlbum(at: index, summary: summaries[index]) }
+                    group.addTask {
+                        try await fetchAlbum(
+                            at: index,
+                            id: ids[index],
+                            omittingUnavailable: omittingUnavailable
+                        )
+                    }
                 }
             }
-            let albums = ordered.compactMap { $0 }
+            let availableCount = ordered.compactMap { $0 }.count
             qobuzLog.info(
                 "catalog.collection",
                 "Collection albums fetched",
                 metadata: [
-                    "requestedAlbums": String(summaries.count),
-                    "availableAlbums": String(albums.count),
-                    "skippedAlbums": String(summaries.count - albums.count)
+                    "requestedAlbums": String(ids.count),
+                    "availableAlbums": String(availableCount),
+                    "skippedAlbums": String(ids.count - availableCount)
                 ]
             )
-            return albums
+            return ordered
         }
     }
 
@@ -233,24 +259,29 @@ public struct QobuzCatalogResolver: Sendable {
         return resolved
     }
 
-    private func fetchAlbum(at index: Int, summary: QobuzAlbum) async throws -> (Int, QobuzAlbum?) {
+    private func fetchAlbum(
+        at index: Int,
+        id: QobuzID,
+        omittingUnavailable: Bool
+    ) async throws -> (Int, QobuzAlbum?) {
         try Task.checkCancellation()
         do {
-            let album = try await service.album(id: summary.id)
-            let isAvailable = album.accountAvailabilityIssue == nil && !album.availableTracks.isEmpty
+            let album = try await service.album(id: id)
+            let isAvailable = !omittingUnavailable
+                || (album.accountAvailabilityIssue == nil && !album.availableTracks.isEmpty)
             if !isAvailable {
                 qobuzLog.warning(
                     "catalog.collection",
                     "Album omitted because it is unavailable or empty",
-                    metadata: ["albumID": summary.id.rawValue, "index": String(index)]
+                    metadata: ["albumID": id.rawValue, "index": String(index)]
                 )
             }
             return (index, isAvailable ? album : nil)
-        } catch NativeQobuzError.unavailable(_) {
+        } catch NativeQobuzError.unavailable(_) where omittingUnavailable {
             qobuzLog.warning(
                 "catalog.collection",
                 "Album omitted because Qobuz reported it unavailable",
-                metadata: ["albumID": summary.id.rawValue, "index": String(index)]
+                metadata: ["albumID": id.rawValue, "index": String(index)]
             )
             return (index, nil)
         }

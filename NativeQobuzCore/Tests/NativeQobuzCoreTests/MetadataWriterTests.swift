@@ -49,6 +49,44 @@ final class MetadataWriterTests: XCTestCase {
         }
     }
 
+    func testID3v23UsesPortableArtistDelimiterInsteadOfNUL() throws {
+        let file = temporaryURL(extension: "mp3")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try audioPayload.write(to: file)
+        let metadata = QobuzAudioMetadata(item: fixtureItem(
+            performers: "Primary, MainArtist - Guest, FeaturedArtist"
+        ))
+
+        try NativeAudioMetadataWriter().write(metadata: metadata, artwork: nil, to: file)
+
+        let data = try Data(contentsOf: file)
+        XCTAssertTrue(data.contains(utf16LE("Primary; Guest")))
+        XCTAssertFalse(data.contains(utf16LE("Primary\0Guest")))
+    }
+
+    func testOversizedArtworkIsOmittedWithoutFailingTheAudioWrite() throws {
+        let file = temporaryURL(extension: "mp3")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try audioPayload.write(to: file)
+        let oversized = EmbeddedArtwork(
+            data: Data(repeating: 0xFF, count: EmbeddedArtwork.maximumEmbeddedBytes + 1),
+            mimeType: "image/jpeg",
+            width: 1,
+            height: 1,
+            depth: 24
+        )
+
+        try NativeAudioMetadataWriter().write(
+            metadata: QobuzAudioMetadata(item: fixtureItem()),
+            artwork: oversized,
+            to: file
+        )
+
+        let data = try Data(contentsOf: file)
+        XCTAssertFalse(data.contains(Data("APIC".utf8)))
+        XCTAssertEqual(data.suffix(audioPayload.count), audioPayload)
+    }
+
     func testFLACWriterReplacesCommentsAndPictureAndPreservesFrames() throws {
         let file = temporaryURL(extension: "flac")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -153,6 +191,15 @@ final class MetadataWriterTests: XCTestCase {
             offset += length
         }
         return blocks
+    }
+
+    private func utf16LE(_ value: String) -> Data {
+        var result = Data([0xFF, 0xFE])
+        for unit in value.utf16 {
+            result.append(UInt8(unit & 0xFF))
+            result.append(UInt8((unit >> 8) & 0xFF))
+        }
+        return result
     }
 
     private enum TestError: Error { case invalidFLAC }

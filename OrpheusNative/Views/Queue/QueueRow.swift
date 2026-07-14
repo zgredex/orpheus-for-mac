@@ -58,7 +58,7 @@ struct QueueRow: View {
             } else {
                 QualityBadge(kind: .target(targetQuality))
             }
-            if let style = item.status.style {
+            if let style = item.status.queueStyle {
                 StatusGlyph(style: style)
                     .contentTransition(.symbolEffect(.replace))
             }

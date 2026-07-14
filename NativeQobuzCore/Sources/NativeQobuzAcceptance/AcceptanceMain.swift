@@ -83,7 +83,9 @@ struct NativeQobuzAcceptance {
             "account.region",
             title: "French account region",
             operation: {
-                let value = try await client.validateAccount()
+                guard let value = try await client.validateAccount() else {
+                    throw AcceptanceFailure(message: "Qobuz did not report an account region.")
+                }
                 try require(
                     value.uppercased() == expectedRegion.uppercased(),
                     "Expected account region \(expectedRegion), received \(value)."

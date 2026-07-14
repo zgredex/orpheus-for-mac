@@ -17,7 +17,9 @@ struct ID3v23Writer: Sendable {
         var frames = Data()
         addTextFrame("TIT2", metadata.title, to: &frames)
         addTextFrame("TALB", metadata.album, to: &frames)
-        addTextFrame("TPE1", metadata.artists.joined(separator: "\u{0000}"), to: &frames)
+        // ID3v2.3 readers commonly stop at NUL, so use the same portable
+        // delimiter policy as TPE2 rather than the ID3v2.4 multi-value form.
+        addTextFrame("TPE1", metadata.artists.joined(separator: "; "), to: &frames)
         // ID3v2.3 has one TPE2 text value. A semicolon keeps multiple album
         // artists readable without using the ambiguous v2.3 slash convention.
         addTextFrame("TPE2", metadata.albumArtists.joined(separator: "; "), to: &frames)
@@ -227,8 +229,12 @@ struct FLACMetadataWriter: Sendable {
 private enum AtomicFileEditor {
     static func rewrite(_ destination: URL, body: (FileHandle) throws -> Void) throws {
         let fileManager = FileManager.default
-        let temporary = destination.deletingLastPathComponent()
-            .appendingPathComponent(".\(destination.lastPathComponent).metadata-\(UUID().uuidString)")
+        let temporaryName = QobuzFilenameComponent.make(
+            prefix: ".",
+            stem: destination.lastPathComponent,
+            suffix: ".metadata-\(UUID().uuidString)"
+        )
+        let temporary = destination.deletingLastPathComponent().appendingPathComponent(temporaryName)
         guard fileManager.createFile(atPath: temporary.path, contents: nil) else {
             throw NativeQobuzError.fileSystem("Could not create metadata staging file")
         }

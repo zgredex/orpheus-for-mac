@@ -65,7 +65,7 @@ enum PreviewSamples {
 
 #Preview("Activity row") {
     List { ActivityRow(activity: PreviewSamples.activity) }
-        .environmentObject(NativeViewModel())
+        .environmentObject(NativeViewModel(paths: NativePaths()))
         .frame(width: 520, height: 120)
 }
 

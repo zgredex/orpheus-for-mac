@@ -105,8 +105,8 @@ enum NativeConnectivityRecoveryAction: Equatable {
 }
 
 /// Allows one immediate signed-URL refresh when the system path already looks
-/// healthy. A repeated failure on the same path waits for a real path change,
-/// preventing a tight retry loop during DNS or captive-portal failures.
+/// healthy. A repeated failure waits for a path event or the view model's
+/// delayed fallback probe, preventing both tight loops and permanent stalls.
 struct NativeConnectivityRecoveryPolicy: Equatable {
     private(set) var usedImmediateRetry = false
 

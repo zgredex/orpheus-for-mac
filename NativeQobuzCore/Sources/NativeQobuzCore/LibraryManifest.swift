@@ -137,23 +137,16 @@ public enum QobuzLibraryManifestIO {
     }
 
     public static func relativePath(of url: URL, root: URL) throws -> String {
-        let root = root.standardizedFileURL
-        let value = url.standardizedFileURL
-        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard value.path.hasPrefix(prefix) else {
+        do {
+            return try QobuzPathSafety.relativePath(of: url, in: root)
+        } catch {
             qobuzLog.error(
                 "library.path",
                 "Library asset resolved outside the download folder",
-                metadata: ["assetPath": value.path, "downloadRoot": root.path]
+                metadata: ["assetPath": url.standardizedFileURL.path, "downloadRoot": root.standardizedFileURL.path]
             )
-            throw NativeQobuzError.fileSystem("A library asset is outside the download folder.")
+            throw error
         }
-        return String(value.path.dropFirst(prefix.count))
     }
 
-    public static func isSafeRelativePath(_ value: String) -> Bool {
-        guard !value.isEmpty, !value.hasPrefix("/") else { return false }
-        let parts = value.split(separator: "/", omittingEmptySubsequences: false)
-        return !parts.isEmpty && parts.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
-    }
 }

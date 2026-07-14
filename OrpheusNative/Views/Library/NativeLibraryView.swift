@@ -51,7 +51,7 @@ struct NativeLibraryView: View {
                 ProgressView().controlSize(.small)
             }
             Spacer()
-            Button(action: vm.refreshArchive) {
+            Button(action: { vm.refreshArchive(fullVerification: true) }) {
                 Image(systemName: "checkmark.shield")
             }
             .buttonStyle(.borderless)

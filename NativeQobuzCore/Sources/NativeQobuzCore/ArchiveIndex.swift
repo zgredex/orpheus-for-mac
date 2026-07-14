@@ -25,6 +25,7 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
     public let expectedSHA256: String
     public let actualSHA256: String?
     public let byteCount: Int64?
+    public let modificationDate: Date?
     public let integrity: QobuzArchiveIntegrity
     public let archiveKind: QobuzArchiveKind
     public let isLibraryManaged: Bool
@@ -44,6 +45,7 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         expectedSHA256: String,
         actualSHA256: String? = nil,
         byteCount: Int64? = nil,
+        modificationDate: Date? = nil,
         integrity: QobuzArchiveIntegrity,
         archiveKind: QobuzArchiveKind = .unclassified,
         isLibraryManaged: Bool = false
@@ -57,6 +59,7 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         self.expectedSHA256 = expectedSHA256
         self.actualSHA256 = actualSHA256
         self.byteCount = byteCount
+        self.modificationDate = modificationDate
         self.integrity = integrity
         self.archiveKind = archiveKind
         self.isLibraryManaged = isLibraryManaged
@@ -72,6 +75,7 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         case expectedSHA256
         case actualSHA256
         case byteCount
+        case modificationDate
         case integrity
         case archiveKind
         case isLibraryManaged
@@ -88,6 +92,7 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         expectedSHA256 = try container.decode(String.self, forKey: .expectedSHA256)
         actualSHA256 = try container.decodeIfPresent(String.self, forKey: .actualSHA256)
         byteCount = try container.decodeIfPresent(Int64.self, forKey: .byteCount)
+        modificationDate = try container.decodeIfPresent(Date.self, forKey: .modificationDate)
         integrity = try container.decode(QobuzArchiveIntegrity.self, forKey: .integrity)
         archiveKind = try container.decodeIfPresent(QobuzArchiveKind.self, forKey: .archiveKind)
             ?? .unclassified
@@ -195,30 +200,33 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
         let fallbackEntries = grouped.keys.compactMap { key -> QobuzArchiveEntry? in
             guard let values = grouped[key], let first = values.first else { return nil }
             let sortedTracks = values.sorted { $0.relativePath < $1.relativePath }
-            let directory = Self.directoryPath(for: first.relativePath)
+            let directory = QobuzPathSafety.directoryPath(of: first.relativePath)
             let title: String
             let subtitle: String
             let relativePath: String
 
             switch first.archiveKind {
             case .album:
-                title = Self.lastComponent(directory, fallback: "Album \(first.qobuzAlbumID)")
-                let artist = Self.lastComponent(
-                    Self.directoryPath(for: directory),
+                title = QobuzPathSafety.lastComponent(of: directory, fallback: "Album \(first.qobuzAlbumID)")
+                let artist = QobuzPathSafety.lastComponent(
+                    of: QobuzPathSafety.directoryPath(of: directory),
                     fallback: "Album"
                 )
                 subtitle = "\(artist) · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
                 relativePath = directory
             case .track:
-                title = Self.filenameStem(first.relativePath)
-                subtitle = Self.lastComponent(directory, fallback: "Standalone track")
+                title = QobuzPathSafety.filenameStem(of: first.relativePath)
+                subtitle = QobuzPathSafety.lastComponent(of: directory, fallback: "Standalone track")
                 relativePath = first.relativePath
             case .playlist:
-                title = Self.lastComponent(directory, fallback: "Playlist")
+                title = QobuzPathSafety.lastComponent(of: directory, fallback: "Playlist")
                 subtitle = "Playlist · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
                 relativePath = directory
             case .unclassified:
-                title = Self.lastComponent(directory, fallback: Self.filenameStem(first.relativePath))
+                title = QobuzPathSafety.lastComponent(
+                    of: directory,
+                    fallback: QobuzPathSafety.filenameStem(of: first.relativePath)
+                )
                 subtitle = "Older download · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
                 relativePath = directory.isEmpty ? first.relativePath : directory
             }
@@ -256,9 +264,9 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
         case .track:
             "track|\(track.relativePath)"
         case .playlist:
-            "playlist|\(directoryPath(for: track.relativePath))"
+            "playlist|\(QobuzPathSafety.directoryPath(of: track.relativePath))"
         case .unclassified:
-            "unclassified|\(directoryPath(for: track.relativePath))"
+            "unclassified|\(QobuzPathSafety.directoryPath(of: track.relativePath))"
         }
     }
 
@@ -271,20 +279,6 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
         }
     }
 
-    private static func directoryPath(for relativePath: String) -> String {
-        let value = (relativePath as NSString).deletingLastPathComponent
-        return value == "." ? "" : value
-    }
-
-    private static func lastComponent(_ path: String, fallback: String) -> String {
-        guard !path.isEmpty else { return fallback }
-        let value = (path as NSString).lastPathComponent
-        return value.isEmpty || value == "." ? fallback : value
-    }
-
-    private static func filenameStem(_ path: String) -> String {
-        ((path as NSString).lastPathComponent as NSString).deletingPathExtension
-    }
 }
 
 public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
@@ -387,14 +381,16 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
 
 public protocol QobuzArchiveScanning: Sendable {
     func scan(root: URL) async throws -> QobuzArchiveSnapshot
+    func scan(root: URL, reusing previous: QobuzArchiveSnapshot?) async throws -> QobuzArchiveSnapshot
+}
+
+public extension QobuzArchiveScanning {
+    func scan(root: URL, reusing previous: QobuzArchiveSnapshot?) async throws -> QobuzArchiveSnapshot {
+        try await scan(root: root)
+    }
 }
 
 public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
-    private struct ProvenanceManifest: Decodable {
-        let version: Int
-        let files: [String: QobuzFileProvenance]
-    }
-
     private let fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
@@ -402,6 +398,13 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
     }
 
     public func scan(root: URL) async throws -> QobuzArchiveSnapshot {
+        try await scan(root: root, reusing: nil)
+    }
+
+    public func scan(
+        root: URL,
+        reusing previous: QobuzArchiveSnapshot?
+    ) async throws -> QobuzArchiveSnapshot {
         let root = root.standardizedFileURL
         let scanID = UUID().uuidString
         let started = Date()
@@ -433,6 +436,9 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         )
 
         var tracks: [QobuzArchiveTrack] = []
+        let reusableTracks = previous?.rootPath == root.path ? (previous?.tracks ?? []) : []
+        let previousByPath = Dictionary(uniqueKeysWithValues: reusableTracks.map { ($0.relativePath, $0) })
+        var reusedChecksums = 0
         for manifestURL in enumeration.urls {
             try Task.checkCancellation()
             let values = try? manifestURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -443,18 +449,18 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                     "Reading provenance manifest",
                     metadata: scanMetadata.merging(["manifestPath": manifestURL.path]) { _, new in new }
                 )
-                let manifest = try JSONDecoder().decode(
-                    ProvenanceManifest.self,
-                    from: Data(contentsOf: manifestURL)
+                let manifest = try QobuzProvenanceManifestIO.load(
+                    from: manifestURL,
+                    fileManager: fileManager
                 )
-                guard manifest.version == 1 else {
-                    throw NativeQobuzError.invalidResponse("Unsupported provenance manifest version \(manifest.version).")
-                }
                 let folder = manifestURL.deletingLastPathComponent()
-                let checksumURL = folder.appendingPathComponent("checksums.sha256")
+                let checksumURL = folder.appendingPathComponent(QobuzChecksumManifest.filename)
                 let checksumEntries: [String: String]
                 do {
-                    checksumEntries = try self.checksumEntries(at: checksumURL)
+                    checksumEntries = try QobuzChecksumManifest.load(
+                        at: checksumURL,
+                        fileManager: fileManager
+                    )
                 } catch {
                     checksumEntries = [:]
                     qobuzLog.warning(
@@ -471,15 +477,23 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
 
                 for filename in manifest.files.keys.sorted() {
                     try Task.checkCancellation()
-                    guard Self.isSafeLeafName(filename), let provenance = manifest.files[filename] else {
+                    guard QobuzPathSafety.isSafeLeafName(filename), let provenance = manifest.files[filename] else {
                         issues.append(QobuzArchiveIssue(
-                            relativePath: Self.relativePath(of: manifestURL, root: root),
+                            relativePath: QobuzPathSafety.relativePathOrLastComponent(
+                                of: manifestURL,
+                                in: root,
+                                allowingRoot: true
+                            ),
                             message: "Ignored an unsafe provenance filename."
                         ))
                         continue
                     }
                     let audioURL = folder.appendingPathComponent(filename).standardizedFileURL
-                    let relativePath = Self.relativePath(of: audioURL, root: root)
+                    let relativePath = QobuzPathSafety.relativePathOrLastComponent(
+                        of: audioURL,
+                        in: root,
+                        allowingRoot: true
+                    )
                     let archiveKind = Self.resolvedArchiveKind(
                         provenance.archiveKind,
                         relativePath: relativePath,
@@ -492,6 +506,7 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                     let exists = fileManager.fileExists(atPath: audioURL.path)
                     var actualChecksum: String?
                     var byteCount: Int64?
+                    var modificationDate: Date?
                     let integrity: QobuzArchiveIntegrity
 
                     if !exists {
@@ -500,13 +515,27 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                         do {
                             let attributes = try fileManager.attributesOfItem(atPath: audioURL.path)
                             byteCount = (attributes[.size] as? NSNumber)?.int64Value
-                            actualChecksum = try MusicFileIntegrity.sha256(of: audioURL)
-                            if metadataConflict {
-                                integrity = .metadataConflict
-                            } else if actualChecksum?.caseInsensitiveCompare(provenance.sha256) == .orderedSame {
-                                integrity = .verified
+                            modificationDate = attributes[.modificationDate] as? Date
+                            if !metadataConflict,
+                               let previous = previousByPath[relativePath],
+                               Self.canReuseIntegrity(
+                                   previous,
+                                   provenance: provenance,
+                                   byteCount: byteCount,
+                                   modificationDate: modificationDate
+                               ) {
+                                actualChecksum = previous.actualSHA256
+                                integrity = previous.integrity
+                                reusedChecksums += 1
                             } else {
-                                integrity = .checksumMismatch
+                                actualChecksum = try MusicFileIntegrity.sha256(of: audioURL)
+                                if metadataConflict {
+                                    integrity = .metadataConflict
+                                } else if actualChecksum?.caseInsensitiveCompare(provenance.sha256) == .orderedSame {
+                                    integrity = .verified
+                                } else {
+                                    integrity = .checksumMismatch
+                                }
                             }
                         } catch {
                             integrity = .unreadable
@@ -533,6 +562,7 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                         expectedSHA256: provenance.sha256,
                         actualSHA256: actualChecksum,
                         byteCount: byteCount,
+                        modificationDate: modificationDate,
                         integrity: integrity,
                         archiveKind: archiveKind,
                         isLibraryManaged: provenance.isLibraryManaged
@@ -548,7 +578,7 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                         ]) { _, new in new }
                     )
                 }
-            } catch is CancellationError {
+            } catch let error where error.isQobuzCancellation {
                 qobuzLog.notice("library.scan", "Library integrity scan cancelled", metadata: scanMetadata)
                 throw NativeQobuzError.cancelled
             } catch {
@@ -559,7 +589,11 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                     error: error
                 )
                 issues.append(QobuzArchiveIssue(
-                    relativePath: Self.relativePath(of: manifestURL, root: root),
+                    relativePath: QobuzPathSafety.relativePathOrLastComponent(
+                        of: manifestURL,
+                        in: root,
+                        allowingRoot: true
+                    ),
                     message: error.localizedDescription
                 ))
             }
@@ -573,7 +607,7 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
             let manifest = try QobuzLibraryManifestIO.load(at: root, fileManager: fileManager)
             collections = manifest.collections.filter { record in
                 let paths = [record.relativePath] + record.trackPaths + [record.artworkRelativePath].compactMap { $0 }
-                let safe = paths.allSatisfy(QobuzLibraryManifestIO.isSafeRelativePath)
+                let safe = paths.allSatisfy(QobuzPathSafety.isSafeRelativePath)
                 if !safe {
                     issues.append(QobuzArchiveIssue(
                         relativePath: QobuzLibraryManifestIO.filename,
@@ -609,10 +643,29 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                 "problemCount": String(snapshot.problemCount),
                 "issueCount": String(snapshot.issues.count),
                 "collectionCount": String(snapshot.collections.count),
+                "reusedChecksumCount": String(reusedChecksums),
                 "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
             ]) { _, new in new }
         )
         return snapshot
+    }
+
+    private static func canReuseIntegrity(
+        _ previous: QobuzArchiveTrack,
+        provenance: QobuzFileProvenance,
+        byteCount: Int64?,
+        modificationDate: Date?
+    ) -> Bool {
+        previous.qobuzTrackID == provenance.qobuzTrackID
+            && previous.qobuzAlbumID == provenance.qobuzAlbumID
+            && previous.formatID == provenance.formatID
+            && previous.expectedSHA256.caseInsensitiveCompare(provenance.sha256) == .orderedSame
+            && previous.byteCount == byteCount
+            && previous.modificationDate == modificationDate
+            && previous.actualSHA256 != nil
+            && previous.integrity != .unreadable
+            && previous.integrity != .missing
+            && previous.integrity != .metadataConflict
     }
 
     private func manifestURLs(in root: URL) throws -> (urls: [URL], issues: [QobuzArchiveIssue]) {
@@ -629,7 +682,11 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                     error: error
                 )
                 issues.append(QobuzArchiveIssue(
-                    relativePath: Self.relativePath(of: url, root: root),
+                    relativePath: QobuzPathSafety.relativePathOrLastComponent(
+                        of: url,
+                        in: root,
+                        allowingRoot: true
+                    ),
                     message: error.localizedDescription
                 ))
                 return true
@@ -639,24 +696,9 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         }
         var urls: [URL] = []
         while let value = enumerator.nextObject() as? URL {
-            if value.lastPathComponent == ".orpheus-provenance.json" { urls.append(value) }
+            if value.lastPathComponent == QobuzProvenanceManifestIO.filename { urls.append(value) }
         }
         return (urls, issues)
-    }
-
-    private func checksumEntries(at url: URL) throws -> [String: String] {
-        guard fileManager.fileExists(atPath: url.path) else { return [:] }
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        var result: [String: String] = [:]
-        for line in contents.split(whereSeparator: \.isNewline) {
-            guard line.count > 64 else { continue }
-            let hashEnd = line.index(line.startIndex, offsetBy: 64)
-            let hash = line[..<hashEnd]
-            guard hash.allSatisfy(\.isHexDigit) else { continue }
-            let filename = line[hashEnd...].drop(while: { $0 == " " || $0 == "*" })
-            if !filename.isEmpty { result[String(filename)] = String(hash) }
-        }
-        return result
     }
 
     private func playlistManifestReferencesFiles(in folder: URL, filenames: Set<String>) -> Bool {
@@ -667,11 +709,7 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         ) else { return false }
         for url in contents where ["m3u", "m3u8"].contains(url.pathExtension.lowercased()) {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let referencesKnownFile = text.split(whereSeparator: \.isNewline).contains { line in
-                guard !line.hasPrefix("#") else { return false }
-                return filenames.contains(URL(fileURLWithPath: String(line)).lastPathComponent)
-            }
-            if referencesKnownFile { return true }
+            if QobuzM3UPlaylist.referencesAnyLeafName(in: text, names: filenames) { return true }
         }
         return false
     }
@@ -692,19 +730,4 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         return .unclassified
     }
 
-    private static func isSafeLeafName(_ value: String) -> Bool {
-        !value.isEmpty
-            && value != "."
-            && value != ".."
-            && !value.contains("/")
-            && URL(fileURLWithPath: value).lastPathComponent == value
-    }
-
-    private static func relativePath(of url: URL, root: URL) -> String {
-        let rootPath = root.standardizedFileURL.path
-        let path = url.standardizedFileURL.path
-        guard path == rootPath || path.hasPrefix(rootPath + "/") else { return url.lastPathComponent }
-        if path == rootPath { return "." }
-        return String(path.dropFirst(rootPath.count + 1))
-    }
 }

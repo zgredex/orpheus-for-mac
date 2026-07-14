@@ -398,6 +398,83 @@ final class APITests: XCTestCase {
         XCTAssertEqual(playlist.catalogMetadata.tracksCount, 35)
         XCTAssertEqual(playlist.catalogMetadata.editorialDescription, "Playlist notes")
     }
+
+    func testHTTPFailureBodyIsBoundedBeforeItReachesErrorsAndLogs() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let responseBody = String(repeating: "x", count: 2_000)
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(responseBody.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        do {
+            _ = try await client.search("failure", category: .tracks, limit: 30)
+            XCTFail("Expected an HTTP failure")
+        } catch NativeQobuzError.http(let status, let message) {
+            XCTAssertEqual(status, 500)
+            XCTAssertEqual(message.count, 513)
+            XCTAssertTrue(message.hasSuffix("… [truncated]"))
+            XCTAssertFalse(message.contains(responseBody))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testRetryAfterHTTPDateControlsRetryDelay() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let attempts = LockedBox(0)
+        let delays = LockedBox<[Duration]>([])
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
+        let retryAfter = formatter.string(from: Date().addingTimeInterval(3))
+        StubURLProtocol.handler = { request in
+            let attempt = attempts.value + 1
+            attempts.set(attempt)
+            if attempt == 1 {
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 429,
+                    httpVersion: nil,
+                    headerFields: ["Retry-After": retryAfter]
+                )!
+                return (response, Data())
+            }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"tracks":{"items":[]}}"#.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 2, baseDelay: .milliseconds(1)),
+            sleep: { delay in delays.set(delays.value + [delay]) }
+        )
+
+        _ = try await client.search("retry", category: .tracks, limit: 30)
+
+        XCTAssertEqual(attempts.value, 2)
+        let delay = try XCTUnwrap(delays.value.first)
+        XCTAssertGreaterThan(delay, .zero)
+        XCTAssertLessThanOrEqual(delay, .seconds(5))
+    }
 }
 
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {

@@ -2,6 +2,9 @@ import Foundation
 import ImageIO
 
 public struct EmbeddedArtwork: Equatable, Sendable {
+    public static let maximumEmbeddedBytes = 12 * 1_024 * 1_024
+    public static let externalFilenames = ["cover.jpg", "cover.png"]
+
     public let data: Data
     public let mimeType: String
     public let width: Int
@@ -21,7 +24,7 @@ public struct EmbeddedArtwork: Equatable, Sendable {
     }
 
     public static func inspecting(data: Data, mimeType: String? = nil) -> EmbeddedArtwork {
-        let detectedType = mimeType ?? Self.detectMimeType(data) ?? "image/jpeg"
+        let detectedType = Self.detectMimeType(data) ?? mimeType ?? "application/octet-stream"
         var width = 0
         var height = 0
         var depth = 0
@@ -34,6 +37,32 @@ public struct EmbeddedArtwork: Equatable, Sendable {
             }
         }
         return EmbeddedArtwork(data: data, mimeType: detectedType, width: width, height: height, depth: depth)
+    }
+
+    public static func validated(data: Data, mimeType: String? = nil) throws -> EmbeddedArtwork {
+        guard !data.isEmpty, data.count <= maximumEmbeddedBytes else {
+            throw NativeQobuzError.invalidResponse("Qobuz artwork is empty or exceeds the 12 MB embed limit.")
+        }
+        let artwork = inspecting(data: data, mimeType: mimeType)
+        guard ["image/jpeg", "image/png"].contains(artwork.mimeType),
+              artwork.width > 0,
+              artwork.height > 0 else {
+            throw NativeQobuzError.invalidResponse("Qobuz artwork is not a decodable JPEG or PNG image.")
+        }
+        return artwork
+    }
+
+    public var externalFilename: String {
+        mimeType == "image/png" ? "cover.png" : "cover.jpg"
+    }
+
+    public static func existingExternalFile(
+        in folder: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        externalFilenames.lazy
+            .map(folder.appendingPathComponent)
+            .first { fileManager.fileExists(atPath: $0.path) }
     }
 
     private static func detectMimeType(_ data: Data) -> String? {
@@ -170,19 +199,29 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
 
     public func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {
         let started = Date()
+        let embeddableArtwork = artwork.flatMap {
+            $0.data.count <= EmbeddedArtwork.maximumEmbeddedBytes ? $0 : nil
+        }
+        if artwork != nil, embeddableArtwork == nil {
+            qobuzLog.warning(
+                "metadata.artwork",
+                "Artwork exceeded the embed limit and was omitted without failing the audio file",
+                metadata: ["filePath": fileURL.path, "maximumBytes": String(EmbeddedArtwork.maximumEmbeddedBytes)]
+            )
+        }
         let metadataValues = [
             "filePath": fileURL.path,
             "format": fileURL.pathExtension.lowercased(),
             "title": metadata.title,
-            "artworkEmbedded": String(artwork != nil)
+            "artworkEmbedded": String(embeddableArtwork != nil)
         ]
         qobuzLog.info("metadata.audio", "Audio metadata write started", metadata: metadataValues)
         do {
             switch fileURL.pathExtension.lowercased() {
             case "mp3":
-                try id3Writer.write(metadata: metadata, artwork: artwork, to: fileURL)
+                try id3Writer.write(metadata: metadata, artwork: embeddableArtwork, to: fileURL)
             case "flac":
-                try flacWriter.write(metadata: metadata, artwork: artwork, to: fileURL)
+                try flacWriter.write(metadata: metadata, artwork: embeddableArtwork, to: fileURL)
             default:
                 throw NativeQobuzError.fileSystem("Unsupported audio format: \(fileURL.pathExtension)")
             }

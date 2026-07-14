@@ -353,8 +353,11 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
     }
 
     private func resumablePartialSize() throws -> Int64 {
-        guard fileManager.fileExists(atPath: partialURL.path) else { return 0 }
-        if (try? partialURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+        do {
+            return try NoFollowFile.size(at: partialURL)
+        } catch NoFollowFileError.missing {
+            return 0
+        } catch NoFollowFileError.symbolicLink {
             qobuzLog.warning(
                 "transfer.resume",
                 "Unsafe symbolic-link partial file was removed",
@@ -362,9 +365,11 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
             )
             try fileManager.removeItem(at: partialURL)
             return 0
+        } catch NoFollowFileError.notRegular {
+            throw NativeQobuzError.fileSystem("The partial download is not a regular file.")
+        } catch NoFollowFileError.system(let code) {
+            throw NativeQobuzError.fileSystem("Could not inspect the partial download (errno \(code)).")
         }
-        let attributes = try fileManager.attributesOfItem(atPath: partialURL.path)
-        return max((attributes[.size] as? NSNumber)?.int64Value ?? 0, 0)
     }
 
     private func preparePartialFile(restart: Bool, totalBytes: Int64?) throws {
@@ -376,11 +381,19 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
         try oldHandle?.close()
         if restart {
             try? fileManager.removeItem(at: partialURL)
-            fileManager.createFile(atPath: partialURL.path, contents: nil)
-        } else if !fileManager.fileExists(atPath: partialURL.path) {
-            fileManager.createFile(atPath: partialURL.path, contents: nil)
         }
-        let handle = try FileHandle(forWritingTo: partialURL)
+        let handle: FileHandle
+        do {
+            handle = try NoFollowFile.writableHandle(at: partialURL, truncate: restart)
+        } catch NoFollowFileError.symbolicLink {
+            throw NativeQobuzError.fileSystem("A symbolic link cannot be used as a partial download.")
+        } catch NoFollowFileError.notRegular {
+            throw NativeQobuzError.fileSystem("The partial download is not a regular file.")
+        } catch NoFollowFileError.missing {
+            throw NativeQobuzError.fileSystem("Could not create the partial download.")
+        } catch NoFollowFileError.system(let code) {
+            throw NativeQobuzError.fileSystem("Could not open the partial download (errno \(code)).")
+        }
         let actualOffset = try handle.seekToEnd()
         let expectedOffset = restart ? 0 : lock.withLock { requestedOffset }
         guard actualOffset == UInt64(expectedOffset) else {

@@ -5,7 +5,9 @@ final class CollectionAssetTests: XCTestCase {
     func testArtworkUsesOriginalQobuzURLAndSavesAlbumCover() async throws {
         let item = makeItem(collection: .album(id: QobuzID("album"), title: "Album"))
         let expected = URL(string: "https://static.qobuz.com/images/covers/ab/cd/cover_org.jpg")!
-        let image = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let image = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
         let writer = QobuzCollectionAssetWriter(
             fetcher: FixtureAssetFetcher(responses: [expected: .init(data: image, mimeType: "image/jpeg")])
         )
@@ -16,7 +18,7 @@ final class CollectionAssetTests: XCTestCase {
         let artwork = try await writer.artwork(for: item.album)
         let cover = try XCTUnwrap(writer.saveExternalArtwork(try XCTUnwrap(artwork), for: item, audioURL: audio))
 
-        XCTAssertEqual(cover.lastPathComponent, "cover.jpg")
+        XCTAssertEqual(cover.lastPathComponent, "cover.png")
         XCTAssertEqual(try Data(contentsOf: cover), image)
     }
 

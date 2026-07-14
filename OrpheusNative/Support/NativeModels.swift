@@ -25,64 +25,13 @@ struct SettingsDraft: Equatable {
     var downloadPath = ""
 }
 
-enum NativeQueueStatus: Codable, Equatable {
-    case ready
-    case loading
-    case downloading
-    case waitingForNetwork
-    case paused
-    case completed
-    case failed(String)
-    case cancelled
-
-    var canStart: Bool {
-        switch self {
-        case .ready, .paused, .failed, .cancelled: true
-        case .loading, .downloading, .waitingForNetwork, .completed: false
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey { case kind, message }
-    private enum Kind: String, Codable { case ready, loading, downloading, waitingForNetwork, paused, completed, failed, cancelled }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(Kind.self, forKey: .kind) {
-        case .ready: self = .ready
-        case .loading: self = .loading
-        case .downloading: self = .downloading
-        case .waitingForNetwork: self = .waitingForNetwork
-        case .paused: self = .paused
-        case .completed: self = .completed
-        case .failed: self = .failed(try container.decode(String.self, forKey: .message))
-        case .cancelled: self = .cancelled
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .ready: try container.encode(Kind.ready, forKey: .kind)
-        case .loading: try container.encode(Kind.loading, forKey: .kind)
-        case .downloading: try container.encode(Kind.downloading, forKey: .kind)
-        case .waitingForNetwork: try container.encode(Kind.waitingForNetwork, forKey: .kind)
-        case .paused: try container.encode(Kind.paused, forKey: .kind)
-        case .completed: try container.encode(Kind.completed, forKey: .kind)
-        case .failed(let message):
-            try container.encode(Kind.failed, forKey: .kind)
-            try container.encode(message, forKey: .message)
-        case .cancelled: try container.encode(Kind.cancelled, forKey: .kind)
-        }
-    }
-}
-
 struct NativeQueueItem: Codable, Identifiable, Equatable {
     let id: UUID
     let request: QobuzRequest
     var title: String
     var subtitle: String
     var artworkURL: URL?
-    var status: NativeQueueStatus
+    var status: NativeDownloadStatus
     var expectedTrackIDs: [QobuzID]?
     var repairTarget: QobuzArchiveTrack?
     var downloadQuality: QobuzQuality?
@@ -400,87 +349,6 @@ enum NativePreviewState: Equatable {
     case error(String)
 }
 
-enum NativeActivityStatus: Codable, Equatable {
-    case queued
-    case resolving
-    case downloading
-    case tagging
-    case validating
-    case waitingForNetwork
-    case paused
-    case completed
-    case failed(String)
-    case cancelled
-
-    var isActive: Bool {
-        switch self {
-        case .queued, .resolving, .downloading, .tagging, .validating, .waitingForNetwork: true
-        default: false
-        }
-    }
-
-    var isClearable: Bool {
-        switch self {
-        case .completed, .failed, .cancelled: true
-        default: false
-        }
-    }
-
-    var canResume: Bool {
-        switch self {
-        case .paused, .cancelled: true
-        default: false
-        }
-    }
-
-    var canRetry: Bool {
-        if case .failed = self { return true }
-        return false
-    }
-
-    var failureMessage: String? {
-        if case .failed(let message) = self { return message }
-        return nil
-    }
-
-    private enum CodingKeys: String, CodingKey { case kind, message }
-    private enum Kind: String, Codable { case queued, resolving, downloading, tagging, validating, waitingForNetwork, paused, completed, failed, cancelled }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(Kind.self, forKey: .kind) {
-        case .queued: self = .queued
-        case .resolving: self = .resolving
-        case .downloading: self = .downloading
-        case .tagging: self = .tagging
-        case .validating: self = .validating
-        case .waitingForNetwork: self = .waitingForNetwork
-        case .paused: self = .paused
-        case .completed: self = .completed
-        case .failed: self = .failed(try container.decode(String.self, forKey: .message))
-        case .cancelled: self = .cancelled
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .queued: try container.encode(Kind.queued, forKey: .kind)
-        case .resolving: try container.encode(Kind.resolving, forKey: .kind)
-        case .downloading: try container.encode(Kind.downloading, forKey: .kind)
-        case .tagging: try container.encode(Kind.tagging, forKey: .kind)
-        case .validating: try container.encode(Kind.validating, forKey: .kind)
-        case .waitingForNetwork: try container.encode(Kind.waitingForNetwork, forKey: .kind)
-        case .paused: try container.encode(Kind.paused, forKey: .kind)
-        case .completed: try container.encode(Kind.completed, forKey: .kind)
-        case .failed(let message):
-            try container.encode(Kind.failed, forKey: .kind)
-            try container.encode(message, forKey: .message)
-        case .cancelled: try container.encode(Kind.cancelled, forKey: .kind)
-        }
-    }
-}
-
 struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     let id: UUID
     let queueID: UUID
@@ -489,7 +357,7 @@ struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     var quality: QobuzQuality? = nil
     /// Exact archived format requested by a repair.
     var audioFormat: QobuzAudioFormat? = nil
-    var status: NativeActivityStatus = .queued
+    var status: NativeDownloadStatus = .queued
     var phase = "Queued"
     var currentTrack: String?
     var progress = 0.0

@@ -7,7 +7,7 @@ import SwiftUI
 /// is the only pill and always wraps the padded content exactly. The flag
 /// emoji sits mid-run inside one Text so its glyph ink cannot escape.
 struct RegionBadge: View {
-    let code: String
+    let code: String?
     let quality: QobuzQuality
 
     var body: some View {
@@ -39,7 +39,7 @@ struct RegionBadge: View {
     }
 
     private var normalizedCode: String {
-        let value = code.uppercased()
+        let value = code?.uppercased() ?? ""
         return value.count == 2 ? value : "--"
     }
 }

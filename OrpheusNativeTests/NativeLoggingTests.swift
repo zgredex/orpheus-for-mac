@@ -51,6 +51,7 @@ final class NativeLoggingTests: XCTestCase {
         )
         let store = NativeLogFileStore(paths: paths)
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: FileCredentialStore(paths: paths),
             archiveStore: NativeArchiveIndexStore(paths: paths),

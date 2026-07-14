@@ -191,12 +191,12 @@ public struct URLSessionQobuzAssetFetcher: QobuzAssetFetching, Sendable {
                 ]) { _, new in new }
             )
             return QobuzAssetResponse(data: data, mimeType: response.mimeType)
+        } catch let error where error.isQobuzCancellation {
+            qobuzLog.notice("asset.network", "Asset request cancelled", metadata: metadata)
+            throw NativeQobuzError.cancelled
         } catch let error as NativeQobuzError {
             qobuzLog.error("asset.network", "Asset request failed", metadata: metadata, error: error)
             throw error
-        } catch is CancellationError {
-            qobuzLog.notice("asset.network", "Asset request cancelled", metadata: metadata)
-            throw NativeQobuzError.cancelled
         } catch {
             qobuzLog.error("asset.network", "Asset request failed", metadata: metadata, error: error)
             throw NativeQobuzError.networkFailure(error)
@@ -205,28 +205,33 @@ public struct URLSessionQobuzAssetFetcher: QobuzAssetFetching, Sendable {
 }
 
 public struct QobuzCollectionAssetWriter: @unchecked Sendable {
-    private struct ProvenanceManifest: Codable {
-        var version = 1
-        var files: [String: QobuzFileProvenance] = [:]
-    }
-
     private let fetcher: any QobuzAssetFetching
+    private let outputPlanner: any QobuzOutputPlanning
     private let fileManager: FileManager
 
-    public init(fetcher: any QobuzAssetFetching = URLSessionQobuzAssetFetcher(), fileManager: FileManager = .default) {
+    public init(
+        fetcher: any QobuzAssetFetching = URLSessionQobuzAssetFetcher(),
+        outputPlanner: any QobuzOutputPlanning = StandardQobuzOutputPlanner(),
+        fileManager: FileManager = .default
+    ) {
         self.fetcher = fetcher
+        self.outputPlanner = outputPlanner
         self.fileManager = fileManager
     }
 
     public func artwork(for album: QobuzAlbum) async throws -> EmbeddedArtwork? {
         guard let url = album.originalArtworkURL else { return nil }
         let response = try await fetcher.fetch(url)
-        return EmbeddedArtwork.inspecting(data: response.data, mimeType: response.mimeType)
+        return try EmbeddedArtwork.validated(data: response.data, mimeType: response.mimeType)
     }
 
     public func saveExternalArtwork(_ artwork: EmbeddedArtwork, for item: QobuzResolvedTrack, audioURL: URL) throws -> URL? {
         guard item.collection.usesAlbumFolders else { return nil }
-        let destination = audioURL.deletingLastPathComponent().appendingPathComponent("cover.jpg")
+        let folder = audioURL.deletingLastPathComponent()
+        if let existing = EmbeddedArtwork.existingExternalFile(in: folder, fileManager: fileManager) {
+            return existing
+        }
+        let destination = folder.appendingPathComponent(artwork.externalFilename)
         if fileManager.fileExists(atPath: destination.path) { return destination }
         try writeAtomically(artwork.data, to: destination)
         return destination
@@ -280,7 +285,7 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
     ) throws -> URL? {
         guard case .playlist(let id) = plan.request, !outputs.isEmpty else { return nil }
         let folder = playlistFolder(title: plan.title, id: id, root: downloadRoot)
-        let name = StandardQobuzOutputPlanner().sanitize(plan.title)
+        let name = outputPlanner.sanitize(plan.title)
         let destination = folder.appendingPathComponent("\(name).m3u")
         var lines = ["#EXTM3U"]
         for output in outputs {
@@ -306,12 +311,15 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
             created.append(destination)
         }
         if let source = playlist.artworkURL {
-            let destination = folder.appendingPathComponent("cover.jpg")
-            if !fileManager.fileExists(atPath: destination.path) {
+            if let existing = EmbeddedArtwork.existingExternalFile(in: folder, fileManager: fileManager) {
+                created.append(existing)
+            } else {
                 let response = try await fetcher.fetch(source)
-                try writeAtomically(response.data, to: destination)
+                let artwork = try EmbeddedArtwork.validated(data: response.data, mimeType: response.mimeType)
+                let destination = folder.appendingPathComponent(artwork.externalFilename)
+                try writeAtomically(artwork.data, to: destination)
+                created.append(destination)
             }
-            created.append(destination)
         }
         return created
     }
@@ -343,7 +351,7 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         ) else { return [:] }
         var result: [String: URL] = [:]
         while let manifestURL = enumerator.nextObject() as? URL {
-            guard manifestURL.lastPathComponent == ".orpheus-provenance.json" else { continue }
+            guard manifestURL.lastPathComponent == QobuzProvenanceManifestIO.filename else { continue }
             let values = try? manifestURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
                 qobuzLog.warning(
@@ -353,17 +361,9 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
                 )
                 continue
             }
-            let manifest: ProvenanceManifest
+            let manifest: QobuzProvenanceManifest
             do {
-                manifest = try JSONDecoder().decode(ProvenanceManifest.self, from: Data(contentsOf: manifestURL))
-                guard manifest.version == 1 else {
-                    qobuzLog.warning(
-                        "asset.reuse",
-                        "Ignored unsupported provenance manifest version",
-                        metadata: ["manifestPath": manifestURL.path, "version": String(manifest.version)]
-                    )
-                    continue
-                }
+                manifest = try QobuzProvenanceManifestIO.load(from: manifestURL, fileManager: fileManager)
             } catch {
                 qobuzLog.warning(
                     "asset.reuse",
@@ -374,7 +374,7 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
                 continue
             }
             let folder = manifestURL.deletingLastPathComponent()
-            for (filename, provenance) in manifest.files where isSafeLeafName(filename) {
+            for (filename, provenance) in manifest.files where QobuzPathSafety.isSafeLeafName(filename) {
                 let audioURL = folder.appendingPathComponent(filename)
                 let audioValues = try? audioURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                 guard audioValues?.isRegularFile == true, audioValues?.isSymbolicLink != true else { continue }
@@ -400,10 +400,10 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         }
         var manifests: [URL] = []
         for folder in grouped.keys.sorted(by: { $0.path < $1.path }) {
-            let destination = folder.appendingPathComponent("checksums.sha256")
+            let destination = folder.appendingPathComponent(QobuzChecksumManifest.filename)
             var entries: [String: String]
             do {
-                entries = try checksumEntries(in: destination)
+                entries = try QobuzChecksumManifest.load(at: destination, fileManager: fileManager)
             } catch {
                 entries = [:]
                 qobuzLog.warning(
@@ -414,16 +414,15 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
                 )
             }
             for entry in grouped[folder, default: []] { entries[entry.name] = entry.sha256 }
-            let contents = entries.keys.sorted().map { "\(entries[$0]!)  \($0)" }.joined(separator: "\n") + "\n"
-            try writeAtomically(Data(contents.utf8), to: destination)
+            try writeAtomically(QobuzChecksumManifest.encode(entries), to: destination)
             manifests.append(destination)
         }
         return manifests
     }
 
     public func expectedChecksum(for audioURL: URL) throws -> String? {
-        let manifest = audioURL.deletingLastPathComponent().appendingPathComponent("checksums.sha256")
-        return try checksumEntries(in: manifest)[audioURL.lastPathComponent]
+        let manifest = audioURL.deletingLastPathComponent().appendingPathComponent(QobuzChecksumManifest.filename)
+        return try QobuzChecksumManifest.load(at: manifest, fileManager: fileManager)[audioURL.lastPathComponent]
     }
 
     public func provenance(for audioURL: URL) throws -> QobuzFileProvenance? {
@@ -432,11 +431,11 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
 
     public func recordProvenance(_ provenance: QobuzFileProvenance, for audioURL: URL) throws {
         let folder = audioURL.deletingLastPathComponent()
-        var manifest: ProvenanceManifest
+        var manifest: QobuzProvenanceManifest
         do {
             manifest = try provenanceManifest(in: folder)
         } catch {
-            manifest = ProvenanceManifest()
+            manifest = QobuzProvenanceManifest()
             qobuzLog.warning(
                 "asset.provenance",
                 "Existing provenance could not be read and will be rebuilt",
@@ -445,9 +444,7 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
             )
         }
         manifest.files[audioURL.lastPathComponent] = provenance
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try writeAtomically(try encoder.encode(manifest), to: provenanceURL(in: folder))
+        try writeAtomically(try QobuzProvenanceManifestIO.encode(manifest), to: provenanceURL(in: folder))
         qobuzLog.debug(
             "asset.provenance",
             "Audio provenance recorded",
@@ -491,14 +488,11 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         case .track(let id):
             let output = outputs[0]
             let relative = try QobuzLibraryManifestIO.relativePath(of: output.audioURL, root: root)
-            return [QobuzLibraryCollectionRecord(
-                id: "track|\(id.rawValue)",
-                kind: .track,
+            return [QobuzLibraryRecordFactory.track(
                 qobuzID: id.rawValue,
                 title: output.item.track.displayTitle,
-                subtitle: output.item.track.performer?.name ?? output.item.album.artist.name,
+                artist: output.item.track.performer?.name ?? output.item.album.artist.name,
                 relativePath: relative,
-                trackPaths: [relative],
                 duration: output.item.track.duration
             )]
         case .playlist(let id):
@@ -506,18 +500,14 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
             let relativeFolder = try QobuzLibraryManifestIO.relativePath(of: folder, root: root)
             let playlist: QobuzPlaylist? = if case .playlist(let value)? = plan.source { value } else { nil }
             let owner = playlist?.owner?.name
-            let count = outputs.count
-            return [QobuzLibraryCollectionRecord(
-                id: "playlist|\(id.rawValue)",
-                kind: .playlist,
+            return [QobuzLibraryRecordFactory.playlist(
                 qobuzID: id.rawValue,
                 title: plan.title,
-                subtitle: [owner, "\(count) track\(count == 1 ? "" : "s")"].compactMap { $0 }.joined(separator: " · "),
+                owner: owner,
                 relativePath: relativeFolder,
                 trackPaths: try outputs.map { try QobuzLibraryManifestIO.relativePath(of: $0.audioURL, root: root) },
-                artworkRelativePath: existingRelativePath(folder.appendingPathComponent("cover.jpg"), root: root),
-                collectionDescription: playlist?.playlistDescription,
-                owner: owner,
+                artworkRelativePath: existingArtworkRelativePath(in: folder, root: root),
+                description: playlist?.playlistDescription,
                 createdAt: playlist?.createdAt,
                 updatedAt: playlist?.updatedAt,
                 duration: playlist?.duration,
@@ -534,25 +524,28 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         let album = first.item.album
         let folder = first.audioURL.deletingLastPathComponent()
         let relativeFolder = try QobuzLibraryManifestIO.relativePath(of: folder, root: root)
-        return QobuzLibraryCollectionRecord(
-            id: "album|\(album.id.rawValue)",
-            kind: .album,
+        return QobuzLibraryRecordFactory.album(
             qobuzID: album.id.rawValue,
             title: album.displayTitle,
-            subtitle: "\(album.mainArtists.map(\.name).joined(separator: ", ")) · \(outputs.count) track\(outputs.count == 1 ? "" : "s")",
+            artist: album.mainArtists.map(\.name).joined(separator: ", "),
             relativePath: relativeFolder,
             trackPaths: try outputs.map { try QobuzLibraryManifestIO.relativePath(of: $0.audioURL, root: root) },
-            artworkRelativePath: existingRelativePath(folder.appendingPathComponent("cover.jpg"), root: root),
-            collectionDescription: album.albumDescription,
+            artworkRelativePath: existingArtworkRelativePath(in: folder, root: root),
+            description: album.albumDescription,
             duration: album.duration
         )
     }
 
     private func playlistFolder(title: String, id: QobuzID, root: URL) -> URL {
-        let planner = StandardQobuzOutputPlanner()
         return root
             .appendingPathComponent("Playlists", isDirectory: true)
-            .appendingPathComponent("\(planner.sanitize(title)) [\(planner.sanitize(id.rawValue))]", isDirectory: true)
+            .appendingPathComponent(
+                QobuzFilenameComponent.make(
+                    stem: outputPlanner.sanitize(title),
+                    suffix: " [\(QobuzFilenameComponent.truncate(outputPlanner.sanitize(id.rawValue), toUTF8Bytes: 64))]"
+                ),
+                isDirectory: true
+            )
     }
 
     private func portableRelativePath(from folder: URL, to target: URL, root: URL) throws -> String {
@@ -573,35 +566,14 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         return try? QobuzLibraryManifestIO.relativePath(of: url, root: root)
     }
 
-    private func isSafeLeafName(_ value: String) -> Bool {
-        !value.isEmpty && value != "." && value != ".." && !value.contains("/")
+    private func existingArtworkRelativePath(in folder: URL, root: URL) -> String? {
+        EmbeddedArtwork.existingExternalFile(in: folder, fileManager: fileManager)
+            .flatMap { try? QobuzLibraryManifestIO.relativePath(of: $0, root: root) }
     }
 
-    private func checksumEntries(in manifest: URL) throws -> [String: String] {
-        guard fileManager.fileExists(atPath: manifest.path) else { return [:] }
-        let contents = try String(contentsOf: manifest, encoding: .utf8)
-        var result: [String: String] = [:]
-        for line in contents.split(whereSeparator: \.isNewline) {
-            guard line.count > 64 else { continue }
-            let hashEnd = line.index(line.startIndex, offsetBy: 64)
-            let hash = line[..<hashEnd]
-            guard hash.allSatisfy(\.isHexDigit) else { continue }
-            let filename = line[hashEnd...].drop(while: { $0 == " " || $0 == "*" })
-            guard !filename.isEmpty else { continue }
-            result[String(filename)] = String(hash)
-        }
-        return result
-    }
-
-    private func provenanceManifest(in folder: URL) throws -> ProvenanceManifest {
-        let url = provenanceURL(in: folder)
-        guard fileManager.fileExists(atPath: url.path) else { return ProvenanceManifest() }
+    private func provenanceManifest(in folder: URL) throws -> QobuzProvenanceManifest {
         do {
-            let manifest = try JSONDecoder().decode(ProvenanceManifest.self, from: Data(contentsOf: url))
-            guard manifest.version == 1 else {
-                throw NativeQobuzError.invalidResponse("Unsupported provenance manifest version")
-            }
-            return manifest
+            return try QobuzProvenanceManifestIO.load(in: folder, fileManager: fileManager)
         } catch let error as NativeQobuzError {
             throw error
         } catch {
@@ -610,7 +582,7 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
     }
 
     private func provenanceURL(in folder: URL) -> URL {
-        folder.appendingPathComponent(".orpheus-provenance.json")
+        folder.appendingPathComponent(QobuzProvenanceManifestIO.filename)
     }
 
     private func writeAtomically(_ data: Data, to destination: URL) throws {

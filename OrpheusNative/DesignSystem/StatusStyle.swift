@@ -7,12 +7,13 @@ struct StatusStyle: Equatable {
     var isSpinner = false
 }
 
-extension NativeQueueStatus {
+extension NativeDownloadStatus {
     /// `nil` for `.ready` — idle items show no glyph.
-    var style: StatusStyle? {
+    var queueStyle: StatusStyle? {
         switch self {
         case .ready: nil
-        case .loading: StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
+        case .loading, .queued, .resolving, .tagging, .validating:
+            StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
         case .downloading: StatusStyle(systemImage: "arrow.down.circle.fill", tint: .accentColor)
         case .waitingForNetwork: StatusStyle(systemImage: "wifi.exclamationmark", tint: .orange)
         case .paused: StatusStyle(systemImage: "pause.circle.fill", tint: .orange)
@@ -21,11 +22,10 @@ extension NativeQueueStatus {
         case .cancelled: StatusStyle(systemImage: "xmark.circle", tint: .secondary)
         }
     }
-}
-
-extension NativeActivityStatus {
-    var style: StatusStyle {
+    var activityStyle: StatusStyle {
         switch self {
+        case .ready: StatusStyle(systemImage: "circle", tint: .secondary)
+        case .loading: StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
         case .queued: StatusStyle(systemImage: "clock", tint: .secondary)
         // One steady spinner for every active phase: statuses flap between
         // downloading/tagging/validating on each track, and swapping glyph

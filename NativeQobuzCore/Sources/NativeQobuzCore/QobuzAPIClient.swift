@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 public protocol QobuzCatalogService: Sendable {
-    func validateAccount() async throws -> String
+    func validateAccount() async throws -> String?
     func track(id: QobuzID) async throws -> QobuzTrack
     func album(id: QobuzID) async throws -> QobuzAlbum
     func playlist(id: QobuzID) async throws -> QobuzPlaylist
@@ -72,7 +72,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         self.sleep = sleep
     }
 
-    public func validateAccount() async throws -> String {
+    public func validateAccount() async throws -> String? {
         try requireCredentials()
         let (account, response): (AccountResponse, HTTPURLResponse) = try await signedGet(
             endpoint: "user/get",
@@ -87,7 +87,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         if let store = response.value(forHTTPHeaderField: "X-Store"), store.count >= 2 {
             return String(store.prefix(2)).uppercased()
         }
-        return "??"
+        return nil
     }
 
     public func track(id: QobuzID) async throws -> QobuzTrack {
@@ -116,15 +116,14 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func playlist(id: QobuzID) async throws -> QobuzPlaylist {
         let pageSize = 500
         let first = try await playlistPage(id: id, offset: 0, limit: pageSize)
-        var tracks = first.tracks
-        let total = first.tracksTotal ?? first.tracksCount ?? tracks.count
-        var offset = (first.tracksOffset ?? 0) + tracks.count
-        while offset < total {
-            try Task.checkCancellation()
-            let page = try await playlistPage(id: id, offset: offset, limit: pageSize)
-            guard !page.tracks.isEmpty else { break }
-            tracks.append(contentsOf: page.tracks)
-            offset += page.tracks.count
+        let total = first.tracksTotal ?? first.tracksCount ?? first.tracks.count
+        let tracks = try await qobuzAllPages(
+            firstItems: first.tracks,
+            firstOffset: first.tracksOffset ?? 0,
+            total: total,
+            pageSize: pageSize
+        ) { offset, limit in
+            try await self.playlistPage(id: id, offset: offset, limit: limit).tracks
         }
         return QobuzPlaylist(
             id: first.id,
@@ -161,15 +160,14 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func artist(id: QobuzID) async throws -> QobuzArtistCatalog {
         let pageSize = 500
         let first = try await artistPage(id: id, offset: 0, limit: pageSize)
-        var albums = first.albums
-        let total = first.albumsTotal ?? albums.count
-        var offset = (first.albumsOffset ?? 0) + albums.count
-        while offset < total {
-            try Task.checkCancellation()
-            let page = try await artistPage(id: id, offset: offset, limit: pageSize)
-            guard !page.albums.isEmpty else { break }
-            albums.append(contentsOf: page.albums)
-            offset += page.albums.count
+        let total = first.albumsTotal ?? first.albums.count
+        let albums = try await qobuzAllPages(
+            firstItems: first.albums,
+            firstOffset: first.albumsOffset ?? 0,
+            total: total,
+            pageSize: pageSize
+        ) { offset, limit in
+            try await self.artistPage(id: id, offset: offset, limit: limit).albums
         }
         return QobuzArtistCatalog(
             id: first.id,
@@ -199,15 +197,14 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func label(id: QobuzID) async throws -> QobuzLabelCatalog {
         let pageSize = 500
         let first = try await labelPage(id: id, offset: 0, limit: pageSize)
-        var albums = first.albums
-        let total = first.albumsTotal ?? albums.count
-        var offset = (first.albumsOffset ?? 0) + albums.count
-        while offset < total {
-            try Task.checkCancellation()
-            let page = try await labelPage(id: id, offset: offset, limit: pageSize)
-            guard !page.albums.isEmpty else { break }
-            albums.append(contentsOf: page.albums)
-            offset += page.albums.count
+        let total = first.albumsTotal ?? first.albums.count
+        let albums = try await qobuzAllPages(
+            firstItems: first.albums,
+            firstOffset: first.albumsOffset ?? 0,
+            total: total,
+            pageSize: pageSize
+        ) { offset, limit in
+            try await self.labelPage(id: id, offset: offset, limit: limit).albums
         }
         return QobuzLabelCatalog(
             id: first.id,
@@ -456,7 +453,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                             metadata: responseMetadata,
                             error: error
                         )
-                        throw NativeQobuzError.invalidResponse(String(describing: error))
+                        throw LoggedQobuzRequestError(
+                            error: .invalidResponse(String(describing: error))
+                        )
                     }
                 }
                 if isRetryable(status: http.statusCode), attempt + 1 < retryPolicy.maxAttempts {
@@ -475,21 +474,19 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                     metadata: responseMetadata,
                     error: mapped
                 )
-                throw mapped
-            } catch is CancellationError {
+                throw LoggedQobuzRequestError(error: mapped)
+            } catch let logged as LoggedQobuzRequestError {
+                throw logged.error
+            } catch let error where error.isQobuzCancellation {
                 qobuzLog.notice("api.request", "Qobuz request cancelled", metadata: attemptMetadata)
                 throw NativeQobuzError.cancelled
             } catch let error as NativeQobuzError {
-                if case .cancelled = error {
-                    qobuzLog.notice("api.request", "Qobuz request cancelled", metadata: attemptMetadata)
-                } else {
-                    qobuzLog.error(
-                        "api.request",
-                        "Qobuz request stopped",
-                        metadata: attemptMetadata,
-                        error: error
-                    )
-                }
+                qobuzLog.error(
+                    "api.request",
+                    "Qobuz request stopped",
+                    metadata: attemptMetadata,
+                    error: error
+                )
                 throw error
             } catch {
                 let networkFailure = NativeQobuzError.networkFailure(error)
@@ -563,7 +560,8 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     }
 
     private func wait(attempt: Int, response: HTTPURLResponse?) async throws {
-        if let retryAfter = response?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) {
+        if let rawValue = response?.value(forHTTPHeaderField: "Retry-After"),
+           let retryAfter = retryDelay(from: rawValue) {
             try await sleep(.seconds(min(max(retryAfter, 0), 5)))
             return
         }
@@ -572,7 +570,10 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     }
 
     private func mapHTTPError(status: Int, data: Data, response: HTTPURLResponse) -> NativeQobuzError {
-        let body = String(data: data, encoding: .utf8) ?? ""
+        let rawBody = String(data: data, encoding: .utf8) ?? ""
+        let body = rawBody.count > 500
+            ? String(rawBody.prefix(500)) + "… [truncated]"
+            : rawBody
         if status == 401 || status == 403 {
             return .invalidCredentials
         }
@@ -583,6 +584,28 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         }
         return .http(status, body.isEmpty ? "No response body" : body)
     }
+
+    private func retryDelay(from value: String) -> TimeInterval? {
+        if let seconds = Double(value) { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in [
+            "EEE',' dd MMM yyyy HH':'mm':'ss zzz",
+            "EEEE',' dd-MMM-yy HH':'mm':'ss zzz",
+            "EEE MMM d HH':'mm':'ss yyyy"
+        ] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return max(0, date.timeIntervalSinceNow)
+            }
+        }
+        return nil
+    }
+}
+
+private struct LoggedQobuzRequestError: Error {
+    let error: NativeQobuzError
 }
 
 private struct SearchResponse: Decodable {

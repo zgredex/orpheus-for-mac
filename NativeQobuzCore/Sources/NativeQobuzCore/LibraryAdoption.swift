@@ -230,18 +230,19 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
         for albumID in albums.keys.sorted() {
             guard let tracks = albums[albumID], let first = tracks.sorted(by: pathOrder).first else { continue }
             let sortedTracks = tracks.sorted(by: pathOrder)
-            let folder = directoryPath(first.relativePath)
-            let artist = lastComponent(directoryPath(folder), fallback: "Album")
-            let title = lastComponent(folder, fallback: "Album \(albumID)")
-            records.append(QobuzLibraryCollectionRecord(
-                id: "album|\(albumID)",
-                kind: .album,
+            let folder = QobuzPathSafety.directoryPath(of: first.relativePath)
+            let artist = QobuzPathSafety.lastComponent(
+                of: QobuzPathSafety.directoryPath(of: folder),
+                fallback: "Album"
+            )
+            let title = QobuzPathSafety.lastComponent(of: folder, fallback: "Album \(albumID)")
+            records.append(QobuzLibraryRecordFactory.album(
                 qobuzID: albumID,
                 title: title,
-                subtitle: "\(artist) · \(sortedTracks.count) track\(sortedTracks.count == 1 ? "" : "s")",
+                artist: artist,
                 relativePath: folder,
                 trackPaths: sortedTracks.map(\.relativePath),
-                artworkRelativePath: existingRelativePath(folder: folder, filename: "cover.jpg", root: root)
+                artworkRelativePath: existingArtworkRelativePath(folder: folder, root: root)
             ))
         }
 
@@ -251,15 +252,12 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
         )
         for trackID in standalone.keys.sorted() {
             guard let track = standalone[trackID]?.sorted(by: pathOrder).first else { continue }
-            let folder = directoryPath(track.relativePath)
-            records.append(QobuzLibraryCollectionRecord(
-                id: "track|\(trackID)",
-                kind: .track,
+            let folder = QobuzPathSafety.directoryPath(of: track.relativePath)
+            records.append(QobuzLibraryRecordFactory.track(
                 qobuzID: trackID,
                 title: filenameTitle(track.relativePath),
-                subtitle: lastComponent(folder, fallback: "Standalone track"),
-                relativePath: track.relativePath,
-                trackPaths: [track.relativePath]
+                artist: QobuzPathSafety.lastComponent(of: folder, fallback: "Standalone track"),
+                relativePath: track.relativePath
             ))
         }
 
@@ -285,15 +283,11 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
             guard values?.isRegularFile == true, values?.isSymbolicLink != true,
                   let contents = try? String(contentsOf: playlistURL, encoding: .utf8) else { continue }
             let folder = playlistURL.deletingLastPathComponent().standardizedFileURL
-            var trackPaths: [String] = []
-            for rawLine in contents.split(whereSeparator: \.isNewline) {
-                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("/") else { continue }
-                let target = URL(fileURLWithPath: line, relativeTo: folder).standardizedFileURL
-                guard let relative = try? QobuzLibraryManifestIO.relativePath(of: target, root: root),
-                      knownPaths.contains(relative) else { continue }
-                trackPaths.append(relative)
-            }
+            let trackPaths = QobuzM3UPlaylist.resolvedRelativePaths(
+                in: contents,
+                playlistFolder: folder,
+                libraryRoot: root
+            ).filter(knownPaths.contains)
             guard !trackPaths.isEmpty,
                   let relativeFolder = try? QobuzLibraryManifestIO.relativePath(of: folder, root: root) else { continue }
             let folderName = folder.lastPathComponent
@@ -301,16 +295,14 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
             let playlistID = parsed.id ?? relativeFolder
             let descriptionURL = folder.appendingPathComponent("description.txt")
             let description = try? String(contentsOf: descriptionURL, encoding: .utf8)
-            records.append(QobuzLibraryCollectionRecord(
-                id: "playlist|\(playlistID)",
-                kind: .playlist,
+            records.append(QobuzLibraryRecordFactory.playlist(
                 qobuzID: playlistID,
                 title: parsed.title.isEmpty ? playlistURL.deletingPathExtension().lastPathComponent : parsed.title,
-                subtitle: "Playlist · \(trackPaths.count) track\(trackPaths.count == 1 ? "" : "s")",
+                owner: nil,
                 relativePath: relativeFolder,
                 trackPaths: trackPaths,
-                artworkRelativePath: existingRelativePath(folder: relativeFolder, filename: "cover.jpg", root: root),
-                collectionDescription: description?.trimmingCharacters(in: .whitespacesAndNewlines),
+                artworkRelativePath: existingArtworkRelativePath(folder: relativeFolder, root: root),
+                description: description?.trimmingCharacters(in: .whitespacesAndNewlines),
                 sourceTrackCount: trackPaths.count
             ))
         }
@@ -323,7 +315,7 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
         root: URL
     ) -> Bool {
         let paths = [record.relativePath] + record.trackPaths + [record.artworkRelativePath].compactMap { $0 }
-        guard paths.allSatisfy(QobuzLibraryManifestIO.isSafeRelativePath),
+        guard paths.allSatisfy(QobuzPathSafety.isSafeRelativePath),
               !record.trackPaths.isEmpty,
               record.trackPaths.allSatisfy(physicalPaths.contains) else { return false }
         let collectionURL = root.appendingPathComponent(record.relativePath).standardizedFileURL
@@ -363,25 +355,17 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
         return (title, id.isEmpty ? nil : id)
     }
 
-    private func existingRelativePath(folder: String, filename: String, root: URL) -> String? {
-        guard QobuzLibraryManifestIO.isSafeRelativePath(folder) else { return nil }
-        let relative = folder + "/" + filename
-        return fileManager.fileExists(atPath: root.appendingPathComponent(relative).path) ? relative : nil
-    }
-
-    private func directoryPath(_ path: String) -> String {
-        let value = (path as NSString).deletingLastPathComponent
-        return value == "." ? "" : value
-    }
-
-    private func lastComponent(_ path: String, fallback: String) -> String {
-        guard !path.isEmpty else { return fallback }
-        let value = (path as NSString).lastPathComponent
-        return value.isEmpty || value == "." ? fallback : value
+    private func existingArtworkRelativePath(folder: String, root: URL) -> String? {
+        guard let folderURL = QobuzPathSafety.containedURL(for: folder, in: root),
+              let artworkURL = EmbeddedArtwork.existingExternalFile(
+                in: folderURL,
+                fileManager: fileManager
+              ) else { return nil }
+        return try? QobuzPathSafety.relativePath(of: artworkURL, in: root)
     }
 
     private func filenameTitle(_ path: String) -> String {
-        var value = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        var value = QobuzPathSafety.filenameStem(of: path)
         if let range = value.range(of: #"^\d+(?:-\d+)?\.\s*"#, options: .regularExpression) {
             value.removeSubrange(range)
         }

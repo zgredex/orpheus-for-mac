@@ -83,7 +83,7 @@ public enum QobuzAudioFormat: Int, Codable, CaseIterable, Sendable, Hashable {
 
     public var displayName: String {
         switch self {
-        case .mp3: "MP3 320"
+        case .mp3: "MP3 320 kbps"
         case .lossless: "Lossless FLAC"
         case .hiRes96: "Hi-Res FLAC up to 96 kHz"
         case .hiRes: "Hi-Res FLAC"
@@ -905,11 +905,6 @@ public struct QobuzAlbum: Decodable, Equatable, Sendable {
         return "\(title) (\(version))"
     }
 
-    public var mainArtists: [QobuzArtistCredit] {
-        let values = artists.filter(\.isMainArtist)
-        if !values.isEmpty { return values }
-        return [QobuzArtistCredit(id: artist.id, name: artist.name)]
-    }
 }
 
 public struct QobuzPlaylist: Decodable, Equatable, Sendable {
@@ -1153,12 +1148,6 @@ public extension QobuzAlbumSummary {
                 purchasable: purchasable
             )
         )
-    }
-
-    var mainArtists: [QobuzArtistCredit] {
-        let values = artists.filter(\.isMainArtist)
-        if !values.isEmpty { return values }
-        return artist.map { [QobuzArtistCredit(id: $0.id, name: $0.name)] } ?? []
     }
 
     var albumArtistDisplayName: String {

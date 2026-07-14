@@ -27,16 +27,6 @@ enum CountryFlag {
     }
 }
 
-extension QobuzQuality {
-    var displayName: String {
-        switch self {
-        case .hiRes: "Hi-Res FLAC"
-        case .lossless: "Lossless FLAC"
-        case .mp3: "MP3 320 kbps"
-        }
-    }
-}
-
 extension QobuzReleaseType {
     var displayName: String {
         switch self {

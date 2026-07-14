@@ -460,6 +460,48 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertEqual(record.trackPaths, ["New Artist/New Folder/01. Song.flac"])
     }
 
+    func testIncrementalScanReusesUnchangedIntegrityWhileFullVerificationRehashes() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Artist/Album", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try writeManifest(
+            folder: folder,
+            filename: "01. Song.flac",
+            trackID: "track",
+            albumID: "album",
+            collection: .album(id: QobuzID("album"), title: "Album")
+        )
+        let scanner = QobuzArchiveScanner()
+        let initial = try await scanner.scan(root: root)
+        let original = try XCTUnwrap(initial.tracks.first)
+        let sentinel = String(repeating: "f", count: 64)
+        let cached = QobuzArchiveTrack(
+            relativePath: original.relativePath,
+            qobuzTrackID: original.qobuzTrackID,
+            qobuzAlbumID: original.qobuzAlbumID,
+            formatID: original.formatID,
+            bitDepth: original.bitDepth,
+            samplingRate: original.samplingRate,
+            expectedSHA256: original.expectedSHA256,
+            actualSHA256: sentinel,
+            byteCount: original.byteCount,
+            modificationDate: original.modificationDate,
+            integrity: .checksumMismatch,
+            archiveKind: original.archiveKind,
+            isLibraryManaged: original.isLibraryManaged
+        )
+        let cachedSnapshot = QobuzArchiveSnapshot(rootPath: initial.rootPath, tracks: [cached])
+
+        let incremental = try await scanner.scan(root: root, reusing: cachedSnapshot)
+        let verified = try await scanner.scan(root: root, reusing: nil)
+
+        XCTAssertEqual(incremental.tracks.first?.actualSHA256, sentinel)
+        XCTAssertEqual(incremental.tracks.first?.integrity, .checksumMismatch)
+        XCTAssertEqual(verified.tracks.first?.actualSHA256, original.expectedSHA256)
+        XCTAssertEqual(verified.tracks.first?.integrity, .verified)
+    }
+
     private struct TestManifest: Encodable {
         let version = 1
         let files: [String: QobuzFileProvenance]

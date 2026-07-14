@@ -28,6 +28,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let monitor = FakeConnectivityMonitor()
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(),
             connectivityMonitor: monitor,
@@ -220,6 +221,19 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(object["appID"], "app-id")
         XCTAssertNil(object["userID"])
         XCTAssertNil(object["user_id"])
+
+        let updated = CredentialDraft(
+            appID: "updated-app-id",
+            appSecret: "updated-secret",
+            authToken: "updated-token"
+        )
+        try store.save(updated)
+        XCTAssertEqual(try store.load(), updated)
+        XCTAssertEqual(try permissions(at: paths.credentialsURL), 0o600)
+        XCTAssertEqual(
+            try Set(FileManager.default.contentsOfDirectory(atPath: paths.applicationSupportRoot.path)),
+            [paths.credentialsURL.lastPathComponent]
+        )
     }
 
     func testDownloadSessionStoreRoundTripsQueueActivityQualityAndRoot() throws {
@@ -342,6 +356,7 @@ final class NativeAdapterTests: XCTestCase {
             selectedQueueID: first.id
         ))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(),
             archiveStore: MemoryArchiveStore(),
@@ -394,6 +409,7 @@ final class NativeAdapterTests: XCTestCase {
         activity.quality = .hiRes
         activity.outputURL = output
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore()
         )
@@ -454,6 +470,7 @@ final class NativeAdapterTests: XCTestCase {
             selectedQueueID: item.id
         ))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(),
             sessionStore: sessionStore
@@ -497,6 +514,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService()
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in service }
@@ -536,6 +554,7 @@ final class NativeAdapterTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: root) }
             let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
             let viewModel = NativeViewModel(
+                paths: paths,
                 settingsStore: NativeSettingsStore(paths: paths),
                 credentialStore: MemoryCredentialStore(credentials: .complete),
                 clientFactory: { _ in FakeQobuzService() }
@@ -561,6 +580,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService()
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in service }
@@ -590,6 +610,7 @@ final class NativeAdapterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in FakeQobuzService() }
@@ -620,6 +641,7 @@ final class NativeAdapterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in FakeQobuzService() }
@@ -643,6 +665,7 @@ final class NativeAdapterTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore()
         )
@@ -673,6 +696,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService()
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in service }
@@ -703,6 +727,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService(paginatedSearch: true)
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in service }
@@ -736,6 +761,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService()
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in service }
@@ -772,6 +798,7 @@ final class NativeAdapterTests: XCTestCase {
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService()
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             clientFactory: { _ in service }
@@ -796,6 +823,7 @@ final class NativeAdapterTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore()
         )
@@ -828,6 +856,7 @@ final class NativeAdapterTests: XCTestCase {
         let archiveStore = MemoryArchiveStore()
         let archiveScanner = FakeArchiveScanner(snapshot: snapshot)
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(),
             archiveStore: archiveStore,
@@ -867,6 +896,7 @@ final class NativeAdapterTests: XCTestCase {
             )]
         )
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(credentials: .complete),
             archiveStore: MemoryArchiveStore(snapshot: snapshot),
@@ -895,6 +925,7 @@ final class NativeAdapterTests: XCTestCase {
             tracks: [Self.archiveTrack(relativePath: "track.flac")]
         )
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore(),
             archiveStore: MemoryArchiveStore(snapshot: snapshot)
@@ -910,6 +941,7 @@ final class NativeAdapterTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let viewModel = NativeViewModel(
+            paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
             credentialStore: MemoryCredentialStore()
         )
@@ -932,11 +964,13 @@ final class NativeAdapterTests: XCTestCase {
             formatID: 999,
             integrity: .missing
         )
+        viewModel.addRequest(.track(QobuzID("damaged")), title: "Normal track download")
+        let originalQueueID = viewModel.queue.first?.id
 
         let firstIDs = viewModel.stageArchiveRepairs([damaged, damaged, verified, unsupported])
         let secondIDs = viewModel.stageArchiveRepairs([damaged])
 
-        XCTAssertEqual(firstIDs.count, 1)
+        XCTAssertEqual(firstIDs, [originalQueueID].compactMap { $0 })
         XCTAssertEqual(secondIDs, firstIDs)
         XCTAssertEqual(viewModel.queue.count, 1)
         XCTAssertEqual(viewModel.queue[0].repairTarget, damaged)
@@ -1031,7 +1065,7 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
         self.paginatedSearch = paginatedSearch
     }
 
-    func validateAccount() async throws -> String { "FR" }
+    func validateAccount() async throws -> String? { "FR" }
 
     func search(
         _ query: String,

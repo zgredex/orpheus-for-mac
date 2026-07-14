@@ -26,7 +26,7 @@ final class NativeLogFileStore: NativeLogStoring, @unchecked Sendable {
     }
 
     init(
-        paths: NativePaths = NativePaths(),
+        paths: NativePaths,
         fileManager: FileManager = .default,
         maximumFileBytes: Int64 = 5 * 1_024 * 1_024,
         maximumArchives: Int = 8

@@ -8,7 +8,7 @@ struct ActivityRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DS.Space.m) {
-                StatusGlyph(style: activity.status.style)
+                StatusGlyph(style: activity.status.activityStyle)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 20)
 
