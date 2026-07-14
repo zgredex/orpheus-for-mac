@@ -4,6 +4,88 @@ import NativeQobuzCore
 
 @MainActor
 final class NativeAdapterTests: XCTestCase {
+    func testConnectivityRecoveryRetriesOnceThenWaitsForARealPathChange() {
+        var policy = NativeConnectivityRecoveryPolicy()
+
+        XCTAssertEqual(policy.action(state: .online, generation: 4), .retryNow)
+        XCTAssertEqual(
+            policy.action(state: .online, generation: 4),
+            .waitForChange(afterGeneration: 4)
+        )
+        policy.recovered()
+        XCTAssertEqual(policy.action(state: .online, generation: 6), .retryNow)
+
+        var offlinePolicy = NativeConnectivityRecoveryPolicy()
+        XCTAssertEqual(
+            offlinePolicy.action(state: .offline, generation: 9),
+            .waitForChange(afterGeneration: 9)
+        )
+    }
+
+    func testConnectivityMonitorLifecycleUpdatesViewModelAndStopsAtTermination() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let monitor = FakeConnectivityMonitor()
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(),
+            connectivityMonitor: monitor,
+            powerActivityManager: FakePowerActivityManager()
+        )
+
+        viewModel.start()
+        XCTAssertEqual(monitor.startCount, 1)
+        XCTAssertEqual(viewModel.connectivityState, .unknown)
+
+        monitor.emit(.offline)
+        XCTAssertEqual(viewModel.connectivityState, .offline)
+        monitor.emit(.online)
+        XCTAssertEqual(viewModel.connectivityState, .online)
+
+        viewModel.prepareForTermination()
+        XCTAssertEqual(monitor.stopCount, 1)
+    }
+
+    func testPowerActivityAlwaysEndsWhenTransferWorkThrows() async {
+        struct FixtureFailure: Error {}
+        let manager = FakePowerActivityManager()
+
+        do {
+            try await withNativePowerActivity(using: manager, reason: "Fixture transfer") {
+                throw FixtureFailure()
+            }
+            XCTFail("Expected fixture failure")
+        } catch is FixtureFailure {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(manager.beginReasons, ["Fixture transfer"])
+        XCTAssertEqual(manager.endCount, 1)
+    }
+
+    func testWaitingForNetworkStatusesRoundTripThroughSessionCoding() throws {
+        var item = NativeQueueItem(request: .album(QobuzID("album")))
+        item.status = .waitingForNetwork
+        var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: "Album")
+        activity.status = .waitingForNetwork
+        activity.phase = "Waiting for network · partial file preserved"
+        let value = NativeSessionSnapshot(
+            queue: [item],
+            activities: [activity],
+            selectedQueueID: item.id
+        )
+
+        let decoded = try JSONDecoder().decode(
+            NativeSessionSnapshot.self,
+            from: JSONEncoder().encode(value)
+        )
+
+        XCTAssertEqual(decoded.queue.first?.status, .waitingForNetwork)
+        XCTAssertEqual(decoded.activities.first?.status, .waitingForNetwork)
+    }
+
     func testBrowseResultsOwnEveryCategoryWithoutCrossCategoryMutation() {
         var results = NativeBrowseResults()
         results.replace(
@@ -898,6 +980,44 @@ private struct MemoryCredentialStore: NativeCredentialStoring {
 
     func load() throws -> CredentialDraft? { credentials }
     func save(_ credentials: CredentialDraft) throws {}
+}
+
+@MainActor
+private final class FakeConnectivityMonitor: NativeConnectivityMonitoring {
+    private(set) var state: NativeConnectivityState = .unknown
+    private var handler: ((NativeConnectivityState) -> Void)?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+
+    func start(onChange: @escaping @MainActor (NativeConnectivityState) -> Void) {
+        startCount += 1
+        handler = onChange
+    }
+
+    func stop() {
+        stopCount += 1
+        handler = nil
+    }
+
+    func emit(_ state: NativeConnectivityState) {
+        self.state = state
+        handler?(state)
+    }
+}
+
+@MainActor
+private final class FakePowerActivityManager: NativePowerActivityManaging {
+    private(set) var beginReasons: [String] = []
+    private(set) var endCount = 0
+
+    func begin(reason: String) -> NSObjectProtocol {
+        beginReasons.append(reason)
+        return NSObject()
+    }
+
+    func end(_ token: NSObjectProtocol) {
+        endCount += 1
+    }
 }
 
 private extension CredentialDraft {

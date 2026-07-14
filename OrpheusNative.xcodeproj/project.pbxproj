@@ -26,6 +26,7 @@
 		4A6AE3D6EC56FE0BC3A9C1EA /* LabelPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6EB097B50DA94628D894D48 /* LabelPreview.swift */; };
 		4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */; };
 		561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BE67AA234B02DAC3353CD /* PaneHeader.swift */; };
+		56B6A38E12A44E27B631A9F2 /* NativeSystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9CA7B14F2A4B449D741C6E /* NativeSystemServices.swift */; };
 		586A981F30D8993655793031 /* NativePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923659614A8B428EF4C2ADE2 /* NativePersistence.swift */; };
 		5C2AC8D7A317969465F84529 /* NativeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A65459F1F88915E30A939C /* NativeAdapterTests.swift */; };
 		65544605C2E64329273DFB04 /* NativeMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9910821B769A66567ABABA62 /* NativeMigrationTests.swift */; };
@@ -85,6 +86,7 @@
 		645BE67AA234B02DAC3353CD /* PaneHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneHeader.swift; sourceTree = "<group>"; };
 		677F6ED4075596CABC192F49 /* OrpheusNative.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrpheusNative.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
+		6F9CA7B14F2A4B449D741C6E /* NativeSystemServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemServices.swift; sourceTree = "<group>"; };
 		7633B86BA2BFAB97FFB41551 /* StatusStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStyle.swift; sourceTree = "<group>"; };
 		7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommandBar.swift; sourceTree = "<group>"; };
 		7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseView.swift; sourceTree = "<group>"; };
@@ -268,6 +270,7 @@
 				637C23C96791D0C949DD562A /* NativeModels.swift */,
 				923659614A8B428EF4C2ADE2 /* NativePersistence.swift */,
 				D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */,
+				6F9CA7B14F2A4B449D741C6E /* NativeSystemServices.swift */,
 				5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */,
 				8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */,
 			);
@@ -468,6 +471,7 @@
 				C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */,
 				B30F89034197A12FEA98F0C0 /* NativeSettingsView.swift in Sources */,
 				FCFEB1D2D5FAF854FF34B879 /* NativeSupplementalDiagnostics.swift in Sources */,
+				56B6A38E12A44E27B631A9F2 /* NativeSystemServices.swift in Sources */,
 				B8484B44CB5958357ADF6C62 /* NativeViewModel.swift in Sources */,
 				84D98B4FB88CFEA871F33854 /* OrpheusNativeApp.swift in Sources */,
 				561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */,

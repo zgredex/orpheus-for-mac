@@ -3,6 +3,20 @@ import XCTest
 @testable import NativeQobuzCore
 
 final class FileTransferTests: XCTestCase {
+    func testNetworkFailuresDistinguishConnectivityLossFromOrdinaryTimeouts() {
+        let offline = NativeQobuzError.networkFailure(URLError(.notConnectedToInternet))
+        let lost = NativeQobuzError.networkFailure(URLError(.networkConnectionLost))
+        let timeout = NativeQobuzError.networkFailure(URLError(.timedOut))
+
+        XCTAssertTrue(offline.isConnectivityLoss)
+        XCTAssertTrue(lost.isConnectivityLoss)
+        XCTAssertTrue(offline.canResumeTransfer)
+        XCTAssertFalse(timeout.isConnectivityLoss)
+        XCTAssertTrue(timeout.canResumeTransfer)
+        XCTAssertTrue(NativeQobuzError.http(403, "Expired").requiresFreshSignedURL)
+        XCTAssertFalse(NativeQobuzError.http(401, "Unauthorized").requiresFreshSignedURL)
+    }
+
     override func tearDown() {
         StubURLProtocol.handler = nil
         super.tearDown()

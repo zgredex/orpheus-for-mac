@@ -29,6 +29,7 @@ enum NativeQueueStatus: Codable, Equatable {
     case ready
     case loading
     case downloading
+    case waitingForNetwork
     case paused
     case completed
     case failed(String)
@@ -37,12 +38,12 @@ enum NativeQueueStatus: Codable, Equatable {
     var canStart: Bool {
         switch self {
         case .ready, .paused, .failed, .cancelled: true
-        case .loading, .downloading, .completed: false
+        case .loading, .downloading, .waitingForNetwork, .completed: false
         }
     }
 
     private enum CodingKeys: String, CodingKey { case kind, message }
-    private enum Kind: String, Codable { case ready, loading, downloading, paused, completed, failed, cancelled }
+    private enum Kind: String, Codable { case ready, loading, downloading, waitingForNetwork, paused, completed, failed, cancelled }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -50,6 +51,7 @@ enum NativeQueueStatus: Codable, Equatable {
         case .ready: self = .ready
         case .loading: self = .loading
         case .downloading: self = .downloading
+        case .waitingForNetwork: self = .waitingForNetwork
         case .paused: self = .paused
         case .completed: self = .completed
         case .failed: self = .failed(try container.decode(String.self, forKey: .message))
@@ -63,6 +65,7 @@ enum NativeQueueStatus: Codable, Equatable {
         case .ready: try container.encode(Kind.ready, forKey: .kind)
         case .loading: try container.encode(Kind.loading, forKey: .kind)
         case .downloading: try container.encode(Kind.downloading, forKey: .kind)
+        case .waitingForNetwork: try container.encode(Kind.waitingForNetwork, forKey: .kind)
         case .paused: try container.encode(Kind.paused, forKey: .kind)
         case .completed: try container.encode(Kind.completed, forKey: .kind)
         case .failed(let message):
@@ -403,6 +406,7 @@ enum NativeActivityStatus: Codable, Equatable {
     case downloading
     case tagging
     case validating
+    case waitingForNetwork
     case paused
     case completed
     case failed(String)
@@ -410,7 +414,7 @@ enum NativeActivityStatus: Codable, Equatable {
 
     var isActive: Bool {
         switch self {
-        case .queued, .resolving, .downloading, .tagging, .validating: true
+        case .queued, .resolving, .downloading, .tagging, .validating, .waitingForNetwork: true
         default: false
         }
     }
@@ -440,7 +444,7 @@ enum NativeActivityStatus: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey { case kind, message }
-    private enum Kind: String, Codable { case queued, resolving, downloading, tagging, validating, paused, completed, failed, cancelled }
+    private enum Kind: String, Codable { case queued, resolving, downloading, tagging, validating, waitingForNetwork, paused, completed, failed, cancelled }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -450,6 +454,7 @@ enum NativeActivityStatus: Codable, Equatable {
         case .downloading: self = .downloading
         case .tagging: self = .tagging
         case .validating: self = .validating
+        case .waitingForNetwork: self = .waitingForNetwork
         case .paused: self = .paused
         case .completed: self = .completed
         case .failed: self = .failed(try container.decode(String.self, forKey: .message))
@@ -465,6 +470,7 @@ enum NativeActivityStatus: Codable, Equatable {
         case .downloading: try container.encode(Kind.downloading, forKey: .kind)
         case .tagging: try container.encode(Kind.tagging, forKey: .kind)
         case .validating: try container.encode(Kind.validating, forKey: .kind)
+        case .waitingForNetwork: try container.encode(Kind.waitingForNetwork, forKey: .kind)
         case .paused: try container.encode(Kind.paused, forKey: .kind)
         case .completed: try container.encode(Kind.completed, forKey: .kind)
         case .failed(let message):

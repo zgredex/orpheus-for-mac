@@ -232,6 +232,7 @@ struct ActivityRow: View {
 
     private var phaseText: String {
         if isFailed { return "Failed · Expand for details" }
+        if activity.status == .waitingForNetwork { return activity.phase }
         if activity.status == .paused, activity.detailError != nil { return "Paused · Ready to resume" }
         if activity.status == .downloading, let current = activity.currentTrack {
             return "\(activity.phase) · \(current)"

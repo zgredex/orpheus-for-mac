@@ -336,7 +336,7 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
                 finish(.failure(.cancelled), matching: task)
             } else {
                 qobuzLog.error("transfer.network", "Audio transfer task failed", metadata: transferMetadata, error: error)
-                finish(.failure(.network(error.localizedDescription)), matching: task)
+                finish(.failure(NativeQobuzError.networkFailure(error)), matching: task)
             }
         } else {
             completeTransfer(matching: task)

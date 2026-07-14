@@ -40,6 +40,7 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var isLibraryOpen = false
     @Published private(set) var archiveSnapshot: QobuzArchiveSnapshot?
     @Published private(set) var isArchiveScanning = false
+    @Published private(set) var connectivityState: NativeConnectivityState = .unknown
 
     private let settingsStore: any NativeSettingsStoring
     private let dataMigrator: any NativeDataMigrating
@@ -50,6 +51,8 @@ final class NativeViewModel: ObservableObject {
     private let supplementalDiagnosticsCollector: any NativeSupplementalDiagnosticsCollecting
     private let archiveScanner: any QobuzArchiveScanning
     private let libraryAdopter: any QobuzLibraryAdopting
+    private let connectivityMonitor: any NativeConnectivityMonitoring
+    private let powerActivityManager: any NativePowerActivityManaging
     private let clientFactory: (QobuzCredentials) -> any NativeQobuzServicing
     private var client: (any NativeQobuzServicing)?
     private var previewTask: Task<Void, Never>?
@@ -66,6 +69,7 @@ final class NativeViewModel: ObservableObject {
     private var started = false
     private var restoringSession = false
     private var isTerminating = false
+    private var connectivityGeneration: UInt64 = 0
 
     init(
         dataMigrator: any NativeDataMigrating = NoOpNativeDataMigrator(),
@@ -77,6 +81,8 @@ final class NativeViewModel: ObservableObject {
         supplementalDiagnosticsCollector: (any NativeSupplementalDiagnosticsCollecting)? = nil,
         archiveScanner: any QobuzArchiveScanning = QobuzArchiveScanner(),
         libraryAdopter: (any QobuzLibraryAdopting)? = nil,
+        connectivityMonitor: (any NativeConnectivityMonitoring)? = nil,
+        powerActivityManager: (any NativePowerActivityManaging)? = nil,
         clientFactory: @escaping (QobuzCredentials) -> any NativeQobuzServicing = {
             QobuzAPIClient(credentials: $0)
         }
@@ -92,6 +98,8 @@ final class NativeViewModel: ObservableObject {
             ?? NativeSupplementalDiagnosticsCollector()
         self.archiveScanner = archiveScanner
         self.libraryAdopter = libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
+        self.connectivityMonitor = connectivityMonitor ?? NativeNetworkConnectivityMonitor()
+        self.powerActivityManager = powerActivityManager ?? NativePowerActivityManager()
         self.clientFactory = clientFactory
         let paths = NativePaths()
         settings = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
@@ -279,6 +287,9 @@ final class NativeViewModel: ObservableObject {
             return
         }
         started = true
+        connectivityMonitor.start { [weak self] state in
+            self?.applyConnectivityState(state)
+        }
         let startedAt = Date()
         qobuzLog.notice("lifecycle", "Native app startup started")
         do {
@@ -1657,6 +1668,7 @@ final class NativeViewModel: ObservableObject {
         )
         sessionPersistenceTask?.cancel()
         linkInboxTask?.cancel()
+        connectivityMonitor.stop()
         markActiveDownloadsPaused(phase: "Paused after app closed")
         persistSessionNow(reportErrors: false)
         activeItemDownloadTask?.cancel()
@@ -1706,6 +1718,37 @@ final class NativeViewModel: ObservableObject {
         )
     }
 
+    private func applyConnectivityState(_ state: NativeConnectivityState) {
+        guard connectivityState != state else { return }
+        let previous = connectivityState
+        connectivityState = state
+        connectivityGeneration &+= 1
+        qobuzLog.notice(
+            "network.path",
+            "Network path state changed",
+            metadata: [
+                "previous": previous.rawValue,
+                "current": state.rawValue,
+                "generation": String(connectivityGeneration)
+            ]
+        )
+    }
+
+    private func waitForOnlineConnectivity(after generation: UInt64) async throws {
+        qobuzLog.info(
+            "download.recovery.network",
+            "Waiting for a satisfied network path",
+            metadata: [
+                "connectivity": connectivityState.rawValue,
+                "afterGeneration": String(generation)
+            ]
+        )
+        while connectivityState != .online || connectivityGeneration <= generation {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
     private func loadArchiveCache() {
         let rootPath = URL(
             fileURLWithPath: settings.downloadPath,
@@ -1736,7 +1779,7 @@ final class NativeViewModel: ObservableObject {
 
         for index in snapshot.queue.indices {
             switch snapshot.queue[index].status {
-            case .downloading:
+            case .downloading, .waitingForNetwork:
                 snapshot.queue[index].status = .paused
             case .loading:
                 snapshot.queue[index].status = .ready
@@ -2044,96 +2087,179 @@ final class NativeViewModel: ObservableObject {
         )
         persistSessionNow(reportErrors: false)
         await QobuzLogScope.withValue(operationMetadata) {
-          do {
-            let events = if let repairTarget = item.repairTarget {
-                try engine.repairEvents(for: repairTarget, downloadRoot: root)
-            } else {
-                engine.events(
-                    for: item.request,
-                    quality: quality,
-                    downloadRoot: root,
-                    includedTrackIDs: item.selectedTrackIDs
-                )
-            }
-            for try await event in events {
-                try Task.checkCancellation()
-                reduce(event, activityID: activityID)
-            }
-            updateQueue(queueID) { $0.status = .completed }
-            qobuzLog.notice(
-                "download.item",
-                "Queue item download completed",
-                metadata: ["durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000))]
-            )
-        } catch is CancellationError {
-            qobuzLog.notice(
-                "download.item",
-                isTerminating ? "Queue item paused for app termination" : "Queue item download cancelled",
-                metadata: ["durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000))]
-            )
-            if isTerminating {
-                updateQueue(queueID) { $0.status = .paused }
-                updateActivity(activityID) { $0.status = .paused; $0.phase = "Paused after app closed" }
-            } else {
-                updateQueue(queueID) { $0.status = .cancelled }
-                updateActivity(activityID) {
-                    $0.status = .cancelled
-                    $0.phase = "Cancelled"
-                    $0.errorMessage = nil
-                    $0.bytesPerSecond = nil
+            var connectivityRecovery = NativeConnectivityRecoveryPolicy()
+            var refreshedExpiredURL = false
+            while !Task.isCancelled {
+                do {
+                    try await withNativePowerActivity(
+                        using: powerActivityManager,
+                        reason: "Downloading \(item.title)"
+                    ) {
+                        let events = if let repairTarget = item.repairTarget {
+                            try engine.repairEvents(for: repairTarget, downloadRoot: root)
+                        } else {
+                            engine.events(
+                                for: item.request,
+                                quality: quality,
+                                downloadRoot: root,
+                                includedTrackIDs: item.selectedTrackIDs
+                            )
+                        }
+                        for try await event in events {
+                            try Task.checkCancellation()
+                            reduce(event, activityID: activityID)
+                        }
+                    }
+                    updateQueue(queueID) { $0.status = .completed }
+                    qobuzLog.notice(
+                        "download.item",
+                        "Queue item download completed",
+                        metadata: ["durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000))]
+                    )
+                    return
+                } catch is CancellationError {
+                    finishCancelledDownload(queueID: queueID, activityID: activityID, startedAt: itemStarted)
+                    return
+                } catch NativeQobuzError.cancelled {
+                    finishCancelledDownload(queueID: queueID, activityID: activityID, startedAt: itemStarted)
+                    return
+                } catch let error as NativeQobuzError where error.requiresFreshSignedURL && !refreshedExpiredURL {
+                    refreshedExpiredURL = true
+                    let partialExists = activities.first(where: { $0.id == activityID })
+                        .flatMap(resumablePartial(for:)) != nil
+                    qobuzLog.warning(
+                        "download.recovery.url",
+                        "Expired audio URL detected; reacquiring a fresh signed Qobuz URL",
+                        metadata: ["partialPreserved": String(partialExists)],
+                        error: error
+                    )
+                    updateQueue(queueID) { $0.status = .downloading }
+                    updateActivity(activityID) {
+                        $0.status = .queued
+                        $0.phase = "Refreshing expired Qobuz link"
+                        $0.errorMessage = nil
+                        $0.bytesPerSecond = nil
+                    }
+                    persistSessionNow(reportErrors: false)
+                    continue
+                } catch let error as NativeQobuzError where error.isConnectivityLoss {
+                    let generationAtFailure = connectivityGeneration
+                    let partial = activities.first(where: { $0.id == activityID }).flatMap(resumablePartial(for:))
+                    qobuzLog.warning(
+                        "download.recovery.network",
+                        "Queue item is waiting for network recovery",
+                        metadata: [
+                            "connectivity": connectivityState.rawValue,
+                            "connectivityGeneration": String(generationAtFailure),
+                            "partialPath": partial?.url.path ?? "none",
+                            "partialBytes": partial.map { String($0.bytes) } ?? "0"
+                        ],
+                        error: error
+                    )
+                    updateQueue(queueID) { $0.status = .waitingForNetwork }
+                    updateActivity(activityID) {
+                        $0.status = .waitingForNetwork
+                        $0.phase = partial == nil
+                            ? "Waiting for network · resumes automatically"
+                            : "Waiting for network · partial file preserved"
+                        $0.errorMessage = nil
+                        $0.bytesPerSecond = nil
+                    }
+                    persistSessionNow(reportErrors: false)
+
+                    switch connectivityRecovery.action(
+                        state: connectivityState,
+                        generation: generationAtFailure
+                    ) {
+                    case .retryNow:
+                        qobuzLog.info(
+                            "download.recovery.network",
+                            "System path is online; refreshing the signed URL once",
+                            metadata: ["connectivityGeneration": String(generationAtFailure)]
+                        )
+                    case .waitForChange(let generation):
+                        do {
+                            try await waitForOnlineConnectivity(after: generation)
+                        } catch {
+                            finishCancelledDownload(queueID: queueID, activityID: activityID, startedAt: itemStarted)
+                            return
+                        }
+                        connectivityRecovery.recovered()
+                        refreshedExpiredURL = false
+                        qobuzLog.notice(
+                            "download.recovery.network",
+                            "Network path recovered; resuming with a fresh signed URL",
+                            metadata: ["connectivityGeneration": String(connectivityGeneration)]
+                        )
+                    }
+                    updateQueue(queueID) { $0.status = .downloading }
+                    updateActivity(activityID) {
+                        $0.status = .queued
+                        $0.phase = "Network restored · refreshing Qobuz link"
+                        $0.errorMessage = nil
+                    }
+                    continue
+                } catch let error as NativeQobuzError where error.canResumeTransfer {
+                    qobuzLog.warning(
+                        "download.item",
+                        "Queue item download paused after a resumable failure",
+                        metadata: [
+                            "durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000)),
+                            "partialPath": activities.first(where: { $0.id == activityID })
+                                .flatMap(resumablePartial(for:))?.url.path ?? "none"
+                        ],
+                        error: error
+                    )
+                    updateQueue(queueID) { $0.status = .paused }
+                    updateActivity(activityID) {
+                        $0.status = .paused
+                        $0.phase = "Paused · \(error.localizedDescription)"
+                        $0.errorMessage = error.localizedDescription
+                        $0.bytesPerSecond = nil
+                    }
+                    return
+                } catch {
+                    qobuzLog.error(
+                        "download.item",
+                        "Queue item download failed",
+                        metadata: ["durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000))],
+                        error: error
+                    )
+                    updateQueue(queueID) { $0.status = .failed(error.localizedDescription) }
+                    updateActivity(activityID) {
+                        $0.status = .failed(error.localizedDescription)
+                        $0.phase = error.localizedDescription
+                        $0.errorMessage = error.localizedDescription
+                        $0.bytesPerSecond = nil
+                    }
+                    return
                 }
             }
-        } catch NativeQobuzError.cancelled {
-            qobuzLog.notice(
-                "download.item",
-                isTerminating ? "Queue item paused for app termination" : "Queue item download cancelled",
-                metadata: ["durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000))]
-            )
-            if isTerminating {
-                updateQueue(queueID) { $0.status = .paused }
-                updateActivity(activityID) { $0.status = .paused; $0.phase = "Paused after app closed" }
-            } else {
-                updateQueue(queueID) { $0.status = .cancelled }
-                updateActivity(activityID) {
-                    $0.status = .cancelled
-                    $0.phase = "Cancelled"
-                    $0.errorMessage = nil
-                    $0.bytesPerSecond = nil
-                }
-            }
-        } catch let error as NativeQobuzError where error.canResumeTransfer {
-            qobuzLog.warning(
-                "download.item",
-                "Queue item download paused after a resumable failure",
-                metadata: [
-                    "durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000)),
-                    "partialPath": activities.first(where: { $0.id == activityID })
-                        .flatMap(resumablePartial(for:))?.url.path ?? "none"
-                ],
-                error: error
-            )
+            finishCancelledDownload(queueID: queueID, activityID: activityID, startedAt: itemStarted)
+        }
+    }
+
+    private func finishCancelledDownload(queueID: UUID, activityID: UUID, startedAt: Date) {
+        qobuzLog.notice(
+            "download.item",
+            isTerminating ? "Queue item paused for app termination" : "Queue item download cancelled",
+            metadata: ["durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))]
+        )
+        if isTerminating {
             updateQueue(queueID) { $0.status = .paused }
             updateActivity(activityID) {
                 $0.status = .paused
-                $0.phase = "Paused · \(error.localizedDescription)"
-                $0.errorMessage = error.localizedDescription
+                $0.phase = "Paused after app closed"
                 $0.bytesPerSecond = nil
             }
-        } catch {
-            qobuzLog.error(
-                "download.item",
-                "Queue item download failed",
-                metadata: ["durationMs": String(Int(Date().timeIntervalSince(itemStarted) * 1_000))],
-                error: error
-            )
-            updateQueue(queueID) { $0.status = .failed(error.localizedDescription) }
+        } else {
+            updateQueue(queueID) { $0.status = .cancelled }
             updateActivity(activityID) {
-                $0.status = .failed(error.localizedDescription)
-                $0.phase = error.localizedDescription
-                $0.errorMessage = error.localizedDescription
+                $0.status = .cancelled
+                $0.phase = "Cancelled"
+                $0.errorMessage = nil
                 $0.bytesPerSecond = nil
             }
-        }
         }
     }
 
@@ -2304,7 +2430,9 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func markActiveDownloadsCancelled() {
-        for index in queue.indices where queue[index].status == .downloading { queue[index].status = .cancelled }
+        for index in queue.indices where queue[index].status == .downloading || queue[index].status == .waitingForNetwork {
+            queue[index].status = .cancelled
+        }
         for index in activities.indices where activities[index].status.isActive {
             activities[index].status = .cancelled
             activities[index].phase = "Cancelled"
@@ -2312,7 +2440,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func markActiveDownloadsPaused(phase: String) {
-        for index in queue.indices where queue[index].status == .downloading {
+        for index in queue.indices where queue[index].status == .downloading || queue[index].status == .waitingForNetwork {
             queue[index].status = .paused
         }
         for index in activities.indices where activities[index].status.isActive {
@@ -2333,7 +2461,7 @@ final class NativeViewModel: ObservableObject {
 
     private func resetQueueStatusAfterPlanChange(_ item: inout NativeQueueItem) {
         switch item.status {
-        case .loading, .downloading:
+        case .loading, .downloading, .waitingForNetwork:
             break
         case .ready:
             break
@@ -2433,6 +2561,7 @@ final class NativeViewModel: ObservableObject {
         case .ready: "ready"
         case .loading: "loading"
         case .downloading: "downloading"
+        case .waitingForNetwork: "waiting-for-network"
         case .paused: "paused"
         case .completed: "completed"
         case .failed(let message): "failed: \(message)"
@@ -2447,6 +2576,7 @@ final class NativeViewModel: ObservableObject {
         case .downloading: "downloading"
         case .tagging: "tagging"
         case .validating: "validating"
+        case .waitingForNetwork: "waiting-for-network"
         case .paused: "paused"
         case .completed: "completed"
         case .failed(let message): "failed: \(message)"

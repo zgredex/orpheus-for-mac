@@ -199,7 +199,7 @@ public struct URLSessionQobuzAssetFetcher: QobuzAssetFetching, Sendable {
             throw NativeQobuzError.cancelled
         } catch {
             qobuzLog.error("asset.network", "Asset request failed", metadata: metadata, error: error)
-            throw NativeQobuzError.network(error.localizedDescription)
+            throw NativeQobuzError.networkFailure(error)
         }
     }
 }

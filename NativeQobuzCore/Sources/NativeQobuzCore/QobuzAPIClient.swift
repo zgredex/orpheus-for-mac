@@ -492,6 +492,16 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                 }
                 throw error
             } catch {
+                let networkFailure = NativeQobuzError.networkFailure(error)
+                if networkFailure.isConnectivityLoss {
+                    qobuzLog.warning(
+                        "api.connectivity",
+                        "Qobuz request stopped because the network path is unavailable",
+                        metadata: attemptMetadata,
+                        error: networkFailure
+                    )
+                    throw networkFailure
+                }
                 if isRetryable(error: error), attempt + 1 < retryPolicy.maxAttempts {
                     qobuzLog.warning(
                         "api.retry",
@@ -508,7 +518,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                     metadata: attemptMetadata,
                     error: error
                 )
-                throw NativeQobuzError.network(error.localizedDescription)
+                throw networkFailure
             }
         }
         qobuzLog.error(

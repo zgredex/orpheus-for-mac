@@ -219,6 +219,7 @@ struct QueueRow: View {
 
     private var failureMessage: String? {
         if case .failed(let message) = item.status { return message }
+        if item.status == .waitingForNetwork { return "Waiting for the network. This item resumes automatically when connectivity returns." }
         if item.status == .paused { return "Paused. Resume to continue the existing partial download." }
         return nil
     }
