@@ -30,6 +30,25 @@ enum DS {
         static let paneHeaderHeight: CGFloat = 40
     }
 
+    /// Activity is a supporting pane, not a second primary workspace. It grows
+    /// for up to three useful rows; additional history remains scrollable.
+    enum ActivityPane {
+        static let minimumHeight: CGFloat = 88
+        static let emptyContentHeight: CGFloat = 62
+        static let rowHeight: CGFloat = 74
+        static let maximumVisibleRows = 3
+
+        static func preferredHeight(activityCount: Int) -> CGFloat {
+            let contentHeight: CGFloat
+            if activityCount <= 0 {
+                contentHeight = emptyContentHeight
+            } else {
+                contentHeight = rowHeight * CGFloat(min(activityCount, maximumVisibleRows))
+            }
+            return Bar.paneHeaderHeight + 1 + contentHeight
+        }
+    }
+
     /// Stable trailing columns shared by dense, full-width rows.
     enum Column {
         static let searchStatus: CGFloat = 132

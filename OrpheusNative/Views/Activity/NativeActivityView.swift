@@ -10,8 +10,21 @@ struct NativeActivityView: View {
             }
             Divider()
             if vm.activities.isEmpty {
-                ContentUnavailableView("No Downloads Yet", systemImage: "arrow.down.circle", description: Text("Queued items appear here while downloading."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: DS.Space.m) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                        Text("No downloads yet")
+                            .font(.callout.weight(.medium))
+                        Text("Queued items appear here while downloading.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, DS.Space.l)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 List(vm.activities) { activity in ActivityRow(activity: activity) }.listStyle(.inset)
             }

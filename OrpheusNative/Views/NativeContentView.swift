@@ -21,9 +21,16 @@ struct NativeContentView: View {
                         else { NativePreviewView().transition(.opacity) }
                     }
                     .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
+                    .layoutPriority(1)
                     .animation(.easeOut(duration: 0.15), value: vm.isBrowseOpen)
                     NativeActivityView()
-                        .frame(maxWidth: .infinity, minHeight: 130, idealHeight: 190)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: DS.ActivityPane.minimumHeight,
+                            idealHeight: activityPaneHeight,
+                            maxHeight: activityPaneHeight
+                        )
+                        .layoutPriority(0)
                 }
                 .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -90,5 +97,9 @@ struct NativeContentView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
             qobuzLog.notice("lifecycle.system", "System woke from sleep")
         }
+    }
+
+    private var activityPaneHeight: CGFloat {
+        DS.ActivityPane.preferredHeight(activityCount: vm.activities.count)
     }
 }
