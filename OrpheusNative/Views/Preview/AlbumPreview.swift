@@ -16,21 +16,25 @@ struct AlbumPreview: View {
     var onClearTrackSelection: (() -> Void)?
 
     var body: some View {
-        PreviewScaffold(header: PreviewHeader(
-            artworkURL: album.image?.bestURL,
-            title: album.displayTitle,
-            subtitle: album.albumArtistDisplayName,
-            onSubtitleTap: onOpenArtist,
-            metadata: CatalogFormat.albumFacts(album.catalogMetadata) + [trackCountText] + [album.label].compactMap { $0 },
-            badges: badges,
-            catalogMarkers: CatalogFormat.albumMarkers(album.catalogMetadata)
-        )) {
-            VStack(spacing: 0) {
-                EditorialOverview(
+        PreviewScaffold(
+            header: PreviewHeader(
+                artworkURL: album.image?.bestURL,
+                title: album.displayTitle,
+                subtitle: album.albumArtistDisplayName,
+                onSubtitleTap: onOpenArtist,
+                metadata: CatalogFormat.albumFacts(album.catalogMetadata) + [trackCountText] + [album.label].compactMap { $0 },
+                badges: badges,
+                catalogMarkers: CatalogFormat.albumMarkers(album.catalogMetadata)
+            ),
+            headerAccessory: {
+                EditorialHeroPanel(
                     heading: "About this album",
                     summary: album.catalogMetadata.catchline,
                     editorialDescription: album.catalogMetadata.editorialDescription
                 )
+            }
+        ) {
+            VStack(spacing: 0) {
                 if let label = album.label, onOpenLabel != nil {
                     HStack {
                         Button { onOpenLabel?() } label: {

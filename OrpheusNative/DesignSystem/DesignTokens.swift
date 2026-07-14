@@ -30,6 +30,15 @@ enum DS {
         static let paneHeaderHeight: CGFloat = 40
     }
 
+    enum Preview {
+        static let headerDetailsMinimumWidth: CGFloat = 220
+        static let headerDetailsIdealWidth: CGFloat = 300
+        static let headerDetailsMaximumWidth: CGFloat = 360
+        static let headerAccessoryMinimumWidth: CGFloat = 320
+        static let editorialReaderWidth: CGFloat = 540
+        static let editorialReaderHeight: CGFloat = 360
+    }
+
     /// Activity is a supporting pane, not a second primary workspace. It grows
     /// for up to three useful rows; additional history remains scrollable.
     enum ActivityPane {

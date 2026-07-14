@@ -19,4 +19,24 @@ final class EditorialTextFormatterTests: XCTestCase {
         let value = try XCTUnwrap(EditorialTextFormatter.attributedText(from: source))
         XCTAssertEqual(String(value.characters), source)
     }
+
+    func testEditorialContentSuppressesEquivalentSummaryAndDescription() throws {
+        let content = EditorialContent(
+            summary: "A concise album note.",
+            editorialDescription: "<p>A concise album note.</p>"
+        )
+
+        XCTAssertEqual(try XCTUnwrap(EditorialContent.plainText(content.summary)), "A concise album note.")
+        XCTAssertNil(content.description)
+    }
+
+    func testLongEditorialContentUsesDedicatedReader() {
+        let content = EditorialContent(
+            summary: nil,
+            editorialDescription: String(repeating: "Long-form Qobuz editorial copy. ", count: 12)
+        )
+
+        XCTAssertTrue(content.benefitsFromReader)
+        XCTAssertTrue(content.descriptionCanExpand)
+    }
 }

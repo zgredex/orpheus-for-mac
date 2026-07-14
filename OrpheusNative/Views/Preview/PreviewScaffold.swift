@@ -1,18 +1,5 @@
 import SwiftUI
 
-struct CatalogMarker: Hashable {
-    enum Kind: Hashable {
-        case official
-        case unofficial
-        case tag
-        case award
-    }
-
-    let text: String
-    let systemImage: String
-    let kind: Kind
-}
-
 /// Header configuration shared by the album/track/playlist/artist previews.
 struct PreviewHeader {
     var artworkURL: URL?
@@ -27,146 +14,120 @@ struct PreviewHeader {
     var catalogMarkers: [CatalogMarker] = []
 }
 
-struct PreviewScaffold<Content: View>: View {
+struct PreviewScaffold<HeaderAccessory: View, Content: View>: View {
     let header: PreviewHeader
-    @ViewBuilder var content: () -> Content
+    private let headerAccessory: HeaderAccessory
+    private let hasHeaderAccessory: Bool
+    private let content: Content
+
+    init(
+        header: PreviewHeader,
+        @ViewBuilder content: () -> Content
+    ) where HeaderAccessory == EmptyView {
+        self.header = header
+        headerAccessory = EmptyView()
+        hasHeaderAccessory = false
+        self.content = content()
+    }
+
+    init(
+        header: PreviewHeader,
+        @ViewBuilder headerAccessory: () -> HeaderAccessory,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.header = header
+        self.headerAccessory = headerAccessory()
+        hasHeaderAccessory = true
+        self.content = content()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: DS.Space.l) {
-                ArtworkView(url: header.artworkURL, size: DS.Artwork.hero, placeholderSymbol: header.placeholderSymbol)
-                    .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(header.title).font(.title2.weight(.semibold)).lineLimit(2)
-                    if let subtitle = header.subtitle {
-                        if let onSubtitleTap = header.onSubtitleTap {
-                            Button(action: onSubtitleTap) {
-                                HStack(spacing: 3) {
-                                    Text(subtitle)
-                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                            .help("Show \(subtitle)")
-                        } else {
-                            Text(subtitle).font(.headline).foregroundStyle(.secondary)
-                        }
-                    }
-                    if !header.metadata.isEmpty {
-                        Text(header.metadata.joined(separator: "  ·  "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !header.badges.isEmpty || !header.catalogMarkers.isEmpty {
-                        CatalogMarkerFlowLayout(spacing: DS.Space.xs) {
-                            ForEach(header.badges, id: \.self) { QualityBadge(kind: $0) }
-                            ForEach(header.catalogMarkers, id: \.self) { CatalogMarkerView(marker: $0) }
-                        }
-                        .padding(.top, DS.Space.xxs)
-                    }
-                }
-                Spacer()
-            }
+            previewHeader
             .padding(18)
             Divider()
-            content()
+            content
         }
     }
-}
 
-/// Keeps catalog facts visually attached to the preview header without forcing
-/// it wider than the window. The same layout handles quality, status, tag, and
-/// award capsules so views do not each invent their own overflow behavior.
-private struct CatalogMarkerFlowLayout: Layout {
-    let spacing: CGFloat
+    @ViewBuilder private var previewHeader: some View {
+        if hasHeaderAccessory {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: DS.Space.l) {
+                    artwork
+                    headerDetails
+                        .frame(
+                            minWidth: DS.Preview.headerDetailsMinimumWidth,
+                            idealWidth: DS.Preview.headerDetailsIdealWidth,
+                            maxWidth: DS.Preview.headerDetailsMaximumWidth,
+                            alignment: .leading
+                        )
+                    headerAccessory
+                        .frame(
+                            minWidth: DS.Preview.headerAccessoryMinimumWidth,
+                            maxWidth: .infinity,
+                            alignment: .topLeading
+                        )
+                }
+                VStack(alignment: .leading, spacing: DS.Space.l) {
+                    standardHeader
+                    headerAccessory
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+        } else {
+            standardHeader
+        }
+    }
 
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
-        return CGSize(
-            width: rows.map(\.width).max() ?? 0,
-            height: rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
+    private var standardHeader: some View {
+        HStack(alignment: .top, spacing: DS.Space.l) {
+            artwork
+            headerDetails
+            Spacer()
+        }
+    }
+
+    private var artwork: some View {
+        ArtworkView(
+            url: header.artworkURL,
+            size: DS.Artwork.hero,
+            placeholderSymbol: header.placeholderSymbol
         )
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
     }
 
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        var y = bounds.minY
-        for row in rows(for: subviews, width: bounds.width) {
-            var x = bounds.minX
-            for item in row.items {
-                item.subview.place(
-                    at: CGPoint(x: x, y: y + (row.height - item.size.height) / 2),
-                    anchor: .topLeading,
-                    proposal: ProposedViewSize(item.size)
-                )
-                x += item.size.width + spacing
+    private var headerDetails: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(header.title).font(.title2.weight(.semibold)).lineLimit(2)
+            if let subtitle = header.subtitle {
+                if let onSubtitleTap = header.onSubtitleTap {
+                    Button(action: onSubtitleTap) {
+                        HStack(spacing: 3) {
+                            Text(subtitle)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .help("Show \(subtitle)")
+                } else {
+                    Text(subtitle).font(.headline).foregroundStyle(.secondary)
+                }
             }
-            y += row.height + spacing
-        }
-    }
-
-    private func rows(for subviews: Subviews, width: CGFloat) -> [Row] {
-        var rows: [Row] = []
-        var row = Row()
-
-        for subview in subviews {
-            let item = Item(subview: subview, size: subview.sizeThatFits(.unspecified))
-            let nextWidth = row.items.isEmpty ? item.size.width : row.width + spacing + item.size.width
-            if nextWidth > width, !row.items.isEmpty {
-                rows.append(row)
-                row = Row()
+            if !header.metadata.isEmpty {
+                Text(header.metadata.joined(separator: "  ·  "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            row.items.append(item)
-            row.width = row.items.count == 1 ? item.size.width : row.width + spacing + item.size.width
-            row.height = max(row.height, item.size.height)
-        }
-
-        if !row.items.isEmpty { rows.append(row) }
-        return rows
-    }
-
-    private struct Item {
-        let subview: LayoutSubview
-        let size: CGSize
-    }
-
-    private struct Row {
-        var items: [Item] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-}
-
-private struct CatalogMarkerView: View {
-    let marker: CatalogMarker
-
-    var body: some View {
-        Label(marker.text, systemImage: marker.systemImage)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(tint)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.1), in: Capsule())
-            .overlay { Capsule().stroke(tint.opacity(0.2), lineWidth: 0.5) }
-    }
-
-    private var tint: Color {
-        switch marker.kind {
-        case .official: .green
-        case .unofficial: .orange
-        case .tag: .secondary
-        case .award: .purple
+            if !header.badges.isEmpty || !header.catalogMarkers.isEmpty {
+                CatalogMarkerFlowLayout(spacing: DS.Space.xs) {
+                    ForEach(header.badges, id: \.self) { QualityBadge(kind: $0) }
+                    ForEach(header.catalogMarkers, id: \.self) { CatalogMarkerView(marker: $0) }
+                }
+                .padding(.top, DS.Space.xxs)
+            }
         }
     }
 }

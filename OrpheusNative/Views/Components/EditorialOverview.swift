@@ -9,27 +9,12 @@ struct EditorialOverview: View {
 
     @State private var isExpanded = false
 
-    private var formattedSummary: AttributedString? {
-        EditorialTextFormatter.attributedText(from: summary)
-    }
-
-    private var formattedDescription: AttributedString? {
-        let formatted = EditorialTextFormatter.attributedText(from: editorialDescription)
-        guard formatted.map(plainText) != formattedSummary.map(plainText) else { return nil }
-        return formatted
-    }
-
-    private var hasEditorial: Bool {
-        formattedSummary != nil || formattedDescription != nil
-    }
-
-    private var canExpand: Bool {
-        guard let formattedDescription else { return false }
-        return plainText(formattedDescription).count > 240
+    private var editorial: EditorialContent {
+        EditorialContent(summary: summary, editorialDescription: editorialDescription)
     }
 
     var body: some View {
-        if hasEditorial {
+        if !editorial.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 HStack(spacing: DS.Space.s) {
                     Label(heading, systemImage: "quote.opening")
@@ -52,8 +37,8 @@ struct EditorialOverview: View {
                 }
                 .frame(maxWidth: 780)
 
-                if let formattedSummary {
-                    Text(formattedSummary)
+                if let summary = editorial.summary {
+                    Text(summary)
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineSpacing(2)
@@ -61,8 +46,8 @@ struct EditorialOverview: View {
                         .textSelection(.enabled)
                 }
 
-                if let formattedDescription {
-                    descriptionView(formattedDescription)
+                if let description = editorial.description {
+                    descriptionView(description)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -74,7 +59,7 @@ struct EditorialOverview: View {
     }
 
     @ViewBuilder private func descriptionView(_ description: AttributedString) -> some View {
-        if isExpanded, canExpand {
+        if isExpanded, editorial.descriptionCanExpand {
             ScrollView(.vertical) {
                 editorialText(description)
                     .fixedSize(horizontal: false, vertical: true)
@@ -83,7 +68,7 @@ struct EditorialOverview: View {
             .scrollIndicators(.automatic)
         } else {
             editorialText(description)
-                .lineLimit(canExpand ? 3 : nil)
+                .lineLimit(editorial.descriptionCanExpand ? 3 : nil)
         }
     }
 
@@ -96,7 +81,5 @@ struct EditorialOverview: View {
             .textSelection(.enabled)
     }
 
-    private func plainText(_ value: AttributedString) -> String {
-        String(value.characters).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    private var canExpand: Bool { editorial.descriptionCanExpand }
 }
