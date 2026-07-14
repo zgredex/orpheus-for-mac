@@ -22,6 +22,7 @@ struct NativePaths: Sendable {
     var archiveIndexURL: URL { applicationSupportRoot.appendingPathComponent("archive-index.json") }
     var credentialsURL: URL { applicationSupportRoot.appendingPathComponent("credentials.json") }
     var sessionURL: URL { applicationSupportRoot.appendingPathComponent("download-session.json") }
+    var logsDirectory: URL { applicationSupportRoot.appendingPathComponent("Logs", isDirectory: true) }
 }
 
 protocol NativeDataMigrating: Sendable {
@@ -29,7 +30,9 @@ protocol NativeDataMigrating: Sendable {
 }
 
 struct NoOpNativeDataMigrator: NativeDataMigrating {
-    func migrateIfNeeded() throws {}
+    func migrateIfNeeded() throws {
+        qobuzLog.trace("persistence.migration", "Data migration disabled for this app session")
+    }
 }
 
 struct NativePreviewDataMigrator: NativeDataMigrating, @unchecked Sendable {
@@ -55,19 +58,37 @@ struct NativePreviewDataMigrator: NativeDataMigrating, @unchecked Sendable {
     }
 
     func migrateIfNeeded() throws {
+        qobuzLog.info(
+            "persistence.migration",
+            "Legacy preview data migration check started",
+            metadata: ["sourcePath": sourceRoot.path, "destinationPath": destinationRoot.path]
+        )
         var sourceIsDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: sourceRoot.path, isDirectory: &sourceIsDirectory),
-              sourceIsDirectory.boolValue else { return }
+              sourceIsDirectory.boolValue else {
+            qobuzLog.debug("persistence.migration", "No legacy preview data was found")
+            return
+        }
 
         let marker = destinationRoot.appendingPathComponent(Self.markerName)
-        guard !fileManager.fileExists(atPath: marker.path) else { return }
+        guard !fileManager.fileExists(atPath: marker.path) else {
+            qobuzLog.debug(
+                "persistence.migration",
+                "Legacy preview data was migrated previously",
+                metadata: ["markerPath": marker.path]
+            )
+            return
+        }
 
         if !fileManager.fileExists(atPath: destinationRoot.path) {
+            qobuzLog.notice("persistence.migration", "Installing complete legacy data copy")
             try installCompleteCopy()
         } else {
+            qobuzLog.notice("persistence.migration", "Merging missing legacy data into current storage")
             try mergeMissingItems(marker: marker)
         }
         try secureMigratedCredentials()
+        qobuzLog.notice("persistence.migration", "Legacy preview data migration completed")
     }
 
     private func installCompleteCopy() throws {
@@ -129,15 +150,45 @@ struct NativeSettingsStore: NativeSettingsStoring, @unchecked Sendable {
         guard fileManager.fileExists(atPath: paths.settingsURL.path) else {
             let value = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
             try save(value)
+            qobuzLog.notice(
+                "persistence.settings",
+                "Default settings created",
+                metadata: ["settingsPath": paths.settingsURL.path]
+            )
             return value
         }
-        return try JSONDecoder().decode(NativeSettings.self, from: Data(contentsOf: paths.settingsURL))
+        do {
+            let value = try JSONDecoder().decode(NativeSettings.self, from: Data(contentsOf: paths.settingsURL))
+            qobuzLog.debug(
+                "persistence.settings",
+                "Settings loaded",
+                metadata: ["settingsPath": paths.settingsURL.path, "quality": value.quality.rawValue]
+            )
+            return value
+        } catch {
+            qobuzLog.error(
+                "persistence.settings",
+                "Settings could not be loaded",
+                metadata: ["settingsPath": paths.settingsURL.path],
+                error: error
+            )
+            throw error
+        }
     }
 
     func save(_ settings: NativeSettings) throws {
         try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
         let data = try JSONEncoder.pretty.encode(settings)
         try data.write(to: paths.settingsURL, options: .atomic)
+        qobuzLog.info(
+            "persistence.settings",
+            "Settings saved",
+            metadata: [
+                "settingsPath": paths.settingsURL.path,
+                "downloadPath": settings.downloadPath,
+                "quality": settings.quality.rawValue
+            ]
+        )
     }
 }
 
@@ -156,20 +207,51 @@ struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
     }
 
     func load() throws -> QobuzArchiveSnapshot? {
-        guard fileManager.fileExists(atPath: paths.archiveIndexURL.path) else { return nil }
-        let snapshot = try JSONDecoder().decode(
-            QobuzArchiveSnapshot.self,
-            from: Data(contentsOf: paths.archiveIndexURL)
-        )
-        guard snapshot.version == 1 else {
-            throw NativeQobuzError.invalidResponse("Unsupported archive index version.")
+        guard fileManager.fileExists(atPath: paths.archiveIndexURL.path) else {
+            qobuzLog.debug("persistence.archive", "No cached archive index exists")
+            return nil
         }
-        return snapshot
+        do {
+            let snapshot = try JSONDecoder().decode(
+                QobuzArchiveSnapshot.self,
+                from: Data(contentsOf: paths.archiveIndexURL)
+            )
+            guard snapshot.version == 1 else {
+                throw NativeQobuzError.invalidResponse("Unsupported archive index version.")
+            }
+            qobuzLog.debug(
+                "persistence.archive",
+                "Cached archive index loaded",
+                metadata: [
+                    "archivePath": paths.archiveIndexURL.path,
+                    "trackCount": String(snapshot.tracks.count),
+                    "problemCount": String(snapshot.problemCount)
+                ]
+            )
+            return snapshot
+        } catch {
+            qobuzLog.error(
+                "persistence.archive",
+                "Cached archive index could not be loaded",
+                metadata: ["archivePath": paths.archiveIndexURL.path],
+                error: error
+            )
+            throw error
+        }
     }
 
     func save(_ snapshot: QobuzArchiveSnapshot) throws {
         try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
         try JSONEncoder.pretty.encode(snapshot).write(to: paths.archiveIndexURL, options: .atomic)
+        qobuzLog.info(
+            "persistence.archive",
+            "Archive index cache saved",
+            metadata: [
+                "archivePath": paths.archiveIndexURL.path,
+                "trackCount": String(snapshot.tracks.count),
+                "problemCount": String(snapshot.problemCount)
+            ]
+        )
     }
 }
 
@@ -223,20 +305,54 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
     }
 
     func load() throws -> NativeSessionSnapshot? {
-        guard fileManager.fileExists(atPath: paths.sessionURL.path) else { return nil }
-        let snapshot = try JSONDecoder().decode(
-            NativeSessionSnapshot.self,
-            from: Data(contentsOf: paths.sessionURL)
-        )
-        guard (1...2).contains(snapshot.version) else {
-            throw NativeQobuzError.invalidResponse("Unsupported download session version.")
+        guard fileManager.fileExists(atPath: paths.sessionURL.path) else {
+            qobuzLog.debug("persistence.session", "No saved download session exists")
+            return nil
         }
-        return snapshot
+        do {
+            let snapshot = try JSONDecoder().decode(
+                NativeSessionSnapshot.self,
+                from: Data(contentsOf: paths.sessionURL)
+            )
+            guard (1...2).contains(snapshot.version) else {
+                throw NativeQobuzError.invalidResponse("Unsupported download session version.")
+            }
+            qobuzLog.info(
+                "persistence.session",
+                "Download session restored",
+                metadata: [
+                    "sessionPath": paths.sessionURL.path,
+                    "queueCount": String(snapshot.queue.count),
+                    "activityCount": String(snapshot.activities.count),
+                    "inboxCount": String(snapshot.linkInbox.count),
+                    "version": String(snapshot.version)
+                ]
+            )
+            return snapshot
+        } catch {
+            qobuzLog.error(
+                "persistence.session",
+                "Download session could not be restored",
+                metadata: ["sessionPath": paths.sessionURL.path],
+                error: error
+            )
+            throw error
+        }
     }
 
     func save(_ snapshot: NativeSessionSnapshot) throws {
         try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
         try JSONEncoder.pretty.encode(snapshot).write(to: paths.sessionURL, options: .atomic)
+        qobuzLog.debug(
+            "persistence.session",
+            "Download session saved",
+            metadata: [
+                "sessionPath": paths.sessionURL.path,
+                "queueCount": String(snapshot.queue.count),
+                "activityCount": String(snapshot.activities.count),
+                "inboxCount": String(snapshot.linkInbox.count)
+            ]
+        )
     }
 }
 
@@ -255,11 +371,34 @@ struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
     }
 
     func load() throws -> CredentialDraft? {
-        guard fileManager.fileExists(atPath: paths.credentialsURL.path) else { return nil }
-        return try JSONDecoder().decode(
-            CredentialDraft.self,
-            from: Data(contentsOf: paths.credentialsURL)
-        )
+        guard fileManager.fileExists(atPath: paths.credentialsURL.path) else {
+            qobuzLog.info(
+                "persistence.credentials",
+                "No saved Qobuz credentials were found",
+                metadata: ["credentialsConfigured": "false"]
+            )
+            return nil
+        }
+        do {
+            let value = try JSONDecoder().decode(
+                CredentialDraft.self,
+                from: Data(contentsOf: paths.credentialsURL)
+            )
+            qobuzLog.info(
+                "persistence.credentials",
+                "Qobuz credentials loaded",
+                metadata: ["credentialsConfigured": String(value.isComplete)]
+            )
+            return value
+        } catch {
+            qobuzLog.error(
+                "persistence.credentials",
+                "Qobuz credentials could not be loaded",
+                metadata: ["credentialsConfigured": "unknown"],
+                error: error
+            )
+            throw error
+        }
     }
 
     func save(_ credentials: CredentialDraft) throws {
@@ -272,6 +411,11 @@ struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
         try fileManager.setAttributes(
             [.posixPermissions: 0o600],
             ofItemAtPath: paths.credentialsURL.path
+        )
+        qobuzLog.notice(
+            "persistence.credentials",
+            "Qobuz credentials saved with restricted file permissions",
+            metadata: ["credentialsConfigured": String(credentials.isComplete)]
         )
     }
 }

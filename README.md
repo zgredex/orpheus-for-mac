@@ -11,6 +11,7 @@ Orpheus for Mac is a native Apple Silicon macOS client for browsing and download
 - Crash-safe `.partial` transfers, fresh signed URLs, validated HTTP Range resume, and clean restart fallback.
 - Native FLAC and ID3 metadata, embedded and external artwork, booklets, relative M3U playlists, and SHA-256 manifests.
 - One canonical physical audio file with explicit Library membership for albums, standalone tracks, and playlists.
+- Structured, rotating diagnostics with exact timestamps, source file/function/line, error details, and correlated request, queue, activity, transfer, validation, and Library scan identifiers.
 - A mandatory arm64 FFmpeg-derived validator containing only the components used for MP3 and FLAC decode checks.
 
 ## Portability
@@ -23,6 +24,12 @@ The app bundle is immutable. Mutable state is stored in:
 Version 1.0 safely migrates the former native Preview data from `~/Library/Application Support/OrpheusNativePreview`. Migration copies data, preserves an existing custom download path, never overwrites newer release data, and leaves the Preview directory intact for rollback.
 
 Credentials are stored in an owner-only `credentials.json` file. It contains the Qobuz App ID, App Secret, and auth token. A Qobuz account user ID is neither stored nor sent as an App ID.
+
+## Diagnostics
+
+Open the in-app diagnostics viewer with `Command-Shift-L` or the Diagnostics toolbar button. Events can be searched and filtered by severity and subsystem; selecting one shows its exact timestamp, source location, function, thread, native error domain and code, chained underlying errors, correlation metadata, and a captured call stack for failures.
+
+Persistent JSONL logs are stored in `~/Library/Application Support/Orpheus for Mac/Logs`. The active file rotates at 5 MiB and retains eight archives. Warnings and errors are flushed immediately. Diagnostic export creates a self-contained folder with the logs and a sanitized system, queue, activity, and Library report. Qobuz tokens, secrets, signatures, and authorization values are redacted before OSLog, disk persistence, display, or export.
 
 ## Build
 

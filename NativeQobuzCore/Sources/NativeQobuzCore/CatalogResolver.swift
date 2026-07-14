@@ -8,24 +8,53 @@ public struct QobuzCatalogResolver: Sendable {
     }
 
     public func resolve(_ request: QobuzRequest) async throws -> QobuzDownloadPlan {
-        try Task.checkCancellation()
-        switch request {
-        case .track(let id):
-            return try await resolveTrack(id: id, request: request)
-        case .album(let id):
-            let album = try await service.album(id: id)
-            return try plan(
-                album: album,
-                request: request,
-                collection: .album(id: album.id, title: album.displayTitle),
-                source: .album(album)
-            )
-        case .playlist(let id):
-            return try await resolvePlaylist(id: id, request: request)
-        case .artist(let id):
-            return try await resolveArtist(id: id, request: request)
-        case .label(let id):
-            return try await resolveLabel(id: id, request: request)
+        let metadata = ["requestKind": request.kindName, "qobuzID": request.id.rawValue]
+        return try await QobuzLogScope.withValue(metadata) {
+            let started = Date()
+            qobuzLog.info("catalog.resolve", "Catalog resolution started")
+            do {
+                try Task.checkCancellation()
+                let result: QobuzDownloadPlan
+                switch request {
+                case .track(let id):
+                    result = try await resolveTrack(id: id, request: request)
+                case .album(let id):
+                    let album = try await service.album(id: id)
+                    result = try plan(
+                        album: album,
+                        request: request,
+                        collection: .album(id: album.id, title: album.displayTitle),
+                        source: .album(album)
+                    )
+                case .playlist(let id):
+                    result = try await resolvePlaylist(id: id, request: request)
+                case .artist(let id):
+                    result = try await resolveArtist(id: id, request: request)
+                case .label(let id):
+                    result = try await resolveLabel(id: id, request: request)
+                }
+                qobuzLog.notice(
+                    "catalog.resolve",
+                    "Catalog resolution completed",
+                    metadata: [
+                        "title": result.title,
+                        "trackCount": String(result.tracks.count),
+                        "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
+                    ]
+                )
+                return result
+            } catch is CancellationError {
+                qobuzLog.notice("catalog.resolve", "Catalog resolution cancelled")
+                throw NativeQobuzError.cancelled
+            } catch {
+                qobuzLog.error(
+                    "catalog.resolve",
+                    "Catalog resolution failed",
+                    metadata: ["durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))],
+                    error: error
+                )
+                throw error
+            }
         }
     }
 
@@ -62,6 +91,11 @@ public struct QobuzCatalogResolver: Sendable {
 
         var albumCache: [QobuzID: QobuzAlbum] = [:]
         var resolved: [QobuzResolvedTrack] = []
+        qobuzLog.debug(
+            "catalog.playlist",
+            "Resolving playlist album metadata",
+            metadata: ["playableTracks": String(playableTracks.count)]
+        )
         let collection = QobuzCollection.playlist(id: playlist.id, title: playlist.name)
         for (offset, track) in playableTracks.enumerated() {
             try Task.checkCancellation()
@@ -133,7 +167,12 @@ public struct QobuzCatalogResolver: Sendable {
     }
 
     private func fetchAlbums(_ summaries: [QobuzAlbum]) async throws -> [QobuzAlbum] {
-        try await withThrowingTaskGroup(
+        qobuzLog.debug(
+            "catalog.collection",
+            "Fetching collection albums",
+            metadata: ["albumCount": String(summaries.count), "maximumConcurrency": "6"]
+        )
+        return try await withThrowingTaskGroup(
             of: (Int, QobuzAlbum?).self,
             returning: [QobuzAlbum].self
         ) { group in
@@ -155,7 +194,17 @@ public struct QobuzCatalogResolver: Sendable {
                     group.addTask { try await fetchAlbum(at: index, summary: summaries[index]) }
                 }
             }
-            return ordered.compactMap { $0 }
+            let albums = ordered.compactMap { $0 }
+            qobuzLog.info(
+                "catalog.collection",
+                "Collection albums fetched",
+                metadata: [
+                    "requestedAlbums": String(summaries.count),
+                    "availableAlbums": String(albums.count),
+                    "skippedAlbums": String(summaries.count - albums.count)
+                ]
+            )
+            return albums
         }
     }
 
@@ -188,8 +237,21 @@ public struct QobuzCatalogResolver: Sendable {
         try Task.checkCancellation()
         do {
             let album = try await service.album(id: summary.id)
-            return (index, album.accountAvailabilityIssue == nil && !album.availableTracks.isEmpty ? album : nil)
+            let isAvailable = album.accountAvailabilityIssue == nil && !album.availableTracks.isEmpty
+            if !isAvailable {
+                qobuzLog.warning(
+                    "catalog.collection",
+                    "Album omitted because it is unavailable or empty",
+                    metadata: ["albumID": summary.id.rawValue, "index": String(index)]
+                )
+            }
+            return (index, isAvailable ? album : nil)
         } catch NativeQobuzError.unavailable(_) {
+            qobuzLog.warning(
+                "catalog.collection",
+                "Album omitted because Qobuz reported it unavailable",
+                metadata: ["albumID": summary.id.rawValue, "index": String(index)]
+            )
             return (index, nil)
         }
     }

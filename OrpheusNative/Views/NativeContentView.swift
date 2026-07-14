@@ -1,4 +1,5 @@
 import AppKit
+import NativeQobuzCore
 import SwiftUI
 
 struct NativeContentView: View {
@@ -56,11 +57,16 @@ struct NativeContentView: View {
                 .help(vm.isLibraryOpen ? "Close Library" : "Open Library")
             }
             ToolbarItem {
+                Button { vm.showDiagnostics = true } label: { Image(systemName: "waveform.path.ecg.rectangle") }
+                    .help("Open Diagnostics")
+            }
+            ToolbarItem {
                 Button { vm.showSettings = true } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
         }
         .sheet(isPresented: $vm.showSettings) { NativeSettingsView(draft: vm.settingsDraft) }
+        .sheet(isPresented: $vm.showDiagnostics) { NativeLogView() }
         .alert("Orpheus Native", isPresented: Binding(
             get: { vm.notice != nil },
             set: { if !$0 { vm.notice = nil } }
@@ -71,6 +77,18 @@ struct NativeContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             vm.prepareForTermination()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            qobuzLog.info("lifecycle.window", "App became active")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            qobuzLog.debug("lifecycle.window", "App resigned active state")
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
+            qobuzLog.notice("lifecycle.system", "System will sleep")
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            qobuzLog.notice("lifecycle.system", "System woke from sleep")
         }
     }
 }

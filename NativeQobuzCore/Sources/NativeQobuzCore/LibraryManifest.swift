@@ -64,12 +64,38 @@ public enum QobuzLibraryManifestIO {
 
     public static func load(at root: URL, fileManager: FileManager = .default) throws -> QobuzLibraryManifest {
         let url = root.appendingPathComponent(filename)
-        guard fileManager.fileExists(atPath: url.path) else { return QobuzLibraryManifest() }
-        let value = try JSONDecoder().decode(QobuzLibraryManifest.self, from: Data(contentsOf: url))
-        guard value.version == 1 else {
-            throw NativeQobuzError.invalidResponse("Unsupported library manifest version \(value.version).")
+        guard fileManager.fileExists(atPath: url.path) else {
+            qobuzLog.debug(
+                "library.manifest",
+                "Library manifest does not exist yet",
+                metadata: ["manifestPath": url.path]
+            )
+            return QobuzLibraryManifest()
         }
-        return value
+        do {
+            let value = try JSONDecoder().decode(QobuzLibraryManifest.self, from: Data(contentsOf: url))
+            guard value.version == 1 else {
+                throw NativeQobuzError.invalidResponse("Unsupported library manifest version \(value.version).")
+            }
+            qobuzLog.debug(
+                "library.manifest",
+                "Library manifest loaded",
+                metadata: [
+                    "manifestPath": url.path,
+                    "collectionCount": String(value.collections.count),
+                    "version": String(value.version)
+                ]
+            )
+            return value
+        } catch {
+            qobuzLog.error(
+                "library.manifest",
+                "Library manifest could not be loaded",
+                metadata: ["manifestPath": url.path],
+                error: error
+            )
+            throw error
+        }
     }
 
     public static func save(
@@ -89,8 +115,23 @@ public enum QobuzLibraryManifestIO {
             } else {
                 try fileManager.moveItem(at: staging, to: destination)
             }
+            qobuzLog.info(
+                "library.manifest",
+                "Library manifest saved",
+                metadata: [
+                    "manifestPath": destination.path,
+                    "collectionCount": String(manifest.collections.count),
+                    "version": String(manifest.version)
+                ]
+            )
         } catch {
             try? fileManager.removeItem(at: staging)
+            qobuzLog.error(
+                "library.manifest",
+                "Library manifest could not be saved",
+                metadata: ["manifestPath": destination.path, "stagingPath": staging.path],
+                error: error
+            )
             throw NativeQobuzError.fileSystem("Could not update the library manifest: \(error.localizedDescription)")
         }
     }
@@ -100,6 +141,11 @@ public enum QobuzLibraryManifestIO {
         let value = url.standardizedFileURL
         let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
         guard value.path.hasPrefix(prefix) else {
+            qobuzLog.error(
+                "library.path",
+                "Library asset resolved outside the download folder",
+                metadata: ["assetPath": value.path, "downloadRoot": root.path]
+            )
             throw NativeQobuzError.fileSystem("A library asset is outside the download folder.")
         }
         return String(value.path.dropFirst(prefix.count))

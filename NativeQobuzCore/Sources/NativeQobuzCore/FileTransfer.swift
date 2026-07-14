@@ -40,6 +40,7 @@ public struct URLSessionFileTransferClient: FileTransferClient, Sendable {
                 source: source,
                 destination: destination,
                 configuration: configuration,
+                diagnosticMetadata: QobuzLogScope.metadata,
                 continuation: continuation
             )
             continuation.onTermination = { @Sendable _ in operation.cancel() }
@@ -121,9 +122,12 @@ private func positiveContentLength(_ response: HTTPURLResponse) -> Int64? {
 }
 
 private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let transferID = UUID().uuidString
+    private let startedAt = Date()
     private let source: URL
     private let destination: URL
     private let configuration: URLSessionConfiguration
+    private let diagnosticMetadata: [String: String]
     private let continuation: AsyncThrowingStream<FileTransferEvent, Error>.Continuation
     private let fileManager = FileManager.default
     private let lock = NSLock()
@@ -138,16 +142,20 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
     private var retriedFresh = false
     private var lastSampleDate = Date()
     private var lastSampleBytes: Int64 = 0
+    private var lastLoggedPercent = -10
+    private var lastLoggedBytes: Int64 = 0
 
     init(
         source: URL,
         destination: URL,
         configuration: URLSessionConfiguration,
+        diagnosticMetadata: [String: String],
         continuation: AsyncThrowingStream<FileTransferEvent, Error>.Continuation
     ) {
         self.source = source
         self.destination = destination
         self.configuration = configuration
+        self.diagnosticMetadata = diagnosticMetadata
         self.continuation = continuation
     }
 
@@ -169,12 +177,23 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
                 requestedOffset = offset
                 totalBytesWritten = offset
                 lastSampleBytes = offset
+                lastLoggedBytes = offset
             }
+            qobuzLog.info(
+                "transfer.lifecycle",
+                offset > 0 ? "Audio transfer resuming from partial file" : "Audio transfer started",
+                metadata: transferMetadata.merging([
+                    "resumeOffset": String(offset),
+                    "resumed": String(offset > 0)
+                ]) { _, new in new }
+            )
             continuation.yield(.started)
             task.resume()
         } catch let error as NativeQobuzError {
+            qobuzLog.error("transfer.lifecycle", "Audio transfer could not start", metadata: transferMetadata, error: error)
             finish(.failure(error))
         } catch {
+            qobuzLog.error("transfer.lifecycle", "Audio transfer could not start", metadata: transferMetadata, error: error)
             finish(.failure(.fileSystem(error.localizedDescription)))
         }
     }
@@ -190,11 +209,19 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
         guard isCurrent(dataTask), let response = response as? HTTPURLResponse else {
+            qobuzLog.warning("transfer.response", "Rejected an unexpected transfer response", metadata: transferMetadata)
             completionHandler(.cancel)
             return
         }
         let offset = lock.withLock { requestedOffset }
         let retried = lock.withLock { retriedFresh }
+        let responseMetadata = transferMetadata.merging([
+            "status": String(response.statusCode),
+            "requestedOffset": String(offset),
+            "contentLength": response.value(forHTTPHeaderField: "Content-Length") ?? "unknown",
+            "contentRange": response.value(forHTTPHeaderField: "Content-Range") ?? "none"
+        ]) { _, new in new }
+        qobuzLog.debug("transfer.response", "Audio transfer response received", metadata: responseMetadata)
         do {
             switch try fileTransferDisposition(
                 for: response,
@@ -202,19 +229,36 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
                 alreadyRetriedFresh: retried
             ) {
             case .append(let total):
+                qobuzLog.info(
+                    "transfer.response",
+                    "Server accepted resumed audio transfer",
+                    metadata: responseMetadata.merging(["expectedBytes": total.map(String.init) ?? "unknown"]) { _, new in new }
+                )
                 try preparePartialFile(restart: false, totalBytes: total)
                 completionHandler(.allow)
             case .restart(let total):
+                qobuzLog.info(
+                    "transfer.response",
+                    "Server requested a fresh audio transfer",
+                    metadata: responseMetadata.merging(["expectedBytes": total.map(String.init) ?? "unknown"]) { _, new in new }
+                )
                 try preparePartialFile(restart: true, totalBytes: total)
                 completionHandler(.allow)
             case .retryFresh:
+                qobuzLog.warning(
+                    "transfer.resume",
+                    "Resume response was unsafe; retrying once from byte zero",
+                    metadata: responseMetadata
+                )
                 completionHandler(.cancel)
                 restartFresh(replacing: dataTask)
             }
         } catch let error as NativeQobuzError {
+            qobuzLog.error("transfer.response", "Audio transfer response was rejected", metadata: responseMetadata, error: error)
             completionHandler(.cancel)
             finish(.failure(error), matching: dataTask)
         } catch {
+            qobuzLog.error("transfer.response", "Audio transfer response handling failed", metadata: responseMetadata, error: error)
             completionHandler(.cancel)
             finish(.failure(.fileSystem(error.localizedDescription)), matching: dataTask)
         }
@@ -224,7 +268,7 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
         guard isCurrent(dataTask) else { return }
         let now = Date()
         do {
-            let sample: (written: Int64, total: Int64?, speed: Double?) = try lock.withLock {
+            let sample: (written: Int64, total: Int64?, speed: Double?, shouldLog: Bool, percent: Int?) = try lock.withLock {
                 guard !finished, self.task === dataTask, let fileHandle else {
                     throw NativeQobuzError.cancelled
                 }
@@ -239,7 +283,17 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
                 } else {
                     speed = nil
                 }
-                return (totalBytesWritten, expectedTotalBytes, speed)
+                let percent = expectedTotalBytes.flatMap { total in
+                    total > 0 ? Int((Double(totalBytesWritten) / Double(total) * 100).rounded(.down)) : nil
+                }
+                let crossedPercentBucket = percent.map { ($0 / 10) * 10 >= lastLoggedPercent + 10 } ?? false
+                let crossedByteBucket = totalBytesWritten - lastLoggedBytes >= 16 * 1_024 * 1_024
+                let shouldLog = crossedPercentBucket || crossedByteBucket
+                if shouldLog {
+                    if let percent { lastLoggedPercent = (percent / 10) * 10 }
+                    lastLoggedBytes = totalBytesWritten
+                }
+                return (totalBytesWritten, expectedTotalBytes, speed, shouldLog, percent)
             }
             continuation.yield(
                 .progress(
@@ -250,9 +304,23 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
                     )
                 )
             )
+            if sample.shouldLog {
+                qobuzLog.debug(
+                    "transfer.progress",
+                    "Audio transfer progress",
+                    metadata: transferMetadata.merging([
+                        "bytesWritten": String(sample.written),
+                        "totalBytes": sample.total.map(String.init) ?? "unknown",
+                        "percent": sample.percent.map(String.init) ?? "unknown",
+                        "bytesPerSecond": sample.speed.map { String(Int($0)) } ?? "unknown"
+                    ]) { _, new in new }
+                )
+            }
         } catch let error as NativeQobuzError {
+            qobuzLog.error("transfer.write", "Writing audio transfer data failed", metadata: transferMetadata, error: error)
             finish(.failure(error), matching: dataTask)
         } catch {
+            qobuzLog.error("transfer.write", "Writing audio transfer data failed", metadata: transferMetadata, error: error)
             finish(.failure(.fileSystem(error.localizedDescription)), matching: dataTask)
         }
     }
@@ -267,6 +335,7 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
             if (error as? URLError)?.code == .cancelled {
                 finish(.failure(.cancelled), matching: task)
             } else {
+                qobuzLog.error("transfer.network", "Audio transfer task failed", metadata: transferMetadata, error: error)
                 finish(.failure(.network(error.localizedDescription)), matching: task)
             }
         } else {
@@ -286,6 +355,11 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
     private func resumablePartialSize() throws -> Int64 {
         guard fileManager.fileExists(atPath: partialURL.path) else { return 0 }
         if (try? partialURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            qobuzLog.warning(
+                "transfer.resume",
+                "Unsafe symbolic-link partial file was removed",
+                metadata: transferMetadata
+            )
             try fileManager.removeItem(at: partialURL)
             return 0
         }
@@ -310,6 +384,14 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
         let actualOffset = try handle.seekToEnd()
         let expectedOffset = restart ? 0 : lock.withLock { requestedOffset }
         guard actualOffset == UInt64(expectedOffset) else {
+            qobuzLog.error(
+                "transfer.resume",
+                "Partial file size changed while preparing resume",
+                metadata: transferMetadata.merging([
+                    "expectedOffset": String(expectedOffset),
+                    "actualOffset": String(actualOffset)
+                ]) { _, new in new }
+            )
             try handle.close()
             throw NativeQobuzError.invalidResponse("The partial audio file changed while resuming.")
         }
@@ -327,6 +409,14 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
             throw NativeQobuzError.cancelled
         }
         if expectedOffset > 0 {
+            qobuzLog.notice(
+                "transfer.resume",
+                "Partial audio file accepted for resume",
+                metadata: transferMetadata.merging([
+                    "resumeOffset": String(expectedOffset),
+                    "expectedBytes": totalBytes.map(String.init) ?? "unknown"
+                ]) { _, new in new }
+            )
             continuation.yield(
                 .progress(
                     FileTransferProgress(
@@ -353,6 +443,7 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
             return (session, handle)
         }
         guard let (session, handle) = context else { return }
+        qobuzLog.notice("transfer.resume", "Restarting audio transfer from byte zero", metadata: transferMetadata)
         try? handle?.close()
         try? fileManager.removeItem(at: partialURL)
         oldTask.cancel()
@@ -371,6 +462,14 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
         try? context.handle?.close()
         context.handle = nil
         if let expected = context.expectedTotalBytes, context.totalBytesWritten != expected {
+            qobuzLog.error(
+                "transfer.integrity",
+                "Audio transfer byte count did not match the server response",
+                metadata: transferMetadata.merging([
+                    "expectedBytes": String(expected),
+                    "actualBytes": String(context.totalBytesWritten)
+                ]) { _, new in new }
+            )
             if context.totalBytesWritten > expected { try? fileManager.removeItem(at: partialURL) }
             finishClaimed(
                 .failure(.network("Audio transfer ended before the expected byte count.")),
@@ -438,13 +537,51 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
 
         switch result {
         case .success(let url):
+            qobuzLog.notice(
+                "transfer.lifecycle",
+                "Audio transfer completed",
+                metadata: transferMetadata.merging([
+                    "bytesWritten": String(context.totalBytesWritten),
+                    "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+                    "installedPath": url.path
+                ]) { _, new in new }
+            )
             context.session?.finishTasksAndInvalidate()
             continuation.yield(.completed(url))
             continuation.finish()
         case .failure(let error):
+            if case .cancelled = error {
+                qobuzLog.notice(
+                    "transfer.lifecycle",
+                    "Audio transfer cancelled; partial file preserved when safe",
+                    metadata: transferMetadata.merging([
+                        "bytesWritten": String(context.totalBytesWritten),
+                        "partialPath": partialURL.path
+                    ]) { _, new in new }
+                )
+            } else {
+                qobuzLog.error(
+                    "transfer.lifecycle",
+                    "Audio transfer failed",
+                    metadata: transferMetadata.merging([
+                        "bytesWritten": String(context.totalBytesWritten),
+                        "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+                        "partialPath": partialURL.path
+                    ]) { _, new in new },
+                    error: error
+                )
+            }
             context.session?.invalidateAndCancel()
             continuation.finish(throwing: error)
         }
+    }
+
+    private var transferMetadata: [String: String] {
+        diagnosticMetadata.merging([
+            "transferID": transferID,
+            "sourceHost": source.host ?? "unknown",
+            "destinationPath": destination.path
+        ]) { _, new in new }
     }
 
     private var partialURL: URL {

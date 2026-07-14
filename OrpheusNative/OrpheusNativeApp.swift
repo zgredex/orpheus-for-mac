@@ -7,10 +7,32 @@ struct OrpheusNativeApp: App {
     @StateObject private var viewModel: NativeViewModel
 
     init() {
+        NSSetUncaughtExceptionHandler { exception in
+            qobuzLog.critical(
+                "crash.exception",
+                "Uncaught Objective-C exception",
+                metadata: [
+                    "exceptionName": exception.name.rawValue,
+                    "reason": exception.reason ?? "unknown",
+                    "callStack": exception.callStackSymbols.joined(separator: " | ")
+                ]
+            )
+        }
         _viewModel = StateObject(
             wrappedValue: NativeViewModel(dataMigrator: NativePreviewDataMigrator())
         )
+        qobuzLog.notice(
+            "lifecycle",
+            "App process initialized",
+            metadata: [
+                "processID": String(ProcessInfo.processInfo.processIdentifier),
+                "arguments": ProcessInfo.processInfo.arguments.map {
+                    QobuzDiagnostics.redact($0)
+                }.joined(separator: " ")
+            ]
+        )
         if ProcessInfo.processInfo.arguments.contains("--portability-smoke-test") {
+            qobuzLog.notice("qualification", "Portability smoke test started")
             do {
                 let validator = try FFmpegMediaValidator.bundled()
                 guard FileManager.default.isExecutableFile(atPath: validator.executableURL.path) else {
@@ -21,9 +43,11 @@ struct OrpheusNativeApp: App {
                       !paths.defaultDownloadRoot.path.hasPrefix(Bundle.main.bundleURL.path) else {
                     throw NativeQobuzError.fileSystem("Mutable data resolves inside the app bundle.")
                 }
+                qobuzLog.notice("qualification", "Portability smoke test passed")
                 print("portable-smoke: ok")
                 exit(0)
             } catch {
+                qobuzLog.critical("qualification", "Portability smoke test failed", error: error)
                 fputs("portable-smoke: failed\n", stderr)
                 exit(2)
             }
@@ -41,7 +65,14 @@ struct OrpheusNativeApp: App {
                     maxHeight: .infinity
                 )
                 .task { viewModel.start() }
-                .onOpenURL { viewModel.handleOpenURL($0) }
+                .onOpenURL {
+                    qobuzLog.info(
+                        "lifecycle.url",
+                        "App received an open-URL event",
+                        metadata: ["scheme": $0.scheme ?? "none", "host": $0.host ?? "none"]
+                    )
+                    viewModel.handleOpenURL($0)
+                }
         }
         .defaultSize(width: 1180, height: 760)
         .commands {
@@ -60,6 +91,11 @@ struct OrpheusNativeApp: App {
                 Button("Cancel") { viewModel.cancelDownloads() }
                     .keyboardShortcut(".", modifiers: [.command])
                     .disabled(!viewModel.canCancel)
+            }
+            CommandMenu("Diagnostics") {
+                Button("Open Diagnostics") { viewModel.showDiagnostics = true }
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+                Button("Reveal Log Files") { viewModel.revealDiagnostics() }
             }
         }
     }

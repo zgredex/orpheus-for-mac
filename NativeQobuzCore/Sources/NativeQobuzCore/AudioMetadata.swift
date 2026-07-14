@@ -175,13 +175,40 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
     public init() {}
 
     public func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {
-        switch fileURL.pathExtension.lowercased() {
-        case "mp3":
-            try id3Writer.write(metadata: metadata, artwork: artwork, to: fileURL)
-        case "flac":
-            try flacWriter.write(metadata: metadata, artwork: artwork, to: fileURL)
-        default:
-            throw NativeQobuzError.fileSystem("Unsupported audio format: \(fileURL.pathExtension)")
+        let started = Date()
+        let metadataValues = [
+            "filePath": fileURL.path,
+            "format": fileURL.pathExtension.lowercased(),
+            "title": metadata.title,
+            "artworkEmbedded": String(artwork != nil)
+        ]
+        qobuzLog.info("metadata.audio", "Audio metadata write started", metadata: metadataValues)
+        do {
+            switch fileURL.pathExtension.lowercased() {
+            case "mp3":
+                try id3Writer.write(metadata: metadata, artwork: artwork, to: fileURL)
+            case "flac":
+                try flacWriter.write(metadata: metadata, artwork: artwork, to: fileURL)
+            default:
+                throw NativeQobuzError.fileSystem("Unsupported audio format: \(fileURL.pathExtension)")
+            }
+            qobuzLog.notice(
+                "metadata.audio",
+                "Audio metadata write completed",
+                metadata: metadataValues.merging([
+                    "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
+                ]) { _, new in new }
+            )
+        } catch {
+            qobuzLog.error(
+                "metadata.audio",
+                "Audio metadata write failed",
+                metadata: metadataValues.merging([
+                    "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
+                ]) { _, new in new },
+                error: error
+            )
+            throw error
         }
     }
 }

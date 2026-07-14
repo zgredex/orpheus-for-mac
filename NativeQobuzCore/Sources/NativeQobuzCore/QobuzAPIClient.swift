@@ -340,13 +340,25 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     }
 
     private func requireCredentials() throws {
-        guard credentials.isComplete else { throw NativeQobuzError.missingCredentials }
+        guard credentials.isComplete else {
+            qobuzLog.error(
+                "api.auth",
+                "Qobuz request blocked because credentials are incomplete",
+                metadata: ["credentialsConfigured": "false"]
+            )
+            throw NativeQobuzError.missingCredentials
+        }
     }
 
     private func signedGet<T: Decodable>(
         endpoint: String,
         parameters: [String: String]
     ) async throws -> (T, HTTPURLResponse) {
+        qobuzLog.trace(
+            "api.signing",
+            "Preparing signed Qobuz request",
+            metadata: ["endpoint": endpoint, "parameterCount": String(parameters.count)]
+        )
         let requestTimestamp = timestamp()
         var signed = parameters
         signed["request_ts"] = String(requestTimestamp)
@@ -363,10 +375,19 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         endpoint: String,
         parameters: [String: String]
     ) async throws -> (T, HTTPURLResponse) {
+        let requestID = UUID().uuidString
+        let requestStarted = Date()
+        let baseMetadata = [
+            "requestID": requestID,
+            "endpoint": endpoint,
+            "responseType": String(reflecting: T.self),
+            "parameterNames": parameters.keys.sorted().joined(separator: ",")
+        ]
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent(endpoint),
             resolvingAgainstBaseURL: false
         ) else {
+            qobuzLog.error("api.request", "Could not construct Qobuz endpoint", metadata: baseMetadata)
             throw NativeQobuzError.invalidResponse("Could not construct endpoint \(endpoint).")
         }
         components.queryItems = parameters
@@ -376,6 +397,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                 lhs.name == rhs.name ? (lhs.value ?? "") < (rhs.value ?? "") : lhs.name < rhs.name
             }
         guard let url = components.url else {
+            qobuzLog.error("api.request", "Could not construct Qobuz request URL", metadata: baseMetadata)
             throw NativeQobuzError.invalidResponse("Could not construct a Qobuz request URL.")
         }
 
@@ -383,36 +405,118 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         request.httpMethod = "GET"
         request.allHTTPHeaderFields = headers
 
+        qobuzLog.info(
+            "api.request",
+            "Qobuz request started",
+            metadata: baseMetadata.merging([
+                "method": "GET",
+                "host": url.host ?? "unknown",
+                "maxAttempts": String(retryPolicy.maxAttempts)
+            ]) { _, new in new }
+        )
+
         for attempt in 0..<retryPolicy.maxAttempts {
+            let attemptStarted = Date()
+            let attemptMetadata = baseMetadata.merging([
+                "attempt": String(attempt + 1),
+                "maxAttempts": String(retryPolicy.maxAttempts)
+            ]) { _, new in new }
             do {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
+                    qobuzLog.error(
+                        "api.response",
+                        "Qobuz returned a non-HTTP response",
+                        metadata: attemptMetadata
+                    )
                     throw NativeQobuzError.invalidResponse("Expected an HTTP response.")
                 }
+                let responseMetadata = attemptMetadata.merging([
+                    "status": String(http.statusCode),
+                    "responseBytes": String(data.count),
+                    "durationMs": String(Int(Date().timeIntervalSince(attemptStarted) * 1_000))
+                ]) { _, new in new }
+                qobuzLog.debug("api.response", "Qobuz response received", metadata: responseMetadata)
                 if (200...202).contains(http.statusCode) {
                     do {
-                        return (try JSONDecoder().decode(T.self, from: data), http)
+                        let decoded = try JSONDecoder().decode(T.self, from: data)
+                        qobuzLog.info(
+                            "api.request",
+                            "Qobuz request completed",
+                            metadata: responseMetadata.merging([
+                                "totalDurationMs": String(Int(Date().timeIntervalSince(requestStarted) * 1_000))
+                            ]) { _, new in new }
+                        )
+                        return (decoded, http)
                     } catch {
+                        qobuzLog.error(
+                            "api.decode",
+                            "Could not decode Qobuz response",
+                            metadata: responseMetadata,
+                            error: error
+                        )
                         throw NativeQobuzError.invalidResponse(String(describing: error))
                     }
                 }
                 if isRetryable(status: http.statusCode), attempt + 1 < retryPolicy.maxAttempts {
+                    qobuzLog.warning(
+                        "api.retry",
+                        "Qobuz request will retry after HTTP failure",
+                        metadata: responseMetadata
+                    )
                     try await wait(attempt: attempt, response: http)
                     continue
                 }
-                throw mapHTTPError(status: http.statusCode, data: data, response: http)
+                let mapped = mapHTTPError(status: http.statusCode, data: data, response: http)
+                qobuzLog.error(
+                    "api.request",
+                    "Qobuz request failed with HTTP error",
+                    metadata: responseMetadata,
+                    error: mapped
+                )
+                throw mapped
             } catch is CancellationError {
+                qobuzLog.notice("api.request", "Qobuz request cancelled", metadata: attemptMetadata)
                 throw NativeQobuzError.cancelled
             } catch let error as NativeQobuzError {
+                if case .cancelled = error {
+                    qobuzLog.notice("api.request", "Qobuz request cancelled", metadata: attemptMetadata)
+                } else {
+                    qobuzLog.error(
+                        "api.request",
+                        "Qobuz request stopped",
+                        metadata: attemptMetadata,
+                        error: error
+                    )
+                }
                 throw error
             } catch {
                 if isRetryable(error: error), attempt + 1 < retryPolicy.maxAttempts {
+                    qobuzLog.warning(
+                        "api.retry",
+                        "Qobuz request will retry after network failure",
+                        metadata: attemptMetadata,
+                        error: error
+                    )
                     try await wait(attempt: attempt, response: nil)
                     continue
                 }
+                qobuzLog.error(
+                    "api.request",
+                    "Qobuz request failed with a network error",
+                    metadata: attemptMetadata,
+                    error: error
+                )
                 throw NativeQobuzError.network(error.localizedDescription)
             }
         }
+        qobuzLog.error(
+            "api.request",
+            "Qobuz request exhausted all retry attempts",
+            metadata: baseMetadata.merging([
+                "totalDurationMs": String(Int(Date().timeIntervalSince(requestStarted) * 1_000))
+            ]) { _, new in new }
+        )
         throw NativeQobuzError.network("Request failed after retrying.")
     }
 

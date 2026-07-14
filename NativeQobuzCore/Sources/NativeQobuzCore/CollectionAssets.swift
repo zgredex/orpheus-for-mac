@@ -161,20 +161,41 @@ public struct URLSessionQobuzAssetFetcher: QobuzAssetFetching, Sendable {
     }
 
     public func fetch(_ url: URL) async throws -> QobuzAssetResponse {
+        let assetID = UUID().uuidString
+        let started = Date()
+        let metadata = ["assetRequestID": assetID, "host": url.host ?? "unknown", "path": url.path]
+        qobuzLog.info("asset.network", "Asset request started", metadata: metadata)
         do {
             let (data, response) = try await session.data(from: url)
             if let response = response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
+                qobuzLog.error(
+                    "asset.network",
+                    "Asset request returned an HTTP failure",
+                    metadata: metadata.merging(["status": String(response.statusCode)]) { _, new in new }
+                )
                 throw NativeQobuzError.http(response.statusCode, "Asset request failed")
             }
             guard !data.isEmpty else {
                 throw NativeQobuzError.invalidResponse("Qobuz returned an empty asset")
             }
+            qobuzLog.info(
+                "asset.network",
+                "Asset request completed",
+                metadata: metadata.merging([
+                    "responseBytes": String(data.count),
+                    "mimeType": response.mimeType ?? "unknown",
+                    "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
+                ]) { _, new in new }
+            )
             return QobuzAssetResponse(data: data, mimeType: response.mimeType)
         } catch let error as NativeQobuzError {
+            qobuzLog.error("asset.network", "Asset request failed", metadata: metadata, error: error)
             throw error
         } catch is CancellationError {
+            qobuzLog.notice("asset.network", "Asset request cancelled", metadata: metadata)
             throw NativeQobuzError.cancelled
         } catch {
+            qobuzLog.error("asset.network", "Asset request failed", metadata: metadata, error: error)
             throw NativeQobuzError.network(error.localizedDescription)
         }
     }
@@ -311,6 +332,7 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
     }
 
     public func reusableAudioIndex(root: URL) throws -> [String: URL] {
+        qobuzLog.debug("asset.reuse", "Reusable audio index scan started", metadata: ["downloadRoot": root.path])
         guard let enumerator = fileManager.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
@@ -320,11 +342,34 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         while let manifestURL = enumerator.nextObject() as? URL {
             guard manifestURL.lastPathComponent == ".orpheus-provenance.json" else { continue }
             let values = try? manifestURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            guard values?.isRegularFile == true, values?.isSymbolicLink != true,
-                  let manifest = try? JSONDecoder().decode(
-                    ProvenanceManifest.self,
-                    from: Data(contentsOf: manifestURL)
-                  ), manifest.version == 1 else { continue }
+            guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
+                qobuzLog.warning(
+                    "asset.reuse",
+                    "Ignored unsafe provenance manifest",
+                    metadata: ["manifestPath": manifestURL.path]
+                )
+                continue
+            }
+            let manifest: ProvenanceManifest
+            do {
+                manifest = try JSONDecoder().decode(ProvenanceManifest.self, from: Data(contentsOf: manifestURL))
+                guard manifest.version == 1 else {
+                    qobuzLog.warning(
+                        "asset.reuse",
+                        "Ignored unsupported provenance manifest version",
+                        metadata: ["manifestPath": manifestURL.path, "version": String(manifest.version)]
+                    )
+                    continue
+                }
+            } catch {
+                qobuzLog.warning(
+                    "asset.reuse",
+                    "Ignored unreadable provenance manifest",
+                    metadata: ["manifestPath": manifestURL.path],
+                    error: error
+                )
+                continue
+            }
             let folder = manifestURL.deletingLastPathComponent()
             for (filename, provenance) in manifest.files where isSafeLeafName(filename) {
                 let audioURL = folder.appendingPathComponent(filename)
@@ -333,6 +378,11 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
                 result[provenance.reuseKey] = audioURL
             }
         }
+        qobuzLog.debug(
+            "asset.reuse",
+            "Reusable audio index scan completed",
+            metadata: ["downloadRoot": root.path, "candidateCount": String(result.count)]
+        )
         return result
     }
 
@@ -348,7 +398,18 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         var manifests: [URL] = []
         for folder in grouped.keys.sorted(by: { $0.path < $1.path }) {
             let destination = folder.appendingPathComponent("checksums.sha256")
-            var entries = (try? checksumEntries(in: destination)) ?? [:]
+            var entries: [String: String]
+            do {
+                entries = try checksumEntries(in: destination)
+            } catch {
+                entries = [:]
+                qobuzLog.warning(
+                    "asset.checksum",
+                    "Existing checksum manifest could not be read and will be rebuilt",
+                    metadata: ["manifestPath": destination.path],
+                    error: error
+                )
+            }
             for entry in grouped[folder, default: []] { entries[entry.name] = entry.sha256 }
             let contents = entries.keys.sorted().map { "\(entries[$0]!)  \($0)" }.joined(separator: "\n") + "\n"
             try writeAtomically(Data(contents.utf8), to: destination)
@@ -368,11 +429,33 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
 
     public func recordProvenance(_ provenance: QobuzFileProvenance, for audioURL: URL) throws {
         let folder = audioURL.deletingLastPathComponent()
-        var manifest = (try? provenanceManifest(in: folder)) ?? ProvenanceManifest()
+        var manifest: ProvenanceManifest
+        do {
+            manifest = try provenanceManifest(in: folder)
+        } catch {
+            manifest = ProvenanceManifest()
+            qobuzLog.warning(
+                "asset.provenance",
+                "Existing provenance could not be read and will be rebuilt",
+                metadata: ["manifestPath": provenanceURL(in: folder).path],
+                error: error
+            )
+        }
         manifest.files[audioURL.lastPathComponent] = provenance
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try writeAtomically(try encoder.encode(manifest), to: provenanceURL(in: folder))
+        qobuzLog.debug(
+            "asset.provenance",
+            "Audio provenance recorded",
+            metadata: [
+                "audioPath": audioURL.path,
+                "trackID": provenance.qobuzTrackID,
+                "albumID": provenance.qobuzAlbumID,
+                "formatID": String(provenance.formatID),
+                "sha256": provenance.sha256
+            ]
+        )
     }
 
     public func markLibraryManaged(_ audioURLs: [URL]) throws {
@@ -541,7 +624,23 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
                 try fileManager.moveItem(at: staging, to: destination)
             }
         } catch {
-            if let temporary { try? fileManager.removeItem(at: temporary) }
+            if let temporary {
+                do { try fileManager.removeItem(at: temporary) }
+                catch {
+                    qobuzLog.warning(
+                        "asset.filesystem",
+                        "Could not remove failed asset staging file",
+                        metadata: ["stagingPath": temporary.path],
+                        error: error
+                    )
+                }
+            }
+            qobuzLog.error(
+                "asset.filesystem",
+                "Atomic asset write failed",
+                metadata: ["destinationPath": destination.path],
+                error: error
+            )
             throw NativeQobuzError.fileSystem(error.localizedDescription)
         }
     }
