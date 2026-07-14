@@ -152,6 +152,28 @@ final class NativeAdapterTests: XCTestCase {
         item.status = .paused
         item.downloadQuality = .hiRes
         item.downloadRootPath = paths.defaultDownloadRoot.path
+        item.trackPlan = [
+            NativeQueueTrack(
+                id: "one#0",
+                qobuzID: QobuzID("one"),
+                title: "One",
+                subtitle: "Artist",
+                duration: 180,
+                position: 1,
+                unavailableReason: nil
+            ),
+            NativeQueueTrack(
+                id: "two#1",
+                qobuzID: QobuzID("two"),
+                title: "Two",
+                subtitle: "Artist",
+                duration: 200,
+                position: 2,
+                unavailableReason: nil
+            )
+        ]
+        item.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
+        item.selectedTrackIDs = [QobuzID("two")]
         var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: item.title)
         activity.status = .paused
         activity.phase = "Paused after interruption"
@@ -177,7 +199,93 @@ final class NativeAdapterTests: XCTestCase {
 
         XCTAssertEqual(try store.load(), snapshot)
         XCTAssertEqual(try store.load()?.linkInbox.first?.status, .available)
+        XCTAssertEqual(try store.load()?.queue.first?.selectedTrackIDs, [QobuzID("two")])
+        XCTAssertEqual(try store.load()?.queue.first?.trackPlan?.count, 2)
         XCTAssertTrue(paths.sessionURL.path.hasPrefix(paths.applicationSupportRoot.path))
+    }
+
+    func testLegacyQueueItemWithoutTrackPlanDefaultsToAllTracks() throws {
+        var item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
+        item.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
+        let snapshot = NativeSessionSnapshot(
+            version: 1,
+            queue: [item],
+            activities: [],
+            selectedQueueID: item.id
+        )
+
+        let decoded = try JSONDecoder().decode(
+            NativeSessionSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+        let restored = try XCTUnwrap(decoded.queue.first)
+
+        XCTAssertNil(restored.trackPlan)
+        XCTAssertNil(restored.selectedTrackIDs)
+        XCTAssertEqual(restored.effectiveSelectedTrackIDs, [QobuzID("one"), QobuzID("two")])
+        XCTAssertTrue(restored.hasSelectedTracks)
+    }
+
+    func testQueuePlanControlsUpdateSelectionQualityOrderAndPersistence() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        var first = NativeQueueItem(request: .album(QobuzID("album-one")), title: "First")
+        first.status = .completed
+        first.trackPlan = [
+            NativeQueueTrack(
+                id: "one#0",
+                qobuzID: QobuzID("one"),
+                title: "One",
+                subtitle: "Artist",
+                duration: 180,
+                position: 1,
+                unavailableReason: nil
+            ),
+            NativeQueueTrack(
+                id: "two#1",
+                qobuzID: QobuzID("two"),
+                title: "Two",
+                subtitle: "Artist",
+                duration: 200,
+                position: 2,
+                unavailableReason: nil
+            )
+        ]
+        first.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
+        let second = NativeQueueItem(request: .album(QobuzID("album-two")), title: "Second")
+        let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
+            queue: [first, second],
+            activities: [],
+            selectedQueueID: first.id
+        ))
+        let viewModel = NativeViewModel(
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(),
+            archiveStore: MemoryArchiveStore(),
+            sessionStore: sessionStore
+        )
+        viewModel.start()
+
+        viewModel.toggleQueueTrack(QobuzID("one"), in: first.id)
+        XCTAssertEqual(viewModel.queue.first?.selectedTrackIDs, [QobuzID("two")])
+        XCTAssertEqual(viewModel.queuePreflight(for: try XCTUnwrap(viewModel.queue.first)).selected, 1)
+        viewModel.clearQueueTrackSelection(in: first.id)
+        XCTAssertFalse(try XCTUnwrap(viewModel.queue.first).hasSelectedTracks)
+        viewModel.selectAllQueueTracks(in: first.id)
+        viewModel.setQueueQuality(.lossless, for: first.id)
+        XCTAssertNil(viewModel.queue.first?.selectedTrackIDs)
+        XCTAssertEqual(viewModel.queue.first?.downloadQuality, .lossless)
+        XCTAssertEqual(viewModel.queue.first?.status, .ready)
+
+        viewModel.moveQueueItem(second.id, before: first.id)
+        XCTAssertEqual(viewModel.queue.map(\.id), [second.id, first.id])
+        viewModel.moveQueueItemDown(second.id)
+        XCTAssertEqual(viewModel.queue.map(\.id), [first.id, second.id])
+        viewModel.prepareForTermination()
+        XCTAssertEqual(sessionStore.snapshot?.queue.map(\.id), [first.id, second.id])
+        XCTAssertEqual(sessionStore.snapshot?.queue.first?.downloadQuality, .lossless)
+        XCTAssertNil(sessionStore.snapshot?.queue.first?.selectedTrackIDs)
     }
 
     func testActivityFindsOnlyRecoverableNonemptyPartialFiles() throws {

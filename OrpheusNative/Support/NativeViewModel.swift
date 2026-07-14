@@ -90,13 +90,39 @@ final class NativeViewModel: ObservableObject {
         queue.first { $0.id == selectedQueueID }
     }
 
+    func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
+        guard let item = selectedQueueItem,
+              item.request == request,
+              item.trackPlan != nil else { return nil }
+        return item.effectiveSelectedTrackIDs
+    }
+
+    func toggleSelectedQueueTrack(_ trackID: QobuzID) {
+        guard let selectedQueueID else { return }
+        toggleQueueTrack(trackID, in: selectedQueueID)
+    }
+
+    func selectAllSelectedQueueTracks() {
+        guard let selectedQueueID else { return }
+        selectAllQueueTracks(in: selectedQueueID)
+    }
+
+    func clearSelectedQueueTracks() {
+        guard let selectedQueueID else { return }
+        clearQueueTrackSelection(in: selectedQueueID)
+    }
+
     var canDownloadSelected: Bool {
-        !isDownloading && selectedQueueItem?.status.canStart == true && credentials.isComplete
+        !isDownloading
+            && selectedQueueItem.map(isQueueItemStartable) == true
+            && credentials.isComplete
     }
 
     var canDownloadAll: Bool {
-        !isDownloading && credentials.isComplete && queue.contains { $0.status.canStart }
+        !isDownloading && credentials.isComplete && queue.contains(where: isQueueItemStartable)
     }
+
+    var canDownloadNext: Bool { canDownloadAll }
 
     var isDownloading: Bool { downloadTask != nil }
     var canCancel: Bool { downloadTask != nil }
@@ -395,6 +421,108 @@ final class NativeViewModel: ObservableObject {
         let activeIDs = Set(queue.filter { $0.status == .downloading }.map(\.id))
         queue.removeAll { !activeIDs.contains($0.id) }
         selectQueueItem(queue.first?.id)
+    }
+
+    func setQueueQuality(_ quality: QobuzQuality?, for id: UUID) {
+        guard !isDownloading else { return }
+        updateQueue(id) { item in
+            guard item.repairTarget == nil else { return }
+            item.downloadQuality = quality
+            resetQueueStatusAfterPlanChange(&item)
+        }
+    }
+
+    func toggleQueueTrack(_ trackID: QobuzID, in id: UUID) {
+        guard !isDownloading else { return }
+        updateQueue(id) { item in
+            guard item.trackPlan != nil else { return }
+            var selected = item.effectiveSelectedTrackIDs
+            if selected.contains(trackID) { selected.remove(trackID) }
+            else if item.availableTrackIDs.contains(trackID) { selected.insert(trackID) }
+            item.selectedTrackIDs = selected
+            resetQueueStatusAfterPlanChange(&item)
+        }
+    }
+
+    func selectAllQueueTracks(in id: UUID) {
+        guard !isDownloading else { return }
+        updateQueue(id) { item in
+            guard item.trackPlan != nil else { return }
+            item.selectedTrackIDs = nil
+            resetQueueStatusAfterPlanChange(&item)
+        }
+    }
+
+    func clearQueueTrackSelection(in id: UUID) {
+        guard !isDownloading else { return }
+        updateQueue(id) { item in
+            guard item.trackPlan != nil else { return }
+            item.selectedTrackIDs = []
+            resetQueueStatusAfterPlanChange(&item)
+        }
+    }
+
+    func moveQueueItems(from offsets: IndexSet, to destination: Int) {
+        guard !isDownloading, !offsets.isEmpty else { return }
+        let moving = offsets.sorted().map { queue[$0] }
+        for index in offsets.sorted(by: >) { queue.remove(at: index) }
+        let removedBeforeDestination = offsets.filter { $0 < destination }.count
+        let insertion = min(max(destination - removedBeforeDestination, 0), queue.count)
+        queue.insert(contentsOf: moving, at: insertion)
+    }
+
+    func moveQueueItem(_ sourceID: UUID, before targetID: UUID) {
+        guard !isDownloading,
+              sourceID != targetID,
+              let source = queue.firstIndex(where: { $0.id == sourceID }),
+              queue.contains(where: { $0.id == targetID }) else { return }
+        let item = queue.remove(at: source)
+        guard let target = queue.firstIndex(where: { $0.id == targetID }) else { return }
+        queue.insert(item, at: target)
+    }
+
+    func moveQueueItemUp(_ id: UUID) {
+        guard !isDownloading,
+              let index = queue.firstIndex(where: { $0.id == id }),
+              index > 0 else { return }
+        queue.swapAt(index, index - 1)
+    }
+
+    func moveQueueItemDown(_ id: UUID) {
+        guard !isDownloading,
+              let index = queue.firstIndex(where: { $0.id == id }),
+              index + 1 < queue.count else { return }
+        queue.swapAt(index, index + 1)
+    }
+
+    func queuePreflight(for item: NativeQueueItem) -> NativeQueuePreflight {
+        let selectedIDs = item.effectiveSelectedTrackIDs
+        let selectedCount: Int?
+        let unavailable: Int
+        if let trackPlan = item.trackPlan {
+            selectedCount = trackPlan.count { $0.isAvailable && selectedIDs.contains($0.qobuzID) }
+            unavailable = trackPlan.count { !$0.isAvailable }
+        } else {
+            selectedCount = item.selectedTrackIDs?.count ?? item.expectedTrackIDs?.count
+            unavailable = 0
+        }
+
+        var verified = 0
+        var problems = 0
+        if let snapshot = archiveSnapshot, !selectedIDs.isEmpty {
+            let albumID: QobuzID? = if case .album(let id) = item.request { id } else { nil }
+            let coverage = snapshot.coverage(trackIDs: Array(selectedIDs), albumID: albumID)
+            verified = coverage.verifiedCount
+            problems = coverage.problemCount
+        }
+        return NativeQueuePreflight(
+            total: item.trackPlan?.count,
+            available: item.trackPlan?.filter(\.isAvailable).count,
+            selected: selectedCount,
+            unavailable: unavailable,
+            verified: verified,
+            problems: problems
+        )
     }
 
     func search(_ query: String) {
@@ -776,13 +904,17 @@ final class NativeViewModel: ObservableObject {
         case .track(let id):
             coverage = snapshot.coverage(trackID: id)
         case .album(let id):
-            if let trackIDs = item.expectedTrackIDs, !trackIDs.isEmpty {
+            let trackIDs = item.selectedTrackIDs.map(Array.init) ?? item.expectedTrackIDs
+            if let trackIDs, !trackIDs.isEmpty {
                 coverage = snapshot.coverage(trackIDs: trackIDs, albumID: id)
+            } else if item.selectedTrackIDs != nil {
+                return nil
             } else {
                 coverage = snapshot.coverage(albumID: id)
             }
         case .playlist:
-            guard let trackIDs = item.expectedTrackIDs, !trackIDs.isEmpty else { return nil }
+            let trackIDs = item.selectedTrackIDs.map(Array.init) ?? item.expectedTrackIDs
+            guard let trackIDs, !trackIDs.isEmpty else { return nil }
             coverage = snapshot.coverage(trackIDs: trackIDs)
         case .artist, .label:
             return nil
@@ -876,7 +1008,12 @@ final class NativeViewModel: ObservableObject {
     }
 
     func downloadAll() {
-        startDownloads(ids: queue.filter { $0.status.canStart }.map(\.id))
+        startDownloads(ids: queue.filter(isQueueItemStartable).map(\.id))
+    }
+
+    func downloadNext() {
+        guard let next = queue.first(where: isQueueItemStartable) else { return }
+        startDownloads(ids: [next.id])
     }
 
     func resume(_ activity: NativeDownloadActivity) {
@@ -1107,12 +1244,13 @@ final class NativeViewModel: ObservableObject {
                     guard !Task.isCancelled else { return }
                     preview = .album(value)
                     updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.albumArtistDisplayName, artworkURL: value.image?.bestURL)
-                    updateQueue(item.id) { $0.expectedTrackIDs = value.availableTracks.map(\.id) }
+                    updateQueueTrackPlan(item.id, tracks: value.tracks)
                 case .track(let id):
                     let value = try await client.track(id: id)
                     guard !Task.isCancelled else { return }
                     preview = .track(value)
                     updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.performer?.name ?? "Track", artworkURL: value.album?.image?.bestURL)
+                    updateQueueTrackPlan(item.id, tracks: [value])
                 case .playlist(let id):
                     let value = try await client.playlist(id: id)
                     guard !Task.isCancelled else { return }
@@ -1124,7 +1262,7 @@ final class NativeViewModel: ObservableObject {
                             .compactMap { $0 }.joined(separator: " · "),
                         artworkURL: value.artworkURL
                     )
-                    updateQueue(item.id) { $0.expectedTrackIDs = value.availableTracks.map(\.id) }
+                    updateQueueTrackPlan(item.id, tracks: value.tracks)
                 case .artist(let id):
                     let value = try await client.artist(id: id)
                     guard !Task.isCancelled else { return }
@@ -1168,7 +1306,9 @@ final class NativeViewModel: ObservableObject {
             if !credentials.isComplete { showSettings = true }
             return
         }
-        let readyIDs = ids.filter { id in queue.first(where: { $0.id == id })?.status.canStart == true }
+        let readyIDs = ids.filter { id in
+            queue.first(where: { $0.id == id }).map(isQueueItemStartable) == true
+        }
         guard !readyIDs.isEmpty else { return }
         let defaultQuality = settings.quality
         let defaultRootPath = settings.downloadPath
@@ -1262,7 +1402,12 @@ final class NativeViewModel: ObservableObject {
             let events = if let repairTarget = item.repairTarget {
                 try engine.repairEvents(for: repairTarget, downloadRoot: root)
             } else {
-                engine.events(for: item.request, quality: quality, downloadRoot: root)
+                engine.events(
+                    for: item.request,
+                    quality: quality,
+                    downloadRoot: root,
+                    includedTrackIDs: item.selectedTrackIDs
+                )
             }
             for try await event in events {
                 try Task.checkCancellation()
@@ -1497,6 +1642,44 @@ final class NativeViewModel: ObservableObject {
     private func updateQueue(_ id: UUID, mutate: (inout NativeQueueItem) -> Void) {
         guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
         mutate(&queue[index])
+    }
+
+    private func isQueueItemStartable(_ item: NativeQueueItem) -> Bool {
+        item.status.canStart && item.hasSelectedTracks
+    }
+
+    private func resetQueueStatusAfterPlanChange(_ item: inout NativeQueueItem) {
+        switch item.status {
+        case .loading, .downloading:
+            break
+        case .ready:
+            break
+        case .paused, .completed, .failed, .cancelled:
+            item.status = .ready
+        }
+    }
+
+    private func updateQueueTrackPlan(_ id: UUID, tracks: [QobuzTrack]) {
+        let plan = tracks.enumerated().map { offset, track in
+            NativeQueueTrack(
+                id: "\(track.id.rawValue)#\(offset)",
+                qobuzID: track.id,
+                title: track.displayTitle,
+                subtitle: track.performer?.name ?? track.album?.title ?? "Track",
+                duration: track.duration,
+                position: offset + 1,
+                unavailableReason: unavailabilityMessage(for: track)
+            )
+        }
+        let available = Set(plan.filter(\.isAvailable).map(\.qobuzID))
+        updateQueue(id) { item in
+            item.trackPlan = plan
+            item.expectedTrackIDs = plan.filter(\.isAvailable).map(\.qobuzID)
+            if var selected = item.selectedTrackIDs {
+                selected.formIntersection(available)
+                item.selectedTrackIDs = selected
+            }
+        }
     }
 
     private func updateQueueMetadata(_ id: UUID, title: String, subtitle: String, artworkURL: URL? = nil) {

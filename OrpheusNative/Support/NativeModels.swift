@@ -84,8 +84,33 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
     var repairTarget: QobuzArchiveTrack?
     var downloadQuality: QobuzQuality?
     var downloadRootPath: String?
+    /// Metadata used by the queue inspector. `nil` until the item has been
+    /// resolved for preview, which keeps older persisted sessions compatible.
+    var trackPlan: [NativeQueueTrack]?
+    /// `nil` means every available track. An explicit empty set intentionally
+    /// prevents the item from starting until the user selects something.
+    var selectedTrackIDs: Set<QobuzID>?
 
     var canonicalURL: URL { request.canonicalURL }
+
+    var availableTrackIDs: Set<QobuzID> {
+        if let trackPlan {
+            return Set(trackPlan.filter(\.isAvailable).map(\.qobuzID))
+        }
+        return Set(expectedTrackIDs ?? [])
+    }
+
+    var effectiveSelectedTrackIDs: Set<QobuzID> {
+        selectedTrackIDs ?? availableTrackIDs
+    }
+
+    var hasSelectedTracks: Bool {
+        if repairTarget != nil { return true }
+        if selectedTrackIDs != nil { return !effectiveSelectedTrackIDs.isEmpty }
+        // An unresolved artist/label plan is still valid and will be resolved
+        // by the engine when it reaches the front of the queue.
+        return trackPlan == nil || !availableTrackIDs.isEmpty
+    }
 
     init(request: QobuzRequest, title: String? = nil) {
         id = UUID()
@@ -108,6 +133,31 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
         expectedTrackIDs = [QobuzID(repairTarget.qobuzTrackID)]
         self.repairTarget = repairTarget
         downloadQuality = QobuzQuality(formatID: repairTarget.formatID)
+    }
+}
+
+struct NativeQueueTrack: Codable, Identifiable, Equatable {
+    let id: String
+    let qobuzID: QobuzID
+    let title: String
+    let subtitle: String
+    let duration: Int?
+    let position: Int
+    let unavailableReason: String?
+
+    var isAvailable: Bool { unavailableReason == nil }
+}
+
+struct NativeQueuePreflight: Equatable {
+    let total: Int?
+    let available: Int?
+    let selected: Int?
+    let unavailable: Int
+    let verified: Int
+    let problems: Int
+
+    var needsDownload: Int? {
+        selected.map { max($0 - verified, 0) }
     }
 }
 

@@ -10,6 +10,10 @@ struct AlbumPreview: View {
     var libraryStatus: NativeLibraryStatus?
     var trackLibraryStatus: ((QobuzTrack) -> NativeLibraryStatus?)?
     var trackAvailabilityMessage: ((QobuzTrack) -> String?)?
+    var selectedTrackIDs: Set<QobuzID>?
+    var onToggleTrackSelection: ((QobuzID) -> Void)?
+    var onSelectAllTracks: (() -> Void)?
+    var onClearTrackSelection: (() -> Void)?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
@@ -48,6 +52,7 @@ struct AlbumPreview: View {
                     .padding(.vertical, DS.Space.s)
                     Divider()
                 }
+                selectionBar
                 List(album.tracks, id: \.id) { track in
                     TrackListRow(
                         leading: .number(track.trackNumber),
@@ -58,6 +63,8 @@ struct AlbumPreview: View {
                         libraryStatus: trackLibraryStatus?(track),
                         quality: .catalog(album),
                         unavailableReason: trackAvailabilityMessage?(track),
+                        isSelected: selectedTrackIDs.map { $0.contains(track.id) },
+                        toggleSelection: onToggleTrackSelection.map { toggle in { toggle(track.id) } },
                         add: track.accountAvailabilityIssue == nil
                             ? onAddTrack.map { add in { add(track) } }
                             : nil
@@ -65,6 +72,30 @@ struct AlbumPreview: View {
                 }
                 .listStyle(.inset)
             }
+        }
+    }
+
+    @ViewBuilder private var selectionBar: some View {
+        if let selectedTrackIDs, onToggleTrackSelection != nil {
+            HStack(spacing: DS.Space.s) {
+                Label(
+                    "\(selectedTrackIDs.count) of \(album.availableTracks.count) selected",
+                    systemImage: "checklist"
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                Spacer()
+                Button("All", action: { onSelectAllTracks?() })
+                    .buttonStyle(.borderless)
+                    .disabled(selectedTrackIDs.count == album.availableTracks.count)
+                Button("None", action: { onClearTrackSelection?() })
+                    .buttonStyle(.borderless)
+                    .disabled(selectedTrackIDs.isEmpty)
+            }
+            .padding(.horizontal, DS.Space.l)
+            .padding(.vertical, DS.Space.s)
+            .background(Color.secondary.opacity(0.08))
+            Divider()
         }
     }
 

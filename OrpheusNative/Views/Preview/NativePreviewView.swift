@@ -20,7 +20,11 @@ struct NativePreviewView: View {
                     onOpenLabel: album.labelInfo?.id.map { id in { vm.openLabel(id) } },
                     libraryStatus: vm.libraryStatus(for: album),
                     trackLibraryStatus: { vm.libraryStatus(for: $0) },
-                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
+                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) },
+                    selectedTrackIDs: vm.queueTrackSelection(for: .album(album.id)),
+                    onToggleTrackSelection: vm.toggleSelectedQueueTrack,
+                    onSelectAllTracks: vm.selectAllSelectedQueueTracks,
+                    onClearTrackSelection: vm.clearSelectedQueueTracks
                 )
             case .track(let track):
                 TrackPreview(
@@ -38,7 +42,11 @@ struct NativePreviewView: View {
                     collectionDescription: playlist.playlistDescription,
                     libraryStatus: vm.libraryStatus(for: playlist.tracks),
                     trackLibraryStatus: { vm.libraryStatus(for: $0) },
-                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
+                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) },
+                    selectedTrackIDs: vm.queueTrackSelection(for: .playlist(playlist.id)),
+                    onToggleTrackSelection: vm.toggleSelectedQueueTrack,
+                    onSelectAllTracks: vm.selectAllSelectedQueueTracks,
+                    onClearTrackSelection: vm.clearSelectedQueueTracks
                 )
             case .artist(let artist):
                 ArtistPreview(

@@ -101,13 +101,15 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
     public func events(
         for request: QobuzRequest,
         quality: QobuzQuality,
-        downloadRoot: URL
+        downloadRoot: URL,
+        includedTrackIDs: Set<QobuzID>? = nil
     ) -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
         makeEvents(
             for: request,
             quality: quality,
             downloadRoot: downloadRoot,
-            repairTarget: nil
+            repairTarget: nil,
+            includedTrackIDs: includedTrackIDs
         )
     }
 
@@ -124,7 +126,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             for: .track(QobuzID(target.qobuzTrackID)),
             quality: quality,
             downloadRoot: downloadRoot,
-            repairTarget: target
+            repairTarget: target,
+            includedTrackIDs: nil
         )
     }
 
@@ -132,13 +135,15 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         for request: QobuzRequest,
         quality: QobuzQuality,
         downloadRoot: URL,
-        repairTarget: QobuzArchiveTrack?
+        repairTarget: QobuzArchiveTrack?,
+        includedTrackIDs: Set<QobuzID>?
     ) -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     continuation.yield(.resolving(request))
                     let plan = try await resolver.resolve(request)
+                        .selecting(trackIDs: includedTrackIDs)
                     try Task.checkCancellation()
                     if let repairTarget {
                         try validateRepairPlan(plan, target: repairTarget)

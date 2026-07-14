@@ -15,10 +15,24 @@ struct TrackListRow: View {
     var libraryStatus: NativeLibraryStatus?
     var quality: QualityBadge.Kind?
     var unavailableReason: String?
+    var isSelected: Bool?
+    var toggleSelection: (() -> Void)?
     var add: (() -> Void)?
 
     var body: some View {
         HStack {
+            if let isSelected, let toggleSelection {
+                Button(action: toggleSelection) {
+                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(unavailableReason != nil)
+                .help(unavailableReason == nil
+                    ? (isSelected ? "Exclude this track" : "Include this track")
+                    : "This track is unavailable")
+                .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+            }
             switch leading {
             case .number(let number):
                 Text("\(number ?? 0)")

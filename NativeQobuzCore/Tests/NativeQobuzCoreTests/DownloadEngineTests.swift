@@ -83,6 +83,41 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 2, skipped: 0)))
     }
 
+    func testEngineDownloadsOnlySelectedTracksAndReindexesProgress() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one", "two", "three"])
+        let recorder = TransferRecorder()
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(albums: [album.id: album]),
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var events: [QobuzDownloadEvent] = []
+        for try await event in engine.events(
+            for: .album(album.id),
+            quality: .hiRes,
+            downloadRoot: root,
+            includedTrackIDs: [QobuzID("two"), QobuzID("three")]
+        ) {
+            events.append(event)
+        }
+
+        let sources = await recorder.sources
+        XCTAssertEqual(sources.map(\.lastPathComponent), ["two.flac", "three.flac"])
+        XCTAssertTrue(events.contains(.planReady(title: "Album", trackCount: 2)))
+        let started = events.compactMap { event -> QobuzResolvedTrack? in
+            guard case .trackStarted(let track, _) = event else { return nil }
+            return track
+        }
+        XCTAssertEqual(started.map(\.track.id), [QobuzID("two"), QobuzID("three")])
+        XCTAssertEqual(started.map(\.position), [1, 2])
+        XCTAssertEqual(started.map(\.total), [2, 2])
+        XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 2, skipped: 0)))
+    }
+
     func testEachRestartReacquiresAFreshSignedFileURL() async throws {
         let album = makeAlbum(id: "album", trackIDs: ["one"])
         let service = FakeQobuzService(albums: [album.id: album])

@@ -920,6 +920,32 @@ public struct QobuzDownloadPlan: Equatable, Sendable {
         self.tracks = tracks
         self.source = source
     }
+
+    /// Returns this plan restricted to the requested Qobuz track identities.
+    /// Positions and totals are rebuilt so progress remains exact for a subset.
+    public func selecting(trackIDs: Set<QobuzID>?) throws -> QobuzDownloadPlan {
+        guard let trackIDs else { return self }
+        let selected = tracks.filter { trackIDs.contains($0.track.id) }
+        guard !selected.isEmpty else {
+            throw NativeQobuzError.emptyCollection("the selected tracks in \(title)")
+        }
+        let count = selected.count
+        let reindexed = selected.enumerated().map { offset, item in
+            QobuzResolvedTrack(
+                track: item.track,
+                album: item.album,
+                collection: item.collection,
+                position: offset + 1,
+                total: count
+            )
+        }
+        return QobuzDownloadPlan(
+            request: request,
+            title: title,
+            tracks: reindexed,
+            source: source
+        )
+    }
 }
 
 public enum NativeQobuzError: LocalizedError, Equatable, Sendable {

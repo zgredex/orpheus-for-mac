@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NativeQueuePane: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @State private var expandedIDs: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,17 +30,47 @@ struct NativeQueuePane: View {
                         QueueRow(
                             item: item,
                             targetQuality: item.downloadQuality ?? vm.settings.quality,
-                            libraryStatus: vm.libraryStatus(for: item)
+                            libraryStatus: vm.libraryStatus(for: item),
+                            isExpanded: expandedIDs.contains(item.id),
+                            toggleExpanded: { toggleExpanded(item.id) }
                         )
                             .tag(item.id)
+                            .draggable(item.id.uuidString)
+                            .dropDestination(for: String.self) { values, _ in
+                                guard !vm.isDownloading,
+                                      let value = values.first,
+                                      let sourceID = UUID(uuidString: value) else { return false }
+                                vm.moveQueueItem(sourceID, before: item.id)
+                                return true
+                            }
                             .contextMenu {
+                                Button("Make Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                    vm.moveQueueItem(item.id, before: vm.queue.first?.id ?? item.id)
+                                }
+                                .disabled(vm.isDownloading || vm.queue.first?.id == item.id)
+                                Divider()
+                                Button("Move Up", systemImage: "arrow.up") { vm.moveQueueItemUp(item.id) }
+                                    .disabled(vm.isDownloading || vm.queue.first?.id == item.id)
+                                Button("Move Down", systemImage: "arrow.down") { vm.moveQueueItemDown(item.id) }
+                                    .disabled(vm.isDownloading || vm.queue.last?.id == item.id)
+                                Divider()
                                 Button("Remove", systemImage: "trash") { vm.removeQueueItem(item.id) }
                                     .disabled(item.status == .downloading)
                             }
                     }
+                    .onMove(perform: vm.moveQueueItems)
                 }
                 .listStyle(.sidebar)
             }
+        }
+    }
+
+    private func toggleExpanded(_ id: UUID) {
+        if expandedIDs.contains(id) {
+            expandedIDs.remove(id)
+        } else {
+            expandedIDs.insert(id)
+            vm.selectQueueItem(id)
         }
     }
 }
