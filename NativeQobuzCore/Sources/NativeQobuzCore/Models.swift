@@ -361,9 +361,9 @@ public struct QobuzEditorialAward: Codable, Equatable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name)
             ?? container.decodeIfPresent(String.self, forKey: .publicationName)
             ?? "Qobuz award"
-        if let value = try container.decodeIfPresent(String.self, forKey: .awardedAt) {
+        if let value = try? container.decode(String.self, forKey: .awardedAt) {
             awardedAt = value
-        } else if let value = try container.decodeIfPresent(Int64.self, forKey: .awardedAt) {
+        } else if let value = try? container.decode(Int64.self, forKey: .awardedAt) {
             awardedAt = String(value)
         } else {
             awardedAt = nil

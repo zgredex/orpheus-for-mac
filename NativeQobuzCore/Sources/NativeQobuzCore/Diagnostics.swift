@@ -138,7 +138,10 @@ public final class QobuzDiagnostics: @unchecked Sendable {
         function: String = #function,
         line: UInt = #line
     ) {
-        let scoped = QobuzLogScope.metadata.merging(metadata) { _, new in new }
+        let errorDetails = error.map { QobuzDiagnosticErrorDetails(error: $0) }
+        let scoped = QobuzLogScope.metadata
+            .merging(metadata) { _, new in new }
+            .merging(errorDetails?.metadata ?? [:]) { _, diagnosticValue in diagnosticValue }
         let cleanedMetadata = Dictionary(uniqueKeysWithValues: scoped.map { key, value in
             (key, Self.redact(value, key: key))
         })
@@ -155,7 +158,7 @@ public final class QobuzDiagnostics: @unchecked Sendable {
             message: Self.redact(message),
             metadata: cleanedMetadata,
             errorType: error.map { String(reflecting: type(of: $0)) },
-            errorDescription: error.map { Self.redact($0.localizedDescription) },
+            errorDescription: errorDetails.map { Self.redact($0.description) },
             errorDomain: nativeError.map { Self.redact($0.domain) },
             errorCode: nativeError?.code,
             errorFailureReason: nativeError?.localizedFailureReason.map { Self.redact($0) },

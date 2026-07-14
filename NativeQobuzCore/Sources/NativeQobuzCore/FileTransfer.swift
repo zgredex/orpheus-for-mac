@@ -305,15 +305,15 @@ private final class DownloadOperation: NSObject, URLSessionDataDelegate, @unchec
                 )
             )
             if sample.shouldLog {
+                var progressMetadata = transferMetadata
+                progressMetadata["bytesWritten"] = String(sample.written)
+                progressMetadata["totalBytes"] = sample.total.map(String.init) ?? "unknown"
+                progressMetadata["percent"] = sample.percent.map(String.init) ?? "unknown"
+                progressMetadata["bytesPerSecond"] = sample.speed.map { String(Int($0)) } ?? "unknown"
                 qobuzLog.debug(
                     "transfer.progress",
                     "Audio transfer progress",
-                    metadata: transferMetadata.merging([
-                        "bytesWritten": String(sample.written),
-                        "totalBytes": sample.total.map(String.init) ?? "unknown",
-                        "percent": sample.percent.map(String.init) ?? "unknown",
-                        "bytesPerSecond": sample.speed.map { String(Int($0)) } ?? "unknown"
-                    ]) { _, new in new }
+                    metadata: progressMetadata
                 )
             }
         } catch let error as NativeQobuzError {

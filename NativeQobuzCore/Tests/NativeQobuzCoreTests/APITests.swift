@@ -315,7 +315,7 @@ final class APITests: XCTestCase {
         let session = URLSession(configuration: configuration)
         StubURLProtocol.handler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let body = #"{"id":"f91ymo1s6vtgb","title":"Kids See Ghosts","subtitle":"Expanded edition","artist":{"id":243465,"name":"Kids See Ghosts"},"artists":[{"id":243465,"name":"Kids See Ghosts","roles":["main-artist"]},{"id":3764,"name":"Kanye West","roles":["main-artist"]},{"id":5409,"name":"Kid Cudi","roles":["main-artist"]}],"label":{"id":123,"name":"Getting Out Our Dreams","slug":"good"},"genre":{"name":"Hip-Hop"},"genres_list":["Hip-Hop","Alternative Hip-Hop"],"release_type":"ep","release_tags":["deluxe","remaster"],"is_official":true,"release_date_original":"2018-06-08","maximum_bit_depth":24,"maximum_sampling_rate":96,"maximum_channel_count":2,"catchline":"Qobuz editorial pick","description":"Album notes","awards":[{"id":88,"name":"Qobuzissime","awarded_at":"2018-06-15"}],"tracks":{"items":[]}}"#
+            let body = #"{"id":"f91ymo1s6vtgb","title":"Kids See Ghosts","subtitle":"Expanded edition","artist":{"id":243465,"name":"Kids See Ghosts"},"artists":[{"id":243465,"name":"Kids See Ghosts","roles":["main-artist"]},{"id":3764,"name":"Kanye West","roles":["main-artist"]},{"id":5409,"name":"Kid Cudi","roles":["main-artist"]}],"label":{"id":123,"name":"Getting Out Our Dreams","slug":"good"},"genre":{"name":"Hip-Hop"},"genres_list":["Hip-Hop","Alternative Hip-Hop"],"release_type":"ep","release_tags":["deluxe","remaster"],"is_official":true,"release_date_original":"2018-06-08","maximum_bit_depth":24,"maximum_sampling_rate":96,"maximum_channel_count":2,"catchline":"Qobuz editorial pick","description":"Album notes","awards":[{"id":88,"name":"Qobuzissime","awarded_at":"2018-06-15"},{"award_id":89,"publication_name":"Editors' Choice","awarded_at":1530230400}],"tracks":{"items":[]}}"#
             return (response, Data(body.utf8))
         }
         let client = QobuzAPIClient(
@@ -337,6 +337,9 @@ final class APITests: XCTestCase {
         XCTAssertEqual(album.catalogMetadata.subtitle, "Expanded edition")
         XCTAssertEqual(album.catalogMetadata.catchline, "Qobuz editorial pick")
         XCTAssertEqual(album.catalogMetadata.awards.first?.name, "Qobuzissime")
+        XCTAssertEqual(album.catalogMetadata.awards.first?.awardedAt, "2018-06-15")
+        XCTAssertEqual(album.catalogMetadata.awards.last?.name, "Editors' Choice")
+        XCTAssertEqual(album.catalogMetadata.awards.last?.awardedAt, "1530230400")
         XCTAssertEqual(album.catalogMetadata.audioCapabilities.maximumBitDepth, 24)
         XCTAssertEqual(album.catalogMetadata.audioCapabilities.maximumSamplingRate, 96)
         XCTAssertEqual(album.catalogMetadata.audioCapabilities.maximumChannelCount, 2)

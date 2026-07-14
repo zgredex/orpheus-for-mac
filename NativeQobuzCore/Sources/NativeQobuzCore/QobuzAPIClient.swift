@@ -447,6 +447,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                         )
                         return (decoded, http)
                     } catch {
+                        let errorDetails = QobuzDiagnosticErrorDetails(error: error)
                         qobuzLog.error(
                             "api.decode",
                             "Could not decode Qobuz response",
@@ -454,7 +455,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
                             error: error
                         )
                         throw LoggedQobuzRequestError(
-                            error: .invalidResponse(String(describing: error))
+                            error: .invalidResponse(errorDetails.description)
                         )
                     }
                 }

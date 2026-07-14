@@ -93,6 +93,45 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertTrue(entry?.underlyingErrors?.joined().contains("NSPOSIXErrorDomain") == true)
         XCTAssertFalse(entry?.underlyingErrors?.joined().contains("SecretValue") == true)
     }
+
+    func testDecodingErrorPreservesPreciseKindPathTypeAndExplanation() throws {
+        let capture = DiagnosticCapture()
+        QobuzDiagnostics.shared.install { capture.append($0) }
+        defer { QobuzDiagnostics.shared.install(sink: nil) }
+
+        let payload = #"{"awards":[{"awarded_at":1530230400}]}"#
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(StrictAlbum.self, from: Data(payload.utf8))
+        ) { error in
+            qobuzLog.error("api.decode", "Could not decode test response", error: error)
+        }
+
+        let entry = capture.entries.last
+        XCTAssertEqual(entry?.metadata["decodingKind"], "typeMismatch")
+        XCTAssertEqual(entry?.metadata["codingPath"], "awards[0].awarded_at")
+        XCTAssertEqual(entry?.metadata["expectedType"], "String")
+        XCTAssertEqual(
+            entry?.metadata["decodingExplanation"],
+            "Expected to decode String but found number instead."
+        )
+        XCTAssertEqual(
+            entry?.errorDescription,
+            "DecodingError.typeMismatch: expected String at awards[0].awarded_at. "
+                + "Expected to decode String but found number instead."
+        )
+    }
+}
+
+private struct StrictAlbum: Decodable {
+    let awards: [StrictAward]
+}
+
+private struct StrictAward: Decodable {
+    let awardedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case awardedAt = "awarded_at"
+    }
 }
 
 private enum TestFailure: LocalizedError {
