@@ -26,6 +26,30 @@ struct QualityBadge: View {
             )
         }
 
+        static func catalog(_ track: QobuzTrack) -> Self {
+            let bitDepth = track.maximumBitDepth ?? track.album?.maximumBitDepth
+            let samplingRate = track.maximumSamplingRate ?? track.album?.maximumSamplingRate
+            return .catalog(
+                bitDepth: bitDepth,
+                samplingRate: samplingRate,
+                hiRes: track.album?.hiresStreamable == true
+                    || (bitDepth ?? 0) > 16
+                    || (samplingRate ?? 0) > 48
+            )
+        }
+
+        static func catalog(_ track: QobuzTrack, fallback album: QobuzAlbum) -> Self {
+            let bitDepth = track.maximumBitDepth ?? album.maximumBitDepth
+            let samplingRate = track.maximumSamplingRate ?? album.maximumSamplingRate
+            return .catalog(
+                bitDepth: bitDepth,
+                samplingRate: samplingRate,
+                hiRes: album.hiresStreamable
+                    || (bitDepth ?? 0) > 16
+                    || (samplingRate ?? 0) > 48
+            )
+        }
+
         static func archive(_ track: QobuzArchiveTrack) -> Self {
             .archive(
                 formatID: track.formatID,

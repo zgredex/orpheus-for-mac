@@ -52,7 +52,7 @@ struct CollectionPreview: View {
                         isExplicit: track.parentalWarning,
                         duration: track.duration,
                         libraryStatus: trackLibraryStatus?(track),
-                        quality: track.album.map(QualityBadge.Kind.catalog),
+                        quality: .catalog(track),
                         unavailableReason: trackAvailabilityMessage?(track),
                         isSelected: selectedTrackIDs.map { $0.contains(track.id) },
                         toggleSelection: onToggleTrackSelection.map { toggle in { toggle(track.id) } }

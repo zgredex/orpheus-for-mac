@@ -33,13 +33,14 @@ struct NativePreviewView: View {
                     libraryStatus: vm.libraryStatus(for: track)
                 )
             case .playlist(let playlist):
+                let metadata = playlist.catalogMetadata
                 CollectionPreview(
                     title: playlist.name,
                     subtitle: playlist.owner.map { "Playlist by \($0.name)" } ?? "Playlist",
                     tracks: playlist.tracks,
-                    artworkURL: playlist.artworkURL,
-                    metadata: playlistMetadata(playlist),
-                    collectionDescription: playlist.playlistDescription,
+                    artworkURL: metadata.artworkURL,
+                    metadata: CatalogFormat.playlistFacts(metadata),
+                    collectionDescription: metadata.editorialDescription,
                     libraryStatus: vm.libraryStatus(for: playlist.tracks),
                     trackLibraryStatus: { vm.libraryStatus(for: $0) },
                     trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) },
@@ -76,16 +77,4 @@ struct NativePreviewView: View {
         .animation(.default, value: vm.preview)
     }
 
-    private func playlistMetadata(_ playlist: QobuzPlaylist) -> [String] {
-        var values: [String] = []
-        if let createdAt = playlist.createdAt {
-            values.append(Date(timeIntervalSince1970: TimeInterval(createdAt)).formatted(.dateTime.year()))
-        }
-        if let duration = playlist.duration {
-            let hours = duration / 3_600
-            let minutes = (duration % 3_600) / 60
-            values.append(hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m")
-        }
-        return values
-    }
 }

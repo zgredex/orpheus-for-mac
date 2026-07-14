@@ -18,6 +18,17 @@ final class MetadataWriterTests: XCTestCase {
         XCTAssertNil(metadata.credits["MainArtist"])
     }
 
+    func testCatalogOnlyMetadataCannotChangePortableAudioTags() {
+        let baseline = QobuzAudioMetadata(item: fixtureItem())
+        let catalogRich = QobuzAudioMetadata(item: fixtureItem(
+            releaseType: .ep,
+            releaseTags: ["deluxe", "remaster"],
+            awards: [QobuzEditorialAward(id: QobuzID("88"), name: "Qobuzissime")]
+        ))
+
+        XCTAssertEqual(catalogRich, baseline)
+    }
+
     func testMP3WriterUsesID3v23AndPreservesAudioAcrossRepeatedWrites() throws {
         let file = temporaryURL(extension: "mp3")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -75,7 +86,12 @@ final class MetadataWriterTests: XCTestCase {
         XCTAssertTrue(blocks[2].payload.contains(Data("image/png".utf8)))
     }
 
-    private func fixtureItem(performers: String? = nil) -> QobuzResolvedTrack {
+    private func fixtureItem(
+        performers: String? = nil,
+        releaseType: QobuzReleaseType? = nil,
+        releaseTags: [String] = [],
+        awards: [QobuzEditorialAward] = []
+    ) -> QobuzResolvedTrack {
         let artist = QobuzArtist(id: QobuzID("artist"), name: "Primary")
         let albumSummary = QobuzAlbumSummary(id: QobuzID("album"), title: "Album", artist: artist)
         let track = QobuzTrack(
@@ -104,7 +120,10 @@ final class MetadataWriterTests: XCTestCase {
             mediaCount: 1,
             releaseDate: "2025-04-03",
             genre: "Pop",
+            releaseType: releaseType,
+            releaseTags: releaseTags,
             label: "Label",
+            awards: awards,
             copyright: "Copyright",
             upc: "123456",
             parentalWarning: true

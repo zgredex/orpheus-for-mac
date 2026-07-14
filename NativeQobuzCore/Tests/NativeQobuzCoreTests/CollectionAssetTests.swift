@@ -181,6 +181,12 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertEqual(try writer.provenance(for: audio), provenance)
         XCTAssertTrue(provenance.belongs(to: item))
         XCTAssertTrue(provenance.matches(item: item, fileInfo: fileInfo))
+        let encoded = try JSONEncoder().encode(provenance)
+        let keys = Set(try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any]).keys)
+        XCTAssertEqual(keys, [
+            "qobuzTrackID", "qobuzAlbumID", "formatID", "bitDepth", "samplingRate",
+            "sha256", "archiveKind", "isLibraryManaged"
+        ])
         XCTAssertFalse(
             provenance.matches(
                 item: item,

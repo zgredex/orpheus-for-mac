@@ -39,7 +39,7 @@ final class APITests: XCTestCase {
                 httpVersion: nil,
                 headerFields: nil
             )!
-            let body = #"{"url":"https://media.example/track.flac","format_id":27,"bit_depth":24,"sampling_rate":96}"#
+            let body = #"{"url":"https://media.example/track.flac","format_id":6,"bit_depth":16,"sampling_rate":44.1,"restrictions":[{"code":"FormatRestrictedByFormatAvailability"}]}"#
             return (response, Data(body.utf8))
         }
 
@@ -51,9 +51,10 @@ final class APITests: XCTestCase {
         )
         let info = try await client.fileInfo(trackID: QobuzID("123"), quality: .hiRes)
 
-        XCTAssertEqual(info.formatID, 27)
-        XCTAssertEqual(info.bitDepth, 24)
-        XCTAssertEqual(info.samplingRate, 96)
+        XCTAssertEqual(info.formatID, 6)
+        XCTAssertEqual(info.bitDepth, 16)
+        XCTAssertEqual(info.samplingRate, 44.1)
+        XCTAssertEqual(info.restrictions.map(\.code), ["FormatRestrictedByFormatAvailability"])
         let request = try XCTUnwrap(requestBox.value)
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-Auth-Token"), "token")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Device-Platform"), "android")
@@ -275,7 +276,7 @@ final class APITests: XCTestCase {
         let session = URLSession(configuration: configuration)
         StubURLProtocol.handler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let body = #"{"id":"f91ymo1s6vtgb","title":"Kids See Ghosts","artist":{"id":243465,"name":"Kids See Ghosts"},"artists":[{"id":243465,"name":"Kids See Ghosts","roles":["main-artist"]},{"id":3764,"name":"Kanye West","roles":["main-artist"]},{"id":5409,"name":"Kid Cudi","roles":["main-artist"]}],"label":{"id":123,"name":"Getting Out Our Dreams","slug":"good"},"description":"Album notes","tracks":{"items":[]}}"#
+            let body = #"{"id":"f91ymo1s6vtgb","title":"Kids See Ghosts","subtitle":"Expanded edition","artist":{"id":243465,"name":"Kids See Ghosts"},"artists":[{"id":243465,"name":"Kids See Ghosts","roles":["main-artist"]},{"id":3764,"name":"Kanye West","roles":["main-artist"]},{"id":5409,"name":"Kid Cudi","roles":["main-artist"]}],"label":{"id":123,"name":"Getting Out Our Dreams","slug":"good"},"genre":{"name":"Hip-Hop"},"genres_list":["Hip-Hop","Alternative Hip-Hop"],"release_type":"ep","release_tags":["deluxe","remaster"],"is_official":true,"release_date_original":"2018-06-08","maximum_bit_depth":24,"maximum_sampling_rate":96,"maximum_channel_count":2,"catchline":"Qobuz editorial pick","description":"Album notes","awards":[{"id":88,"name":"Qobuzissime","awarded_at":"2018-06-15"}],"tracks":{"items":[]}}"#
             return (response, Data(body.utf8))
         }
         let client = QobuzAPIClient(
@@ -290,6 +291,16 @@ final class APITests: XCTestCase {
         XCTAssertEqual(album.label, "Getting Out Our Dreams")
         XCTAssertEqual(album.labelInfo?.id, QobuzID("123"))
         XCTAssertEqual(album.albumDescription, "Album notes")
+        XCTAssertEqual(album.catalogMetadata.releaseType, .ep)
+        XCTAssertEqual(album.catalogMetadata.releaseTags, ["deluxe", "remaster"])
+        XCTAssertEqual(album.catalogMetadata.genres, ["Hip-Hop", "Alternative Hip-Hop"])
+        XCTAssertEqual(album.catalogMetadata.isOfficial, true)
+        XCTAssertEqual(album.catalogMetadata.subtitle, "Expanded edition")
+        XCTAssertEqual(album.catalogMetadata.catchline, "Qobuz editorial pick")
+        XCTAssertEqual(album.catalogMetadata.awards.first?.name, "Qobuzissime")
+        XCTAssertEqual(album.catalogMetadata.audioCapabilities.maximumBitDepth, 24)
+        XCTAssertEqual(album.catalogMetadata.audioCapabilities.maximumSamplingRate, 96)
+        XCTAssertEqual(album.catalogMetadata.audioCapabilities.maximumChannelCount, 2)
     }
 
     func testLabelFetchesEveryAlbumPageAndPreservesAccountAvailability() async throws {
@@ -327,7 +338,7 @@ final class APITests: XCTestCase {
         let session = URLSession(configuration: configuration)
         StubURLProtocol.handler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let body = #"{"id":52736446,"name":"Qobuz: The Power of Seven","description":"Playlist notes","duration":9201,"created_at":1768330514,"updated_at":1783719712,"tracks_count":35,"owner":{"id":922179,"name":"Qobuz"},"image_rectangle":["https://static.qobuz.com/images/playlists/cover.jpg"],"tracks":{"items":[]}}"#
+            let body = #"{"id":52736446,"name":"Qobuz: The Power of Seven","description":"Playlist notes","duration":9201,"created_at":1768330514,"updated_at":1783719712,"tracks_count":35,"owner":{"id":922179,"name":"Qobuz"},"image":{"large":"https://static.qobuz.com/images/playlists/standard.jpg"},"image_rectangle":["https://static.qobuz.com/images/playlists/cover.jpg"],"tracks":{"items":[]}}"#
             return (response, Data(body.utf8))
         }
         let client = QobuzAPIClient(
@@ -344,7 +355,9 @@ final class APITests: XCTestCase {
         XCTAssertEqual(playlist.duration, 9_201)
         XCTAssertEqual(playlist.tracksCount, 35)
         XCTAssertEqual(playlist.playlistDescription, "Playlist notes")
-        XCTAssertEqual(playlist.artworkURL?.lastPathComponent, "cover.jpg")
+        XCTAssertEqual(playlist.catalogMetadata.artworkURL?.lastPathComponent, "standard.jpg")
+        XCTAssertEqual(playlist.catalogMetadata.tracksCount, 35)
+        XCTAssertEqual(playlist.catalogMetadata.editorialDescription, "Playlist notes")
     }
 }
 

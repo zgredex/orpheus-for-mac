@@ -13,6 +13,9 @@ public struct QobuzAssetResponse: Sendable {
     }
 }
 
+/// Layer 3: stable facts about the exact downloaded file. This record is the
+/// archive source of truth and intentionally excludes refreshable catalog/UI
+/// metadata and portable audio tags.
 public struct QobuzFileProvenance: Codable, Equatable, Sendable {
     public let qobuzTrackID: String
     public let qobuzAlbumID: String

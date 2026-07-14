@@ -83,6 +83,40 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 2, skipped: 0)))
     }
 
+    func testMaximumQualityFallbackIsAnInformationalDeliveryNotice() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let trackID = try XCTUnwrap(album.tracks.first?.id)
+        let fileInfo = QobuzFileInfo(
+            url: URL(string: "https://media.example/one.flac")!,
+            formatID: 6,
+            bitDepth: 16,
+            samplingRate: 44.1,
+            restrictions: [QobuzFileRestriction(code: "FormatRestrictedByFormatAvailability")]
+        )
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(
+                albums: [album.id: album],
+                fileInfos: [trackID: fileInfo]
+            ),
+            transfer: FakeTransferClient(recorder: TransferRecorder()),
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var notices: [String] = []
+        var warnings: [String] = []
+        for try await event in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {
+            if case .notice(let message) = event { notices.append(message) }
+            if case .warning(let message) = event { warnings.append(message) }
+        }
+
+        XCTAssertEqual(notices.count, 1)
+        XCTAssertTrue(notices[0].contains("Lossless FLAC delivered under the Hi-Res FLAC maximum"))
+        XCTAssertTrue(warnings.isEmpty)
+    }
+
     func testEngineDownloadsOnlySelectedTracksAndReindexesProgress() async throws {
         let album = makeAlbum(id: "album", trackIDs: ["one", "two", "three"])
         let recorder = TransferRecorder()

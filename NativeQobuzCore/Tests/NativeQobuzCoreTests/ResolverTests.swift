@@ -208,6 +208,7 @@ actor FakeQobuzService: QobuzCatalogService {
     private let playlists: [QobuzID: QobuzPlaylist]
     private let artists: [QobuzID: QobuzArtistCatalog]
     private let labels: [QobuzID: QobuzLabelCatalog]
+    private let fileInfos: [QobuzID: QobuzFileInfo]
     private var albumRequests: [QobuzID: Int] = [:]
     private var fileInfoRequests = 0
 
@@ -216,13 +217,15 @@ actor FakeQobuzService: QobuzCatalogService {
         albums: [QobuzID: QobuzAlbum] = [:],
         playlists: [QobuzID: QobuzPlaylist] = [:],
         artists: [QobuzID: QobuzArtistCatalog] = [:],
-        labels: [QobuzID: QobuzLabelCatalog] = [:]
+        labels: [QobuzID: QobuzLabelCatalog] = [:],
+        fileInfos: [QobuzID: QobuzFileInfo] = [:]
     ) {
         self.tracks = tracks
         self.albums = albums
         self.playlists = playlists
         self.artists = artists
         self.labels = labels
+        self.fileInfos = fileInfos
     }
 
     func validateAccount() async throws -> String { "FR" }
@@ -250,6 +253,7 @@ actor FakeQobuzService: QobuzCatalogService {
 
     func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
         fileInfoRequests += 1
+        if let fileInfo = fileInfos[trackID] { return fileInfo }
         return QobuzFileInfo(
             url: URL(string: "https://media.example/\(trackID).flac?signature=\(fileInfoRequests)")!,
             formatID: quality.formatID

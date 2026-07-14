@@ -43,6 +43,8 @@ public struct EmbeddedArtwork: Equatable, Sendable {
     }
 }
 
+/// Layer 1: the complete allow-list for portable FLAC Vorbis Comments and MP3
+/// ID3 tags. Catalog-only fields and Qobuz provenance do not belong here.
 public struct QobuzAudioMetadata: Equatable, Sendable {
     public let title: String
     public let album: String
@@ -61,8 +63,6 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
     public let copyright: String?
     public let genre: String?
     public let isExplicit: Bool
-    public let qobuzTrackID: String
-    public let qobuzAlbumID: String
 
     public init(
         title: String,
@@ -82,9 +82,7 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
         label: String? = nil,
         copyright: String? = nil,
         genre: String? = nil,
-        isExplicit: Bool = false,
-        qobuzTrackID: String,
-        qobuzAlbumID: String
+        isExplicit: Bool = false
     ) {
         self.title = title
         self.album = album
@@ -106,8 +104,6 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
         self.copyright = copyright
         self.genre = genre
         self.isExplicit = isExplicit
-        self.qobuzTrackID = qobuzTrackID
-        self.qobuzAlbumID = qobuzAlbumID
     }
 
     public init(item: QobuzResolvedTrack) {
@@ -129,11 +125,9 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
             isrc: item.track.isrc,
             barcode: item.album.upc,
             label: item.album.label,
-            copyright: item.album.copyright,
+            copyright: item.track.copyright ?? item.album.copyright,
             genre: item.album.genre,
-            isExplicit: item.track.parentalWarning || item.album.parentalWarning,
-            qobuzTrackID: item.track.id.rawValue,
-            qobuzAlbumID: item.album.id.rawValue
+            isExplicit: item.track.parentalWarning || item.album.parentalWarning
         )
     }
 

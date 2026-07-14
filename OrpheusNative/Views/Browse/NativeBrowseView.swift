@@ -293,13 +293,14 @@ struct NativeBrowseView: View {
             }
         case .playlist(let playlist):
             detailPage(page) {
+                let metadata = playlist.catalogMetadata
                 CollectionPreview(
                     title: playlist.name,
                     subtitle: playlist.owner.map { "Playlist by \($0.name)" } ?? "Playlist",
                     tracks: playlist.tracks,
-                    artworkURL: playlist.artworkURL,
-                    metadata: playlistMetadata(playlist),
-                    collectionDescription: playlist.playlistDescription,
+                    artworkURL: metadata.artworkURL,
+                    metadata: CatalogFormat.playlistFacts(metadata),
+                    collectionDescription: metadata.editorialDescription,
                     libraryStatus: vm.libraryStatus(for: playlist.tracks),
                     trackLibraryStatus: { vm.libraryStatus(for: $0) },
                     trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
@@ -365,7 +366,10 @@ struct NativeBrowseView: View {
                 id: album.id.rawValue,
                 artworkURL: album.image?.bestURL,
                 title: album.title,
-                subtitle: album.albumArtistDisplayName,
+                subtitle: CatalogFormat.albumSubtitle(
+                    artist: album.albumArtistDisplayName,
+                    metadata: album.catalogMetadata
+                ),
                 isQueued: queued.contains(QobuzRequest.album(album.id).canonicalURL),
                 libraryStatus: vm.libraryStatus(for: album),
                 quality: .catalog(album),
@@ -402,7 +406,7 @@ struct NativeBrowseView: View {
                 subtitle: track.performer?.name ?? track.album?.title ?? "Track",
                 isQueued: queued.contains(QobuzRequest.track(track.id).canonicalURL),
                 libraryStatus: vm.libraryStatus(for: track),
-                quality: track.album.map(QualityBadge.Kind.catalog),
+                quality: .catalog(track),
                 open: { vm.openTrack(track.id) },
                 add: nil
             )
@@ -412,10 +416,11 @@ struct NativeBrowseView: View {
     private var playlistResults: [SearchResult] {
         let queued = queuedURLs
         return vm.browsePlaylists.map { playlist in
-            let count = playlist.tracksCount ?? playlist.tracksTotal ?? playlist.tracks.count
+            let metadata = playlist.catalogMetadata
+            let count = metadata.tracksCount ?? 0
             return SearchResult(
                 id: playlist.id.rawValue,
-                artworkURL: playlist.artworkURL,
+                artworkURL: metadata.artworkURL,
                 title: playlist.name,
                 subtitle: [playlist.owner?.name, count > 0 ? "\(count) tracks" : nil]
                     .compactMap { $0 }
@@ -429,16 +434,4 @@ struct NativeBrowseView: View {
         }
     }
 
-    private func playlistMetadata(_ playlist: QobuzPlaylist) -> [String] {
-        var values: [String] = []
-        if let createdAt = playlist.createdAt {
-            values.append(Date(timeIntervalSince1970: TimeInterval(createdAt)).formatted(.dateTime.year()))
-        }
-        if let duration = playlist.duration {
-            let hours = duration / 3_600
-            let minutes = (duration % 3_600) / 60
-            values.append(hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m")
-        }
-        return values
-    }
 }

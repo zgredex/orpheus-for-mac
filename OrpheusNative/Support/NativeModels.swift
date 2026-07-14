@@ -490,11 +490,15 @@ struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     var bytesPerSecond: Double?
     var albumBytesWritten: Int64?
     var checksum: String?
+    /// Informational delivery details such as an intentional quality fallback.
+    /// Optional keeps sessions written by older builds decodable.
+    var notices: [String]?
     var warnings: [String] = []
     var errorMessage: String?
     var outputURL: URL?
 
     var detailError: String? { errorMessage ?? status.failureMessage }
+    var informationalNotices: [String] { notices ?? [] }
 }
 
 struct NativePartialDownload: Equatable {

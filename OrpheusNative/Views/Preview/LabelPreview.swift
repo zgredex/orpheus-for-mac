@@ -114,8 +114,11 @@ struct LabelPreview: View {
 
     private func albumMetadata(_ album: QobuzAlbum) -> String {
         var values = [album.mainArtists.map(\.name).joined(separator: ", ")]
-        if let year = album.releaseDate?.prefix(4), !year.isEmpty { values.append(String(year)) }
-        values.append("\(album.tracksCount ?? album.tracks.count) tracks")
+        values.append(contentsOf: CatalogFormat.albumFacts(
+            album.catalogMetadata,
+            trackCount: album.tracksCount ?? album.tracks.count,
+            includeGenre: false
+        ))
         return values.joined(separator: "  ·  ")
     }
 }

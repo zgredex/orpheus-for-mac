@@ -130,6 +130,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
             id: first.id,
             name: first.name,
             tracks: tracks,
+            image: first.image,
             owner: first.owner,
             createdAt: first.createdAt,
             updatedAt: first.updatedAt,

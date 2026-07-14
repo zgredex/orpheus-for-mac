@@ -176,9 +176,12 @@ struct ArtistPreview: View {
     private func rowMetadata(for album: QobuzAlbum) -> String {
         var values: [String] = []
         if scope == .appearances { values.append(album.artist.name) }
-        if let year = album.releaseDate?.prefix(4), !year.isEmpty { values.append(String(year)) }
-        values.append("\(album.tracksCount ?? album.tracks.count) tracks")
-        if let label = album.label, !label.isEmpty { values.append(label) }
+        values.append(contentsOf: CatalogFormat.albumFacts(
+            album.catalogMetadata,
+            trackCount: album.tracksCount ?? album.tracks.count,
+            label: album.label,
+            includeGenre: false
+        ))
         return values.joined(separator: "  ·  ")
     }
 

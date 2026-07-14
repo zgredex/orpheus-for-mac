@@ -33,7 +33,7 @@ struct ActivityRow: View {
                                 .fixedSize(horizontal: true, vertical: false)
                             }
                             .buttonStyle(.plain)
-                            .help(showsDetails ? "Hide details" : "Show error and warning details")
+                            .help(showsDetails ? "Hide details" : "Show delivery, error, and warning details")
                         }
                         Spacer(minLength: 0)
                     }
@@ -159,6 +159,14 @@ struct ActivityRow: View {
                     messages: activity.warnings
                 )
             }
+            if !activity.informationalNotices.isEmpty {
+                detailSection(
+                    title: activity.informationalNotices.count == 1 ? "Delivery detail" : "Delivery details",
+                    systemImage: "info.circle.fill",
+                    tint: .blue,
+                    messages: activity.informationalNotices
+                )
+            }
         }
         .padding(DS.Space.s)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,15 +199,21 @@ struct ActivityRow: View {
     }
 
     private var hasDetails: Bool {
-        activity.detailError != nil || !activity.warnings.isEmpty
+        activity.detailError != nil
+            || !activity.warnings.isEmpty
+            || !activity.informationalNotices.isEmpty
     }
 
     private var detailIcon: String {
-        activity.detailError == nil ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill"
+        if activity.detailError != nil { return "exclamationmark.circle.fill" }
+        if !activity.warnings.isEmpty { return "exclamationmark.triangle.fill" }
+        return "info.circle.fill"
     }
 
     private var detailTint: Color {
-        activity.detailError == nil ? .orange : .red
+        if activity.detailError != nil { return .red }
+        if !activity.warnings.isEmpty { return .orange }
+        return .blue
     }
 
     private var detailSummary: String {
@@ -207,6 +221,9 @@ struct ActivityRow: View {
         if activity.detailError != nil { values.append("Error") }
         if !activity.warnings.isEmpty {
             values.append("\(activity.warnings.count) warning\(activity.warnings.count == 1 ? "" : "s")")
+        }
+        if !activity.informationalNotices.isEmpty {
+            values.append("\(activity.informationalNotices.count) detail\(activity.informationalNotices.count == 1 ? "" : "s")")
         }
         return values.joined(separator: " · ")
     }
