@@ -58,6 +58,13 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertFalse(serialized.contains("TokenValue"))
         XCTAssertEqual(entry?.metadata["safeID"], "12345")
         XCTAssertEqual(entry?.metadata["appSecret"], "<redacted>")
+
+        let json = #"{"auth_token":"JSONSecret","safe":"visible"}"#
+        let redactedJSON = QobuzDiagnostics.redact(json)
+        let decoded = try? JSONSerialization.jsonObject(with: Data(redactedJSON.utf8)) as? [String: String]
+        XCTAssertEqual(decoded?["auth_token"], "<redacted>")
+        XCTAssertEqual(decoded?["safe"], "visible")
+        XCTAssertFalse(redactedJSON.contains("JSONSecret"))
     }
 
     func testUnderlyingErrorChainIsPreservedAndRedacted() {

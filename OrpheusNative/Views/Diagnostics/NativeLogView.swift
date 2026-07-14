@@ -14,6 +14,7 @@ struct NativeLogView: View {
     @State private var message: String?
     @State private var loadError: String?
     @State private var confirmClear = false
+    @State private var isExporting = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,8 +66,11 @@ struct NativeLogView: View {
                     .help("Refresh automatically")
                 Button { refresh() } label: { Image(systemName: "arrow.clockwise") }
                     .help("Refresh now")
-                Button { export() } label: { Image(systemName: "square.and.arrow.up") }
-                    .help("Export diagnostic bundle")
+                Button { export() } label: {
+                    Image(systemName: isExporting ? "hourglass" : "square.and.arrow.up")
+                }
+                .disabled(isExporting)
+                .help(isExporting ? "Exporting diagnostic bundle" : "Export diagnostic bundle")
                 Button(action: vm.revealDiagnostics) { Image(systemName: "folder") }
                     .help("Reveal log files")
                 Button(role: .destructive) { confirmClear = true } label: { Image(systemName: "trash") }
@@ -283,12 +287,19 @@ struct NativeLogView: View {
 
     private func export() {
         guard let parent = FileDialog.chooseFolder(startingAt: NSHomeDirectory()) else { return }
-        do {
-            let url = try vm.exportDiagnostics(to: parent)
-            message = "Exported \(url.lastPathComponent)"
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } catch {
-            loadError = error.localizedDescription
+        isExporting = true
+        message = "Preparing diagnostic bundle…"
+        loadError = nil
+        Task {
+            defer { isExporting = false }
+            do {
+                let url = try await vm.exportDiagnostics(to: parent)
+                message = "Exported \(url.lastPathComponent)"
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                loadError = error.localizedDescription
+                message = nil
+            }
         }
     }
 

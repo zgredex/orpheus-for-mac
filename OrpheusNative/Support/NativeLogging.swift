@@ -192,7 +192,7 @@ final class NativeLogFileStore: NativeLogStoring, @unchecked Sendable {
     }
 }
 
-struct NativeDiagnosticReport: Codable, Equatable {
+struct NativeDiagnosticReport: Codable, Equatable, Sendable {
     let generatedAt: Date
     let diagnosticSessionID: UUID
     let appVersion: String
@@ -210,7 +210,7 @@ struct NativeDiagnosticReport: Codable, Equatable {
     let credentialsConfigured: Bool
 }
 
-struct NativeDiagnosticQueueSummary: Codable, Equatable {
+struct NativeDiagnosticQueueSummary: Codable, Equatable, Sendable {
     let id: UUID
     let request: String
     let title: String
@@ -219,7 +219,7 @@ struct NativeDiagnosticQueueSummary: Codable, Equatable {
     let quality: String?
 }
 
-struct NativeDiagnosticActivitySummary: Codable, Equatable {
+struct NativeDiagnosticActivitySummary: Codable, Equatable, Sendable {
     let id: UUID
     let queueID: UUID
     let title: String

@@ -42,7 +42,7 @@ final class NativeLoggingTests: XCTestCase {
         XCTAssertFalse(afterClear.contains { $0.category == "test.rotation" })
     }
 
-    func testDiagnosticExportContainsReportAndNeverContainsCredentialValues() throws {
+    func testDiagnosticExportContainsReportAndNeverContainsCredentialValues() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(
@@ -55,7 +55,8 @@ final class NativeLoggingTests: XCTestCase {
             credentialStore: FileCredentialStore(paths: paths),
             archiveStore: NativeArchiveIndexStore(paths: paths),
             sessionStore: NativeSessionStore(paths: paths),
-            logStore: store
+            logStore: store,
+            supplementalDiagnosticsCollector: StubSupplementalDiagnosticsCollector()
         )
         qobuzLog.warning(
             "test.security",
@@ -65,9 +66,10 @@ final class NativeLoggingTests: XCTestCase {
 
         let exportParent = root.appendingPathComponent("Exports", isDirectory: true)
         try FileManager.default.createDirectory(at: exportParent, withIntermediateDirectories: true)
-        let bundle = try viewModel.exportDiagnostics(to: exportParent)
+        let bundle = try await viewModel.exportDiagnostics(to: exportParent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("system-info.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("README.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("collection-status.json").path))
 
         let text = try diagnosticBundleText(at: bundle)
         XCTAssertFalse(text.contains("DO-NOT-EXPORT-THIS"))
@@ -75,6 +77,105 @@ final class NativeLoggingTests: XCTestCase {
         XCTAssertTrue(text.contains("<redacted>"))
         XCTAssertTrue(text.contains("credentialsConfigured"))
         XCTAssertTrue(text.contains("Credentials and authentication values are intentionally excluded"))
+        XCTAssertTrue(text.contains("systemWideUnifiedLogIncluded"))
+        XCTAssertTrue(text.contains("never the privileged system-wide log"))
+    }
+
+    func testCrashReportExportMatchesAppLimitsAgeAndRedactsCredentials() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("DiagnosticReports", isDirectory: true)
+        let destination = root.appendingPathComponent("ExportedCrashReports", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+        let latest = source.appendingPathComponent("renamed-report.ips")
+        try Data(
+            #"{"bundleID":"com.orpheus.formac","auth_token":"LATEST-SECRET","marker":"latest"}"#.utf8
+        ).write(to: latest)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: latest.path)
+
+        let older = source.appendingPathComponent("OrpheusNative_older.crash")
+        try Data("OrpheusNative older auth_token=OLDER-SECRET marker=older".utf8).write(to: older)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-60)],
+            ofItemAtPath: older.path
+        )
+
+        let expired = source.appendingPathComponent("OrpheusNative_expired.ips")
+        try Data("OrpheusNative marker=expired".utf8).write(to: expired)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-40 * 24 * 60 * 60)],
+            ofItemAtPath: expired.path
+        )
+
+        let unrelated = source.appendingPathComponent("AnotherApp.ips")
+        try Data(#"{"bundleID":"com.example.other","marker":"unrelated"}"#.utf8).write(to: unrelated)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: unrelated.path)
+
+        let exporter = NativeCrashReportExporter(
+            sourceDirectories: [source],
+            bundleIdentifier: "com.orpheus.formac",
+            maximumReports: 1,
+            now: { now }
+        )
+        let outcome = try exporter.export(to: destination)
+
+        XCTAssertEqual(outcome.itemCount, 1)
+        XCTAssertTrue(outcome.messages.contains { $0.contains("limited to the newest 1") })
+        let exportedText = try diagnosticBundleText(at: destination)
+        XCTAssertTrue(exportedText.contains("latest"))
+        XCTAssertTrue(exportedText.contains("<redacted>"))
+        XCTAssertFalse(exportedText.contains("LATEST-SECRET"))
+        XCTAssertFalse(exportedText.contains("OLDER-SECRET"))
+        XCTAssertFalse(exportedText.contains("marker=older"))
+        XCTAssertFalse(exportedText.contains("marker=expired"))
+        XCTAssertFalse(exportedText.contains("unrelated"))
+
+        let exportedFiles = try FileManager.default.contentsOfDirectory(
+            at: destination,
+            includingPropertiesForKeys: nil
+        )
+        let exportedData = try XCTUnwrap(exportedFiles.first.map { try Data(contentsOf: $0) })
+        let exportedJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: exportedData) as? [String: String]
+        )
+        XCTAssertEqual(exportedJSON["auth_token"], "<redacted>")
+        XCTAssertEqual(exportedJSON["marker"], "latest")
+    }
+
+    func testCurrentProcessUnifiedLogExportNeedsNoPrivilegedSystemStore() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("unified-log.jsonl")
+        let exporter = NativeUnifiedLogExporter(
+            maximumEntries: 100,
+            sessionStartedAt: { .distantPast }
+        )
+
+        let outcome = try exporter.export(to: destination)
+
+        XCTAssertLessThanOrEqual(outcome.itemCount, 100)
+        XCTAssertEqual(
+            FileManager.default.fileExists(atPath: destination.path),
+            outcome.itemCount > 0
+        )
+    }
+
+    func testSupplementalCollectionGracefullyRecordsUnavailableSources() {
+        let collector = NativeSupplementalDiagnosticsCollector(
+            unifiedLogExporter: FailingUnifiedLogExporter(),
+            crashReportExporter: EmptyCrashReportExporter()
+        )
+
+        let summary = collector.collect(into: temporaryRoot())
+
+        XCTAssertEqual(summary.currentProcessUnifiedLog.state, .unavailable)
+        XCTAssertEqual(summary.currentProcessUnifiedLog.itemCount, 0)
+        XCTAssertTrue(summary.currentProcessUnifiedLog.messages.contains { $0.contains("TestFailure") })
+        XCTAssertEqual(summary.crashReports.state, .empty)
+        XCTAssertEqual(summary.crashReports.itemCount, 0)
+        XCTAssertFalse(summary.systemWideUnifiedLogIncluded)
     }
 
     private func temporaryRoot() -> URL {
@@ -92,5 +193,40 @@ final class NativeLoggingTests: XCTestCase {
             result += String(decoding: try Data(contentsOf: url), as: UTF8.self)
         }
         return result
+    }
+}
+
+private struct StubSupplementalDiagnosticsCollector: NativeSupplementalDiagnosticsCollecting {
+    func collect(into bundleRoot: URL) -> NativeSupplementalDiagnosticSummary {
+        NativeSupplementalDiagnosticSummary(
+            generatedAt: Date(timeIntervalSince1970: 0),
+            currentProcessUnifiedLog: NativeDiagnosticArtifactStatus(
+                state: .empty,
+                itemCount: 0,
+                relativePath: nil,
+                messages: []
+            ),
+            crashReports: NativeDiagnosticArtifactStatus(
+                state: .empty,
+                itemCount: 0,
+                relativePath: nil,
+                messages: []
+            ),
+            systemWideUnifiedLogIncluded: false
+        )
+    }
+}
+
+private struct FailingUnifiedLogExporter: NativeUnifiedLogExporting {
+    func export(to destination: URL) throws -> NativeDiagnosticArtifactOutcome {
+        throw NSError(domain: "TestFailure", code: 42, userInfo: [
+            NSLocalizedDescriptionKey: "Unified Log intentionally unavailable"
+        ])
+    }
+}
+
+private struct EmptyCrashReportExporter: NativeCrashReportExporting {
+    func export(to destination: URL) throws -> NativeDiagnosticArtifactOutcome {
+        NativeDiagnosticArtifactOutcome(itemCount: 0)
     }
 }

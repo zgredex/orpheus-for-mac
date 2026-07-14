@@ -29,7 +29,7 @@ Credentials are stored in an owner-only `credentials.json` file. It contains the
 
 Open the in-app diagnostics viewer with `Command-Shift-L` or the Diagnostics toolbar button. Events can be searched and filtered by severity and subsystem; selecting one shows its exact timestamp, source location, function, thread, native error domain and code, chained underlying errors, correlation metadata, and a captured call stack for failures.
 
-Persistent JSONL logs are stored in `~/Library/Application Support/Orpheus for Mac/Logs`. The active file rotates at 5 MiB and retains eight archives. Warnings and errors are flushed immediately. Diagnostic export creates a self-contained folder with the logs and a sanitized system, queue, activity, and Library report. Qobuz tokens, secrets, signatures, and authorization values are redacted before OSLog, disk persistence, display, or export.
+Persistent JSONL logs are stored in `~/Library/Application Support/Orpheus for Mac/Logs`. The active file rotates at 5 MiB and retains eight archives. Warnings and errors are flushed immediately. Diagnostic export creates a self-contained folder with the logs, a sanitized system/queue/activity/Library report, this process's available Unified Log entries, and up to ten recent matching macOS `.ips` or `.crash` reports. `collection-status.json` records which optional artifacts were collected or why they were unavailable. The export never requests the privileged system-wide log, so it adds no administrator or special-entitlement requirement. Qobuz tokens, secrets, signatures, and authorization values are redacted before OSLog, disk persistence, display, or export; crash reports can still contain local paths and system details and should be reviewed before public sharing.
 
 ## Build
 

@@ -116,6 +116,7 @@ public final class QobuzDiagnostics: @unchecked Sendable {
 
     public static let shared = QobuzDiagnostics()
     public let sessionID = UUID()
+    public let sessionStartedAt = Date()
 
     private let lock = NSLock()
     private var sink: Sink?
@@ -222,18 +223,28 @@ public final class QobuzDiagnostics: @unchecked Sendable {
     public static func redact(_ value: String, key: String? = nil) -> String {
         if let key, sensitiveKey(key) { return "<redacted>" }
         var result = value
-        let patterns = [
-            #"(?i)(user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)(\s*[=:]\s*|%3D)[^&\s,}\]]+"#,
-            #"(?i)(X-User-Auth-Token\s*[:=]\s*)[^\s,}\]]+"#,
-            #"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+"#
+        let replacements = [
+            (
+                #"(?i)([\"']?(?:user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)[\"']?\s*:\s*)(\"[^\"]*\"|'[^']*')"#,
+                #"$1\"<redacted>\""#
+            ),
+            (
+                #"(?i)((?:user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)(?:\s*=\s*|%3D))[^&\s,}\]]+"#,
+                "$1<redacted>"
+            ),
+            (
+                #"(?i)((?:X-User-Auth-Token|user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)\s*:\s*)(?![\"'])[^\r\n,}\]]+"#,
+                "$1<redacted>"
+            ),
+            (#"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+"#, "$1<redacted>")
         ]
-        for pattern in patterns {
+        for (pattern, replacement) in replacements {
             guard let expression = try? NSRegularExpression(pattern: pattern) else { continue }
             let range = NSRange(result.startIndex..<result.endIndex, in: result)
             result = expression.stringByReplacingMatches(
                 in: result,
                 range: range,
-                withTemplate: "$1<redacted>"
+                withTemplate: replacement
             )
         }
         return result
