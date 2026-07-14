@@ -25,16 +25,11 @@ struct CollectionPreview: View {
             metadata: metadata + [trackCountText]
         )) {
             VStack(spacing: 0) {
-                if let collectionDescription, !collectionDescription.isEmpty {
-                    Text(collectionDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, DS.Space.l)
-                        .padding(.vertical, DS.Space.s)
-                    Divider()
-                }
+                EditorialOverview(
+                    heading: "About this playlist",
+                    summary: nil,
+                    editorialDescription: collectionDescription
+                )
                 if let libraryStatus {
                     HStack {
                         LibraryStatusLabel(status: libraryStatus)

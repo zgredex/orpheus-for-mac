@@ -26,7 +26,11 @@ struct AlbumPreview: View {
             catalogMarkers: CatalogFormat.albumMarkers(album.catalogMetadata)
         )) {
             VStack(spacing: 0) {
-                editorialOverview
+                EditorialOverview(
+                    heading: "About this album",
+                    summary: album.catalogMetadata.catchline,
+                    editorialDescription: album.catalogMetadata.editorialDescription
+                )
                 if let label = album.label, onOpenLabel != nil {
                     HStack {
                         Button { onOpenLabel?() } label: {
@@ -69,32 +73,6 @@ struct AlbumPreview: View {
                 }
                 .listStyle(.inset)
             }
-        }
-    }
-
-    @ViewBuilder private var editorialOverview: some View {
-        let metadata = album.catalogMetadata
-        if metadata.catchline != nil || metadata.editorialDescription != nil {
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                if let catchline = metadata.catchline, !catchline.isEmpty {
-                    Text(catchline)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.primary)
-                }
-                if let description = metadata.editorialDescription,
-                   !description.isEmpty,
-                   description != metadata.catchline {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, DS.Space.l)
-            .padding(.vertical, DS.Space.s)
-            Divider()
         }
     }
 
