@@ -49,6 +49,7 @@ final class NativeViewModel: ObservableObject {
     private let logStore: any NativeLogStoring
     private let supplementalDiagnosticsCollector: any NativeSupplementalDiagnosticsCollecting
     private let archiveScanner: any QobuzArchiveScanning
+    private let libraryAdopter: any QobuzLibraryAdopting
     private let clientFactory: (QobuzCredentials) -> any NativeQobuzServicing
     private var client: (any NativeQobuzServicing)?
     private var previewTask: Task<Void, Never>?
@@ -75,6 +76,7 @@ final class NativeViewModel: ObservableObject {
         logStore: (any NativeLogStoring)? = nil,
         supplementalDiagnosticsCollector: (any NativeSupplementalDiagnosticsCollecting)? = nil,
         archiveScanner: any QobuzArchiveScanning = QobuzArchiveScanner(),
+        libraryAdopter: (any QobuzLibraryAdopting)? = nil,
         clientFactory: @escaping (QobuzCredentials) -> any NativeQobuzServicing = {
             QobuzAPIClient(credentials: $0)
         }
@@ -89,6 +91,7 @@ final class NativeViewModel: ObservableObject {
         self.supplementalDiagnosticsCollector = supplementalDiagnosticsCollector
             ?? NativeSupplementalDiagnosticsCollector()
         self.archiveScanner = archiveScanner
+        self.libraryAdopter = libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
         self.clientFactory = clientFactory
         let paths = NativePaths()
         settings = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
@@ -1233,6 +1236,84 @@ final class NativeViewModel: ObservableObject {
                 )
                 notice = "Could not scan the library: \(error.localizedDescription)"
             }
+        }
+    }
+
+    func inspectLibraryForAdoption(at root: URL) async throws -> QobuzLibraryAdoptionPlan {
+        guard !isDownloading else {
+            throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
+        }
+        let adoptionID = UUID().uuidString
+        qobuzLog.notice(
+            "library.adoption.ui",
+            "Library adoption inspection requested",
+            metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path]
+        )
+        do {
+            return try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
+                try await libraryAdopter.inspect(root: root)
+            }
+        } catch {
+            qobuzLog.error(
+                "library.adoption.ui",
+                "Library adoption inspection failed",
+                metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path],
+                error: error
+            )
+            throw error
+        }
+    }
+
+    func adoptLibrary(at root: URL, draft: SettingsDraft) async throws {
+        guard !isDownloading else {
+            throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
+        }
+        let adoptionID = UUID().uuidString
+        qobuzLog.notice(
+            "library.adoption.ui",
+            "Library adoption confirmed",
+            metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path]
+        )
+        do {
+            let result = try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
+                try await libraryAdopter.adopt(root: root)
+            }
+            try saveConfiguration(
+                credentials: draft.credentials,
+                settings: NativeSettings(
+                    downloadPath: result.plan.root.path,
+                    quality: draft.quality
+                )
+            )
+            archiveSnapshot = result.snapshot
+            try archiveStore.save(result.snapshot)
+            isArchiveScanning = false
+            isLibraryOpen = true
+            isBrowseOpen = false
+            showSettings = false
+            let repaired = result.plan.manifestAction != .none
+            notice = repaired
+                ? "Existing Library adopted and its index was rebuilt."
+                : "Existing Library adopted and verified."
+            qobuzLog.notice(
+                "library.adoption.ui",
+                "Adopted Library became the active download root",
+                metadata: [
+                    "libraryAdoptionID": adoptionID,
+                    "downloadRoot": result.plan.root.path,
+                    "trackCount": String(result.snapshot.tracks.count),
+                    "problemCount": String(result.snapshot.problemCount),
+                    "manifestAction": result.plan.manifestAction.rawValue
+                ]
+            )
+        } catch {
+            qobuzLog.error(
+                "library.adoption.ui",
+                "Library adoption failed",
+                metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path],
+                error: error
+            )
+            throw error
         }
     }
 

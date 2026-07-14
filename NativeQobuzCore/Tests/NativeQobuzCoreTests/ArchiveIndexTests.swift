@@ -341,6 +341,125 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.tracks.first { $0.qobuzTrackID == "playlist-track" }?.archiveKind, .playlist)
     }
 
+    func testAdoptionBuildsMissingIndexAndRemainsValidAfterRootMoves() async throws {
+        let parent = temporaryRoot()
+        let original = parent.appendingPathComponent("Original", isDirectory: true)
+        let moved = parent.appendingPathComponent("Moved", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let albumFolder = original.appendingPathComponent("Artist/Album", isDirectory: true)
+        try FileManager.default.createDirectory(at: albumFolder, withIntermediateDirectories: true)
+        try writeManifest(
+            folder: albumFolder,
+            filename: "01. Song.flac",
+            trackID: "track",
+            albumID: "album",
+            collection: .album(id: QobuzID("album"), title: "Album")
+        )
+
+        let adopter = QobuzLibraryAdopter()
+        let preview = try await adopter.inspect(root: original)
+
+        XCTAssertEqual(preview.manifestAction, .create)
+        XCTAssertEqual(preview.proposedCollectionCount, 1)
+        XCTAssertEqual(preview.proposedManifest.collections.first?.id, "album|album")
+        XCTAssertEqual(preview.proposedManifest.collections.first?.relativePath, "Artist/Album")
+
+        let adopted = try await adopter.adopt(root: original)
+        XCTAssertEqual(adopted.snapshot.collections, preview.proposedManifest.collections)
+        XCTAssertEqual(adopted.snapshot.verifiedCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: original.appendingPathComponent(QobuzLibraryManifestIO.filename).path
+        ))
+
+        try FileManager.default.moveItem(at: original, to: moved)
+        let movedPreview = try await adopter.inspect(root: moved)
+        XCTAssertEqual(movedPreview.manifestAction, .none)
+        XCTAssertEqual(movedPreview.snapshot.rootPath, moved.standardizedFileURL.path)
+        XCTAssertEqual(movedPreview.snapshot.verifiedCount, 1)
+    }
+
+    func testAdoptionRepairsUnreadableIndexAndReconstructsPlaylistReferences() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let albumFolder = root.appendingPathComponent("Artist/Album", isDirectory: true)
+        let playlistFolder = root.appendingPathComponent("Playlists/Evening [playlist-42]", isDirectory: true)
+        try FileManager.default.createDirectory(at: albumFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: playlistFolder, withIntermediateDirectories: true)
+        try writeManifest(
+            folder: albumFolder,
+            filename: "01. Song.flac",
+            trackID: "track",
+            albumID: "album",
+            collection: .album(id: QobuzID("album"), title: "Album")
+        )
+        try Data("{broken".utf8).write(
+            to: root.appendingPathComponent(QobuzLibraryManifestIO.filename)
+        )
+        try Data("""
+        #EXTM3U
+        #EXTINF:180,Artist - Song
+        ../../Artist/Album/01. Song.flac
+        """.utf8).write(to: playlistFolder.appendingPathComponent("Evening.m3u"))
+
+        let adopter = QobuzLibraryAdopter()
+        let preview = try await adopter.inspect(root: root)
+
+        XCTAssertEqual(preview.manifestAction, .repair)
+        XCTAssertEqual(Set(preview.proposedManifest.collections.map(\.id)), [
+            "album|album", "playlist|playlist-42"
+        ])
+        let playlist = try XCTUnwrap(
+            preview.proposedManifest.collections.first { $0.kind == .playlist }
+        )
+        XCTAssertEqual(playlist.title, "Evening")
+        XCTAssertEqual(playlist.trackPaths, ["Artist/Album/01. Song.flac"])
+
+        let result = try await adopter.adopt(root: root)
+        XCTAssertFalse(result.snapshot.issues.contains {
+            $0.relativePath == QobuzLibraryManifestIO.filename
+        })
+        XCTAssertEqual(result.snapshot.playlistCount, 1)
+    }
+
+    func testAdoptionReconcilesRelocatedAlbumAndPreservesLogicalPresentation() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let relocatedFolder = root.appendingPathComponent("New Artist/New Folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: relocatedFolder, withIntermediateDirectories: true)
+        try writeManifest(
+            folder: relocatedFolder,
+            filename: "01. Song.flac",
+            trackID: "track",
+            albumID: "album",
+            collection: .album(id: QobuzID("album"), title: "Album")
+        )
+        try QobuzLibraryManifestIO.save(
+            QobuzLibraryManifest(collections: [
+                QobuzLibraryCollectionRecord(
+                    id: "album|album",
+                    kind: .album,
+                    qobuzID: "album",
+                    title: "Curated Album Title",
+                    subtitle: "Original Artist · 1 track",
+                    relativePath: "Old Artist/Old Folder",
+                    trackPaths: ["Old Artist/Old Folder/01. Song.flac"],
+                    collectionDescription: "Preserve this description"
+                )
+            ]),
+            at: root
+        )
+
+        let adopter = QobuzLibraryAdopter()
+        let preview = try await adopter.inspect(root: root)
+
+        XCTAssertEqual(preview.manifestAction, .update)
+        let record = try XCTUnwrap(preview.proposedManifest.collections.first)
+        XCTAssertEqual(record.title, "Curated Album Title")
+        XCTAssertEqual(record.collectionDescription, "Preserve this description")
+        XCTAssertEqual(record.relativePath, "New Artist/New Folder")
+        XCTAssertEqual(record.trackPaths, ["New Artist/New Folder/01. Song.flac"])
+    }
+
     private struct TestManifest: Encodable {
         let version = 1
         let files: [String: QobuzFileProvenance]
@@ -418,6 +537,32 @@ final class ArchiveIndexTests: XCTestCase {
         }
         """
         try Data(manifest.utf8).write(to: folder.appendingPathComponent(".orpheus-provenance.json"))
+        try Data("\(hash)  \(filename)\n".utf8).write(
+            to: folder.appendingPathComponent("checksums.sha256")
+        )
+    }
+
+    private func writeManifest(
+        folder: URL,
+        filename: String,
+        trackID: String,
+        albumID: String,
+        collection: QobuzCollection
+    ) throws {
+        let audioURL = folder.appendingPathComponent(filename)
+        try Data(filename.utf8).write(to: audioURL)
+        let hash = try MusicFileIntegrity.sha256(of: audioURL)
+        let manifest = TestManifest(files: [
+            filename: provenance(
+                trackID: trackID,
+                albumID: albumID,
+                hash: hash,
+                collection: collection
+            )
+        ])
+        try JSONEncoder().encode(manifest).write(
+            to: folder.appendingPathComponent(".orpheus-provenance.json")
+        )
         try Data("\(hash)  \(filename)\n".utf8).write(
             to: folder.appendingPathComponent("checksums.sha256")
         )

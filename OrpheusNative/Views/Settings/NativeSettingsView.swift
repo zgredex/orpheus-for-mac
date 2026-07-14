@@ -6,6 +6,9 @@ struct NativeSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: SettingsDraft
     @State private var errorMessage: String?
+    @State private var adoptionPlan: QobuzLibraryAdoptionPlan?
+    @State private var isInspectingLibrary = false
+    @State private var isAdoptingLibrary = false
 
     init(draft: SettingsDraft) {
         _draft = State(initialValue: draft)
@@ -35,6 +38,28 @@ struct NativeSettingsView: View {
                         }
                     }
                 }
+                Section("Existing Library") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                            Text("Adopt an Orpheus Library")
+                            Text("Inspects provenance and verifies checksums before changing this Mac's Library location.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Inspect Folder…") { inspectExistingLibrary() }
+                            .disabled(isInspectingLibrary || isAdoptingLibrary || vm.isDownloading)
+                    }
+                    if isInspectingLibrary {
+                        HStack(spacing: DS.Space.s) {
+                            ProgressView().controlSize(.small)
+                            Text("Reading provenance and verifying files…")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let adoptionPlan {
+                        adoptionSummary(adoptionPlan)
+                    }
+                }
             }
             .formStyle(.grouped)
             if let errorMessage {
@@ -46,7 +71,14 @@ struct NativeSettingsView: View {
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
-                Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(!draft.credentials.isComplete || draft.downloadPath.isEmpty)
+                Button("Save") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        !draft.credentials.isComplete
+                            || draft.downloadPath.isEmpty
+                            || isInspectingLibrary
+                            || isAdoptingLibrary
+                    )
             }.padding(.top, 14)
         }
         .padding(DS.Space.xl)
@@ -54,7 +86,85 @@ struct NativeSettingsView: View {
     }
 
     private func chooseFolder() {
-        if let url = FileDialog.chooseFolder(startingAt: draft.downloadPath) { draft.downloadPath = url.path }
+        if let url = FileDialog.chooseFolder(startingAt: draft.downloadPath) {
+            draft.downloadPath = url.path
+            adoptionPlan = nil
+        }
+    }
+
+    @ViewBuilder private func adoptionSummary(_ plan: QobuzLibraryAdoptionPlan) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            HStack(spacing: DS.Space.m) {
+                Label("\(plan.snapshot.tracks.count) files", systemImage: "music.note")
+                Label("\(plan.snapshot.verifiedCount) verified", systemImage: "checkmark.seal")
+                    .foregroundStyle(plan.snapshot.problemCount == 0 ? .green : .secondary)
+                if plan.snapshot.problemCount > 0 {
+                    Label("\(plan.snapshot.problemCount) problems", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(adoptionActionTitle(plan.manifestAction))
+                        .font(.callout.weight(.semibold))
+                    Text(plan.root.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                    Text("\(plan.proposedCollectionCount) recoverable collection\(plan.proposedCollectionCount == 1 ? "" : "s"). The folder is inspected again before adoption.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(isAdoptingLibrary ? "Adopting…" : "Adopt Library") {
+                    adoptExistingLibrary(plan)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isAdoptingLibrary || !draft.credentials.isComplete)
+            }
+        }
+        .padding(.vertical, DS.Space.xs)
+    }
+
+    private func adoptionActionTitle(_ action: QobuzLibraryManifestAction) -> String {
+        switch action {
+        case .none: "Index is valid and portable"
+        case .create: "A Library index will be created"
+        case .update: "Moved collections will be reconciled"
+        case .repair: "The damaged Library index will be rebuilt"
+        }
+    }
+
+    private func inspectExistingLibrary() {
+        guard let root = FileDialog.chooseFolder(startingAt: draft.downloadPath) else { return }
+        errorMessage = nil
+        adoptionPlan = nil
+        isInspectingLibrary = true
+        Task {
+            defer { isInspectingLibrary = false }
+            do {
+                adoptionPlan = try await vm.inspectLibraryForAdoption(at: root)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func adoptExistingLibrary(_ plan: QobuzLibraryAdoptionPlan) {
+        errorMessage = nil
+        isAdoptingLibrary = true
+        Task {
+            defer { isAdoptingLibrary = false }
+            do {
+                try await vm.adoptLibrary(at: plan.root, draft: draft)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func save() {
