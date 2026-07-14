@@ -65,6 +65,7 @@ struct PreviewScaffold<HeaderAccessory: View, Content: View>: View {
                     headerAccessory
                         .frame(
                             minWidth: DS.Preview.headerAccessoryMinimumWidth,
+                            idealWidth: DS.Preview.headerAccessoryIdealWidth,
                             maxWidth: .infinity,
                             alignment: .topLeading
                         )

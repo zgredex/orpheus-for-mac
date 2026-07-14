@@ -35,6 +35,10 @@ enum DS {
         static let headerDetailsIdealWidth: CGFloat = 300
         static let headerDetailsMaximumWidth: CGFloat = 360
         static let headerAccessoryMinimumWidth: CGFloat = 320
+        /// Bounds the accessory's natural size while `ViewThatFits` evaluates
+        /// the horizontal header. Without this, long editorial text reports its
+        /// full unwrapped width and incorrectly forces the compact layout.
+        static let headerAccessoryIdealWidth: CGFloat = 480
         static let editorialReaderWidth: CGFloat = 540
         static let editorialReaderHeight: CGFloat = 360
     }
