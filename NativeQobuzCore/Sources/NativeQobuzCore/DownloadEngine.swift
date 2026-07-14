@@ -36,7 +36,7 @@ public struct QobuzDownloadProgress: Equatable, Sendable {
 public enum QobuzDownloadEvent: Equatable, Sendable {
     case resolving(QobuzRequest)
     case planReady(title: String, trackCount: Int)
-    case trackStarted(track: QobuzResolvedTrack, destination: URL)
+    case trackStarted(track: QobuzResolvedTrack, destination: URL, format: QobuzAudioFormat)
     case progress(QobuzDownloadProgress)
     case validating(track: QobuzResolvedTrack)
     case tagging(track: QobuzResolvedTrack)
@@ -107,7 +107,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
     ) -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
         makeEvents(
             for: request,
-            quality: quality,
+            requestedFormat: quality.maximumFormat,
+            requestedMaximum: quality,
             downloadRoot: downloadRoot,
             repairTarget: nil,
             includedTrackIDs: includedTrackIDs
@@ -118,14 +119,15 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         for target: QobuzArchiveTrack,
         downloadRoot: URL
     ) throws -> AsyncThrowingStream<QobuzDownloadEvent, Error> {
-        guard let quality = QobuzQuality(formatID: target.formatID) else {
+        guard let format = target.audioFormat else {
             throw NativeQobuzError.unavailable(
                 "The archived Qobuz format \(target.formatID) is not supported for automatic repair."
             )
         }
         return makeEvents(
             for: .track(QobuzID(target.qobuzTrackID)),
-            quality: quality,
+            requestedFormat: format,
+            requestedMaximum: nil,
             downloadRoot: downloadRoot,
             repairTarget: target,
             includedTrackIDs: nil
@@ -134,7 +136,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
 
     private func makeEvents(
         for request: QobuzRequest,
-        quality: QobuzQuality,
+        requestedFormat: QobuzAudioFormat,
+        requestedMaximum: QobuzQuality?,
         downloadRoot: URL,
         repairTarget: QobuzArchiveTrack?,
         includedTrackIDs: Set<QobuzID>?
@@ -144,8 +147,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             "downloadOperationID": operationID,
             "requestKind": request.kindName,
             "qobuzID": request.id.rawValue,
-            "quality": quality.rawValue,
-            "formatID": String(quality.formatID),
+            "qualityPolicy": requestedMaximum?.rawValue ?? "exact-archive-repair",
+            "requestedFormatID": String(requestedFormat.formatID),
             "downloadRoot": downloadRoot.path,
             "repair": String(repairTarget != nil),
             "selectedTrackCount": includedTrackIDs.map { String($0.count) } ?? "all"
@@ -206,7 +209,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                         let trackStarted = Date()
                         qobuzLog.info("download.track", "Resolving downloadable audio file", metadata: trackMetadata)
                         let fileInfo = try await QobuzLogScope.withValue(trackMetadata) {
-                            try await service.fileInfo(trackID: item.track.id, quality: quality)
+                            try await service.fileInfo(trackID: item.track.id, format: requestedFormat)
                         }
                         qobuzLog.debug(
                             "download.track",
@@ -216,14 +219,14 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                                 "formatID": String(fileInfo.formatID)
                             ]) { _, new in new }
                         )
-                        if repairTarget == nil,
+                        if let requestedMaximum,
                            let notice = deliveryNotice(
                                for: item,
-                               requestedMaximum: quality,
+                               requestedMaximum: requestedMaximum,
                                delivered: fileInfo
                            ) {
                             let deliveryMetadata: [String: String] = [
-                                "requestedMaximumFormatID": String(quality.formatID),
+                                "requestedMaximumFormatID": String(requestedMaximum.maximumFormat.formatID),
                                 "deliveredFormatID": String(fileInfo.formatID),
                                 "deliveredBitDepth": fileInfo.bitDepth.map { String($0) } ?? "unknown",
                                 "deliveredSamplingRate": fileInfo.samplingRate.map { String($0) } ?? "unknown",
@@ -337,7 +340,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
                             }
                         }
 
-                        continuation.yield(.trackStarted(track: item, destination: destination))
+                        continuation.yield(.trackStarted(track: item, destination: destination, format: fileInfo.format))
                         let artworkTask: Task<EmbeddedArtwork?, Error>
                         if let cached = artworkCache[item.album.id] {
                             artworkTask = Task { cached }
@@ -664,12 +667,12 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         requestedMaximum: QobuzQuality,
         delivered fileInfo: QobuzFileInfo
     ) -> String? {
-        guard fileInfo.formatID != requestedMaximum.formatID || !fileInfo.restrictions.isEmpty else {
+        guard fileInfo.format != requestedMaximum.maximumFormat || !fileInfo.restrictions.isEmpty else {
             return nil
         }
         let reason = fileInfo.restrictions.first.map(restrictionDescription)
             ?? "Qobuz selected the highest available quality below the configured maximum."
-        return "\(item.track.displayTitle) — \(formatDescription(fileInfo.formatID)) delivered under the \(formatDescription(requestedMaximum.formatID)) maximum. \(reason)"
+        return "\(item.track.displayTitle) — \(fileInfo.format.displayName) delivered under the \(requestedMaximum.maximumFormat.displayName) maximum. \(reason)"
     }
 
     private func restrictionDescription(_ restriction: QobuzFileRestriction) -> String {
@@ -679,16 +682,6 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             return "The configured maximum is not available for this track."
         default:
             return "Qobuz reported restriction \(restriction.code)."
-        }
-    }
-
-    private func formatDescription(_ formatID: Int) -> String {
-        switch formatID {
-        case 5: "MP3 320"
-        case 6: "Lossless FLAC"
-        case 7: "Hi-Res FLAC up to 96 kHz"
-        case 27: "Hi-Res FLAC"
-        default: "Qobuz format \(formatID)"
         }
     }
 
@@ -728,7 +721,12 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         guard destination.path.hasPrefix(rootPrefix) else {
             throw NativeQobuzError.fileSystem("The archived repair path escapes the download folder.")
         }
-        let expectedExtension = target.formatID == QobuzQuality.mp3.formatID ? "mp3" : "flac"
+        guard let archivedFormat = target.audioFormat else {
+            throw NativeQobuzError.unavailable(
+                "The archived Qobuz format \(target.formatID) is not supported for automatic repair."
+            )
+        }
+        let expectedExtension = archivedFormat.fileExtension
         guard destination.pathExtension.lowercased() == expectedExtension else {
             throw NativeQobuzError.fileSystem("The archived repair path has the wrong audio extension.")
         }

@@ -6,6 +6,7 @@ struct QualityBadge: View {
     enum Kind: Hashable {
         case catalog(bitDepth: Int?, samplingRate: Double?, hiRes: Bool)
         case target(QobuzQuality)
+        case exact(QobuzAudioFormat)
         case archive(formatID: Int, bitDepth: Int?, samplingRate: Double?)
         case mixed
         case explicitContent
@@ -82,15 +83,14 @@ struct QualityBadge: View {
                 case .lossless: return "Lossless FLAC"
                 case .mp3: return "MP3 320"
                 }
+            case .exact(let format):
+                return format.displayName
             case .archive(let formatID, let bitDepth, let samplingRate):
-                let tier: Tier
-                if formatID == QobuzQuality.mp3.formatID {
-                    tier = .mp3
-                } else if let bitDepth, let samplingRate {
-                    tier = bitDepth > 16 || samplingRate > 48 ? .hiRes : .lossless
-                } else {
-                    tier = formatID == QobuzQuality.hiRes.formatID ? .hiRes : .lossless
-                }
+                let tier = Self.archiveTier(
+                    formatID: formatID,
+                    bitDepth: bitDepth,
+                    samplingRate: samplingRate
+                )
                 return Self.audioText(tier: tier, bitDepth: bitDepth, samplingRate: samplingRate)
             case .mixed: return "Mixed quality"
             case .explicitContent: return "E"
@@ -101,6 +101,7 @@ struct QualityBadge: View {
             switch self {
             case .catalog: "Maximum quality Qobuz reports for this catalog item: \(text)"
             case .target: "Requested download quality: \(text)"
+            case .exact: "Exact Qobuz audio format requested for this repair: \(text)"
             case .archive: "Quality recorded for this downloaded file: \(text)"
             case .mixed: "This downloaded collection contains more than one audio quality."
             case .explicitContent: "Explicit content"
@@ -117,10 +118,14 @@ struct QualityBadge: View {
                 case .lossless: return .lossless
                 case .mp3: return .mp3
                 }
+            case .exact(let format):
+                return Self.tier(for: format)
             case .archive(let formatID, let bitDepth, let samplingRate):
-                if formatID == QobuzQuality.mp3.formatID { return .mp3 }
-                if let bitDepth, let samplingRate, bitDepth > 16 || samplingRate > 48 { return .hiRes }
-                return formatID == QobuzQuality.hiRes.formatID && bitDepth == nil ? .hiRes : .lossless
+                return Self.archiveTier(
+                    formatID: formatID,
+                    bitDepth: bitDepth,
+                    samplingRate: samplingRate
+                )
             case .mixed: return .mixed
             case .explicitContent: return .marker
             }
@@ -128,6 +133,26 @@ struct QualityBadge: View {
 
         private static func catalogTier(bitDepth: Int?, samplingRate: Double?, hiRes: Bool) -> Tier {
             if hiRes || (bitDepth ?? 0) > 16 || (samplingRate ?? 0) > 48 { return .hiRes }
+            return .lossless
+        }
+
+        private static func tier(for format: QobuzAudioFormat) -> Tier {
+            switch format {
+            case .mp3: .mp3
+            case .lossless: .lossless
+            case .hiRes96, .hiRes: .hiRes
+            }
+        }
+
+        private static func archiveTier(
+            formatID: Int,
+            bitDepth: Int?,
+            samplingRate: Double?
+        ) -> Tier {
+            if let format = QobuzAudioFormat(formatID: formatID) {
+                return tier(for: format)
+            }
+            if let bitDepth, let samplingRate, bitDepth > 16 || samplingRate > 48 { return .hiRes }
             return .lossless
         }
 

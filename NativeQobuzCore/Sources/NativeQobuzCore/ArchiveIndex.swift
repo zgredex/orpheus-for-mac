@@ -30,6 +30,9 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
     public let isLibraryManaged: Bool
 
     public var id: String { relativePath }
+    /// Typed view of the exact archived format. The manifest keeps the raw ID
+    /// so future formats remain readable even before the app supports repair.
+    public var audioFormat: QobuzAudioFormat? { QobuzAudioFormat(formatID: formatID) }
 
     public init(
         relativePath: String,

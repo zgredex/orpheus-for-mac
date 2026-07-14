@@ -128,11 +128,12 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
         id = UUID()
         request = .track(QobuzID(repairTarget.qobuzTrackID))
         title = URL(fileURLWithPath: repairTarget.relativePath).lastPathComponent
-        subtitle = "Repair · \(QobuzQuality(formatID: repairTarget.formatID)?.displayName ?? "Format \(repairTarget.formatID)")"
+        subtitle = "Repair · \(repairTarget.audioFormat?.displayName ?? "Format \(repairTarget.formatID)")"
         status = .ready
         expectedTrackIDs = [QobuzID(repairTarget.qobuzTrackID)]
         self.repairTarget = repairTarget
-        downloadQuality = QobuzQuality(formatID: repairTarget.formatID)
+        // Repairs use the archive's exact format, not the user's maximum policy.
+        downloadQuality = nil
     }
 }
 
@@ -343,7 +344,7 @@ struct NativeLibraryFileProblem: Identifiable, Equatable {
     }
 
     var isAutomaticallyRepairable: Bool {
-        track.integrity != .verified && QobuzQuality(formatID: track.formatID) != nil
+        track.integrity != .verified && track.audioFormat != nil
     }
 
     var repairabilityDetail: String {
@@ -478,7 +479,10 @@ struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     let id: UUID
     let queueID: UUID
     var title: String
+    /// User maximum for normal downloads. Repairs instead use `audioFormat`.
     var quality: QobuzQuality? = nil
+    /// Exact archived format requested by a repair.
+    var audioFormat: QobuzAudioFormat? = nil
     var status: NativeActivityStatus = .queued
     var phase = "Queued"
     var currentTrack: String?

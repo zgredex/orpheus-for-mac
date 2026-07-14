@@ -8,7 +8,7 @@ public protocol QobuzCatalogService: Sendable {
     func playlist(id: QobuzID) async throws -> QobuzPlaylist
     func artist(id: QobuzID) async throws -> QobuzArtistCatalog
     func label(id: QobuzID) async throws -> QobuzLabelCatalog
-    func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo
+    func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo
 }
 
 public extension QobuzCatalogService {
@@ -234,13 +234,13 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         return value
     }
 
-    public func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
+    public func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo {
         try requireCredentials()
         let (value, _): (QobuzFileInfo, HTTPURLResponse) = try await signedGet(
             endpoint: "track/getFileUrl",
             parameters: [
                 "track_id": trackID.rawValue,
-                "format_id": String(quality.formatID),
+                "format_id": String(format.formatID),
                 "intent": "stream",
                 "sample": "false",
                 "app_id": credentials.appID,

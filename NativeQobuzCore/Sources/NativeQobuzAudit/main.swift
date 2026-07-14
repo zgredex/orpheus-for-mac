@@ -34,7 +34,7 @@ struct NativeQobuzAudit {
         let artwork = shouldTag ? try await QobuzCollectionAssetWriter().artwork(for: album) : nil
         let validator = try FFmpegMediaValidator.bundled()
         for quality in [QobuzQuality.mp3, .hiRes] {
-            let info = try await client.fileInfo(trackID: track.id, quality: quality)
+            let info = try await client.fileInfo(trackID: track.id, format: quality.maximumFormat)
             let destination = output.appendingPathComponent("raw-qobuz.\(info.fileExtension)")
             for try await event in URLSessionFileTransferClient().events(from: info.url, to: destination) {
                 if case .completed(let url) = event {

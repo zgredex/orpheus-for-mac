@@ -211,6 +211,7 @@ actor FakeQobuzService: QobuzCatalogService {
     private let fileInfos: [QobuzID: QobuzFileInfo]
     private var albumRequests: [QobuzID: Int] = [:]
     private var fileInfoRequests = 0
+    private var requestedFormats: [QobuzAudioFormat] = []
 
     init(
         tracks: [QobuzID: QobuzTrack] = [:],
@@ -251,17 +252,19 @@ actor FakeQobuzService: QobuzCatalogService {
         try value(labels[id], name: "label \(id)")
     }
 
-    func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
+    func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo {
         fileInfoRequests += 1
+        requestedFormats.append(format)
         if let fileInfo = fileInfos[trackID] { return fileInfo }
         return QobuzFileInfo(
             url: URL(string: "https://media.example/\(trackID).flac?signature=\(fileInfoRequests)")!,
-            formatID: quality.formatID
+            format: format
         )
     }
 
     func albumRequestCount(for id: QobuzID) -> Int { albumRequests[id, default: 0] }
     var fileInfoRequestCount: Int { fileInfoRequests }
+    var fileInfoRequestedFormats: [QobuzAudioFormat] { requestedFormats }
 
     private func value<T>(_ value: T?, name: String) throws -> T {
         guard let value else { throw NativeQobuzError.invalidResponse("Missing fake \(name)") }
@@ -295,7 +298,7 @@ private actor DelayedArtistService: QobuzCatalogService {
     func playlist(id: QobuzID) async throws -> QobuzPlaylist { throw NativeQobuzError.unavailable("Unused") }
     func artist(id: QobuzID) async throws -> QobuzArtistCatalog { artistValue }
 
-    func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
+    func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo {
         throw NativeQobuzError.unavailable("Unused")
     }
 }

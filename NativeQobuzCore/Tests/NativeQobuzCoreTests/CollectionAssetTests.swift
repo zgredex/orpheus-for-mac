@@ -165,7 +165,7 @@ final class CollectionAssetTests: XCTestCase {
         try Data("audio".utf8).write(to: audio)
         let fileInfo = QobuzFileInfo(
             url: URL(string: "https://media.example/song.flac")!,
-            formatID: 27,
+            format: .hiRes,
             bitDepth: 24,
             samplingRate: 96
         )
@@ -190,7 +190,7 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertFalse(
             provenance.matches(
                 item: item,
-                fileInfo: QobuzFileInfo(url: fileInfo.url, formatID: 6, bitDepth: 16, samplingRate: 44.1)
+                fileInfo: QobuzFileInfo(url: fileInfo.url, format: .lossless, bitDepth: 16, samplingRate: 44.1)
             )
         )
     }

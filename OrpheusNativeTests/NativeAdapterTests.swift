@@ -299,7 +299,7 @@ final class NativeAdapterTests: XCTestCase {
             .appendingPathComponent("Artist/Album/01. Track.flac")
         let partial = QobuzDownloadArtifacts.partialURL(
             for: output,
-            formatID: QobuzQuality.hiRes.formatID
+            formatID: QobuzQuality.hiRes.maximumFormat.formatID
         )
         try FileManager.default.createDirectory(
             at: partial.deletingLastPathComponent(),
@@ -321,13 +321,24 @@ final class NativeAdapterTests: XCTestCase {
             NativePartialDownload(url: partial, bytes: 4_096)
         )
 
+        let format7Partial = QobuzDownloadArtifacts.partialURL(
+            for: output,
+            formatID: QobuzAudioFormat.hiRes96.formatID
+        )
+        try Data(repeating: 7, count: 2_048).write(to: format7Partial)
+        activity.audioFormat = .hiRes96
+        XCTAssertEqual(
+            viewModel.resumablePartial(for: activity),
+            NativePartialDownload(url: format7Partial, bytes: 2_048)
+        )
+
         activity.status = .completed
         XCTAssertNil(viewModel.resumablePartial(for: activity))
 
         activity.status = .failed("Network unavailable")
-        XCTAssertEqual(viewModel.resumablePartial(for: activity)?.bytes, 4_096)
+        XCTAssertEqual(viewModel.resumablePartial(for: activity)?.bytes, 2_048)
 
-        try Data().write(to: partial)
+        try Data().write(to: format7Partial)
         XCTAssertNil(viewModel.resumablePartial(for: activity))
     }
 
@@ -824,6 +835,7 @@ final class NativeAdapterTests: XCTestCase {
             relativePath: "Artist/Album/01.flac",
             trackID: "damaged",
             albumID: "album",
+            formatID: QobuzAudioFormat.hiRes96.formatID,
             integrity: .checksumMismatch
         )
         let verified = Self.archiveTrack(
@@ -846,7 +858,8 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(secondIDs, firstIDs)
         XCTAssertEqual(viewModel.queue.count, 1)
         XCTAssertEqual(viewModel.queue[0].repairTarget, damaged)
-        XCTAssertEqual(viewModel.queue[0].subtitle, "Repair · Hi-Res FLAC")
+        XCTAssertEqual(viewModel.queue[0].subtitle, "Repair · Hi-Res FLAC up to 96 kHz")
+        XCTAssertNil(viewModel.queue[0].downloadQuality)
     }
 
     private static func archiveTrack(
@@ -1006,7 +1019,7 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
         )
     }
 
-    func fileInfo(trackID: QobuzID, quality: QobuzQuality) async throws -> QobuzFileInfo {
+    func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo {
         throw NativeQobuzError.unavailable("Unused by this test")
     }
 }

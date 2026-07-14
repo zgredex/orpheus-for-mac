@@ -42,7 +42,7 @@ final class DownloadEngineTests: XCTestCase {
         )
         let destination = StandardQobuzOutputPlanner().destination(
             for: item,
-            fileInfo: QobuzFileInfo(url: URL(string: "https://example.test/file.flac")!, formatID: 27),
+            fileInfo: QobuzFileInfo(url: URL(string: "https://example.test/file.flac")!, format: .hiRes),
             root: URL(fileURLWithPath: "/downloads")
         )
 
@@ -88,7 +88,7 @@ final class DownloadEngineTests: XCTestCase {
         let trackID = try XCTUnwrap(album.tracks.first?.id)
         let fileInfo = QobuzFileInfo(
             url: URL(string: "https://media.example/one.flac")!,
-            formatID: 6,
+            format: .lossless,
             bitDepth: 16,
             samplingRate: 44.1,
             restrictions: [QobuzFileRestriction(code: "FormatRestrictedByFormatAvailability")]
@@ -143,7 +143,7 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertEqual(sources.map(\.lastPathComponent), ["two.flac", "three.flac"])
         XCTAssertTrue(events.contains(.planReady(title: "Album", trackCount: 2)))
         let started = events.compactMap { event -> QobuzResolvedTrack? in
-            guard case .trackStarted(let track, _) = event else { return nil }
+            guard case .trackStarted(let track, _, _) = event else { return nil }
             return track
         }
         XCTAssertEqual(started.map(\.track.id), [QobuzID("two"), QobuzID("three")])
@@ -268,7 +268,7 @@ final class DownloadEngineTests: XCTestCase {
         let item = resolvedItem(for: album)
         let fileInfo = QobuzFileInfo(
             url: URL(string: "https://media.example/one.flac")!,
-            formatID: QobuzQuality.hiRes.formatID
+            format: .hiRes
         )
         let assetWriter = QobuzCollectionAssetWriter()
         try assetWriter.recordProvenance(
@@ -334,7 +334,7 @@ final class DownloadEngineTests: XCTestCase {
         let item = resolvedItem(for: album)
         let fileInfo = QobuzFileInfo(
             url: URL(string: "https://media.example/one.flac")!,
-            formatID: QobuzQuality.hiRes.formatID
+            format: .hiRes
         )
         let checksum = try MusicFileIntegrity.sha256(of: destination)
         let assetWriter = QobuzCollectionAssetWriter()
@@ -372,7 +372,7 @@ final class DownloadEngineTests: XCTestCase {
         let item = resolvedItem(for: album)
         let oldInfo = QobuzFileInfo(
             url: URL(string: "https://media.example/one.flac")!,
-            formatID: QobuzQuality.lossless.formatID
+            format: .lossless
         )
         let assetWriter = QobuzCollectionAssetWriter()
         try assetWriter.recordProvenance(
@@ -395,7 +395,7 @@ final class DownloadEngineTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: destination), Data([1, 2, 3]))
         let provenance = try XCTUnwrap(assetWriter.provenance(for: destination))
-        XCTAssertEqual(provenance.formatID, QobuzQuality.hiRes.formatID)
+        XCTAssertEqual(provenance.formatID, QobuzQuality.hiRes.maximumFormat.formatID)
         let sourceCount = await recorder.sources.count
         XCTAssertEqual(sourceCount, 1)
     }
@@ -435,7 +435,7 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Artist/Album/01. One.flac").path))
     }
 
-    func testRepairReplacesOnlyTheExactArchivedPathAndRewritesIntegrityRecords() async throws {
+    func testFormat7RepairRequestsExactArchivedFormatAndRewritesIntegrityRecords() async throws {
         let album = makeAlbum(id: "album", trackIDs: ["one"])
         let summary = QobuzAlbumSummary(id: album.id, title: album.title, artist: album.artist)
         let track = QobuzTrack(
@@ -461,7 +461,7 @@ final class DownloadEngineTests: XCTestCase {
                 item: resolvedItem(for: album),
                 fileInfo: QobuzFileInfo(
                     url: URL(string: "https://media.example/one.flac")!,
-                    formatID: QobuzQuality.hiRes.formatID
+                    format: .hiRes96
                 ),
                 sha256: oldHash
             ),
@@ -471,7 +471,7 @@ final class DownloadEngineTests: XCTestCase {
             relativePath: relativePath,
             qobuzTrackID: "one",
             qobuzAlbumID: "album",
-            formatID: QobuzQuality.hiRes.formatID,
+            formatID: QobuzAudioFormat.hiRes96.formatID,
             bitDepth: 24,
             samplingRate: 96,
             expectedSHA256: oldHash,
@@ -495,8 +495,10 @@ final class DownloadEngineTests: XCTestCase {
         let repaired = try XCTUnwrap(assetWriter.provenance(for: destination))
         let repairedHash = try MusicFileIntegrity.sha256(of: destination)
         XCTAssertEqual(repaired.sha256, repairedHash)
-        XCTAssertEqual(repaired.formatID, QobuzQuality.hiRes.formatID)
+        XCTAssertEqual(repaired.formatID, QobuzAudioFormat.hiRes96.formatID)
         XCTAssertEqual(repaired.archiveKind, .album)
+        let requestedFormats = await service.fileInfoRequestedFormats
+        XCTAssertEqual(requestedFormats, [.hiRes96])
         let checksumManifest = try String(
             contentsOf: destination.deletingLastPathComponent().appendingPathComponent("checksums.sha256"),
             encoding: .utf8
@@ -519,7 +521,7 @@ final class DownloadEngineTests: XCTestCase {
             relativePath: "Album/01.flac",
             qobuzTrackID: "one",
             qobuzAlbumID: "album",
-            formatID: QobuzQuality.hiRes.formatID,
+            formatID: QobuzQuality.hiRes.maximumFormat.formatID,
             expectedSHA256: String(repeating: "0", count: 64),
             integrity: .missing
         )

@@ -53,7 +53,11 @@ struct QueueRow: View {
                 }
             }
             Spacer(minLength: DS.Space.xs)
-            QualityBadge(kind: .target(targetQuality))
+            if let format = item.repairTarget?.audioFormat {
+                QualityBadge(kind: .exact(format))
+            } else {
+                QualityBadge(kind: .target(targetQuality))
+            }
             if let style = item.status.style {
                 StatusGlyph(style: style)
                     .contentTransition(.symbolEffect(.replace))
@@ -144,9 +148,10 @@ struct QueueRow: View {
             }
         } label: {
             Label(
-                item.downloadQuality == nil
-                    ? "Default · \(targetQuality.displayName)"
-                    : targetQuality.displayName,
+                item.repairTarget?.audioFormat?.displayName
+                    ?? (item.downloadQuality == nil
+                        ? "Default · \(targetQuality.displayName)"
+                        : targetQuality.displayName),
                 systemImage: "waveform"
             )
             .font(.caption)

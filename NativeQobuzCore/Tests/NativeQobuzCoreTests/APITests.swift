@@ -8,6 +8,14 @@ final class APITests: XCTestCase {
         super.tearDown()
     }
 
+    func testQualityIsMaximumPolicyWhileAudioFormatIsExact() {
+        XCTAssertEqual(QobuzQuality.mp3.maximumFormat, .mp3)
+        XCTAssertEqual(QobuzQuality.lossless.maximumFormat, .lossless)
+        XCTAssertEqual(QobuzQuality.hiRes.maximumFormat, .hiRes)
+        XCTAssertEqual(QobuzAudioFormat(formatID: 7), .hiRes96)
+        XCTAssertEqual(QobuzAudioFormat.hiRes96.formatID, 7)
+    }
+
     func testSignatureMatchesPythonReferenceAlgorithm() {
         let signature = QobuzAPIClient.signature(
             endpoint: "track/getFileUrl",
@@ -49,7 +57,7 @@ final class APITests: XCTestCase {
             retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
             timestamp: { 1_700_000_000 }
         )
-        let info = try await client.fileInfo(trackID: QobuzID("123"), quality: .hiRes)
+        let info = try await client.fileInfo(trackID: QobuzID("123"), format: .hiRes)
 
         XCTAssertEqual(info.formatID, 6)
         XCTAssertEqual(info.bitDepth, 16)
@@ -66,6 +74,37 @@ final class APITests: XCTestCase {
         XCTAssertEqual(query["app_id"], "app")
         XCTAssertEqual(query["user_auth_token"], "token")
         XCTAssertNil(query["user_id"])
+    }
+
+    func testFileInfoCanRequestExactFormat7() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let requestBox = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.handler = { request in
+            requestBox.set(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = #"{"url":"https://media.example/track.flac","format_id":7,"bit_depth":24,"sampling_rate":96}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
+            timestamp: { 1_700_000_000 }
+        )
+
+        let info = try await client.fileInfo(trackID: QobuzID("123"), format: .hiRes96)
+
+        XCTAssertEqual(info.format, .hiRes96)
+        let request = try XCTUnwrap(requestBox.value)
+        let components = try XCTUnwrap(URLComponents(url: request.url!, resolvingAgainstBaseURL: false))
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(query["format_id"], "7")
     }
 
     func testAccountValidationUsesApplicationIDAndNeverSendsUserID() async throws {

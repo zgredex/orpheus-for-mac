@@ -62,6 +62,8 @@ struct ActivityRow: View {
                 VStack(alignment: .trailing, spacing: DS.Space.xs) {
                     if let quality = activity.quality {
                         QualityBadge(kind: .target(quality))
+                    } else if let format = activity.audioFormat {
+                        QualityBadge(kind: .exact(format))
                     } else {
                         Color.clear.frame(height: 18)
                     }

@@ -481,7 +481,7 @@ struct NativeLibraryView: View {
 
     private var repairableTracks: [QobuzArchiveTrack] {
         vm.archiveSnapshot?.tracks.filter {
-            $0.integrity != .verified && QobuzQuality(formatID: $0.formatID) != nil
+            $0.integrity != .verified && $0.audioFormat != nil
         } ?? []
     }
 

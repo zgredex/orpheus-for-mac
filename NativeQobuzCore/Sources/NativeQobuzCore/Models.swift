@@ -47,24 +47,47 @@ public struct QobuzCredentials: Equatable, Sendable {
     }
 }
 
+/// The user's download policy. Each case is a maximum: Qobuz may deliver a
+/// lower exact format when the requested ceiling is unavailable.
 public enum QobuzQuality: String, Codable, CaseIterable, Sendable, Hashable {
     case mp3 = "high"
     case lossless
     case hiRes = "hifi"
 
-    public var formatID: Int {
+    public var maximumFormat: QobuzAudioFormat {
         switch self {
-        case .mp3: 5
-        case .lossless: 6
-        case .hiRes: 27
+        case .mp3: .mp3
+        case .lossless: .lossless
+        case .hiRes: .hiRes
         }
     }
+}
+
+/// An exact Qobuz audio format used on the wire and recorded in provenance.
+/// Unlike `QobuzQuality`, this is not a user preference or fallback policy.
+public enum QobuzAudioFormat: Int, Codable, CaseIterable, Sendable, Hashable {
+    case mp3 = 5
+    case lossless = 6
+    case hiRes96 = 7
+    case hiRes = 27
+
+    public var formatID: Int { rawValue }
 
     public init?(formatID: Int) {
-        guard let quality = Self.allCases.first(where: { $0.formatID == formatID }) else {
-            return nil
+        self.init(rawValue: formatID)
+    }
+
+    public var fileExtension: String {
+        self == .mp3 ? "mp3" : "flac"
+    }
+
+    public var displayName: String {
+        switch self {
+        case .mp3: "MP3 320"
+        case .lossless: "Lossless FLAC"
+        case .hiRes96: "Hi-Res FLAC up to 96 kHz"
+        case .hiRes: "Hi-Res FLAC"
         }
-        self = quality
     }
 }
 
@@ -1282,10 +1305,12 @@ public struct QobuzFileRestriction: Codable, Equatable, Sendable {
 
 public struct QobuzFileInfo: Codable, Equatable, Sendable {
     public let url: URL
-    public let formatID: Int
+    public let format: QobuzAudioFormat
     public let bitDepth: Int?
     public let samplingRate: Double?
     public let restrictions: [QobuzFileRestriction]
+
+    public var formatID: Int { format.formatID }
 
     enum CodingKeys: String, CodingKey {
         case url
@@ -1297,13 +1322,13 @@ public struct QobuzFileInfo: Codable, Equatable, Sendable {
 
     public init(
         url: URL,
-        formatID: Int,
+        format: QobuzAudioFormat,
         bitDepth: Int? = nil,
         samplingRate: Double? = nil,
         restrictions: [QobuzFileRestriction] = []
     ) {
         self.url = url
-        self.formatID = formatID
+        self.format = format
         self.bitDepth = bitDepth
         self.samplingRate = samplingRate
         self.restrictions = restrictions
@@ -1312,13 +1337,32 @@ public struct QobuzFileInfo: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         url = try container.decode(URL.self, forKey: .url)
-        formatID = try container.decode(Int.self, forKey: .formatID)
+        let formatID = try container.decode(Int.self, forKey: .formatID)
+        guard let format = QobuzAudioFormat(formatID: formatID) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .formatID,
+                in: container,
+                debugDescription: "Unsupported Qobuz audio format ID \(formatID)"
+            )
+        }
+        self.format = format
         bitDepth = try container.decodeIfPresent(Int.self, forKey: .bitDepth)
         samplingRate = try container.decodeIfPresent(Double.self, forKey: .samplingRate)
         restrictions = try container.decodeIfPresent([QobuzFileRestriction].self, forKey: .restrictions) ?? []
     }
 
-    public var fileExtension: String { formatID == 5 ? "mp3" : "flac" }
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(url, forKey: .url)
+        try container.encode(format.formatID, forKey: .formatID)
+        try container.encodeIfPresent(bitDepth, forKey: .bitDepth)
+        try container.encodeIfPresent(samplingRate, forKey: .samplingRate)
+        if !restrictions.isEmpty {
+            try container.encode(restrictions, forKey: .restrictions)
+        }
+    }
+
+    public var fileExtension: String { format.fileExtension }
 }
 
 public enum QobuzCollection: Equatable, Sendable {

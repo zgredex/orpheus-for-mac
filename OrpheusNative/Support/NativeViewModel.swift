@@ -1503,7 +1503,7 @@ final class NativeViewModel: ObservableObject {
         }
 
         let unsupportedCount = tracks.count { track in
-            track.integrity != .verified && QobuzQuality(formatID: track.formatID) == nil
+            track.integrity != .verified && track.audioFormat == nil
         }
         let ids = stageArchiveRepairs(tracks)
         qobuzLog.info(
@@ -1527,7 +1527,7 @@ final class NativeViewModel: ObservableObject {
     @discardableResult
     func stageArchiveRepairs(_ tracks: [QobuzArchiveTrack]) -> [UUID] {
         let repairable = tracks.filter {
-            $0.integrity != .verified && QobuzQuality(formatID: $0.formatID) != nil
+            $0.integrity != .verified && $0.audioFormat != nil
         }
         var ids: [UUID] = []
         var seenPaths = Set<String>()
@@ -1604,8 +1604,9 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func partialArtifact(for activity: NativeDownloadActivity) -> NativePartialDownload? {
-        guard let output = activity.outputURL, let quality = activity.quality else { return nil }
-        let url = QobuzDownloadArtifacts.partialURL(for: output, formatID: quality.formatID)
+        guard let output = activity.outputURL,
+              let format = activity.audioFormat ?? activity.quality?.maximumFormat else { return nil }
+        let url = QobuzDownloadArtifacts.partialURL(for: output, formatID: format.formatID)
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: url.path),
               (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
@@ -1851,9 +1852,7 @@ final class NativeViewModel: ObservableObject {
                 for id in readyIDs {
                     try Task.checkCancellation()
                     guard let item = queue.first(where: { $0.id == id }) else { continue }
-                    let quality = item.downloadQuality
-                        ?? item.repairTarget.flatMap { QobuzQuality(formatID: $0.formatID) }
-                        ?? defaultQuality
+                    let quality = item.downloadQuality ?? defaultQuality
                     let root = URL(
                         fileURLWithPath: item.downloadRootPath ?? defaultRootPath,
                         isDirectory: true
@@ -1907,9 +1906,10 @@ final class NativeViewModel: ObservableObject {
         root: URL
     ) async {
         guard let item = queue.first(where: { $0.id == queueID }) else { return }
+        let repairFormat = item.repairTarget?.audioFormat
         updateQueue(queueID) {
             $0.status = .downloading
-            $0.downloadQuality = quality
+            if $0.repairTarget == nil { $0.downloadQuality = quality }
             $0.downloadRootPath = root.standardizedFileURL.path
         }
         let activityID: UUID
@@ -1923,7 +1923,8 @@ final class NativeViewModel: ObservableObject {
             activities[index].phase = partial == nil
                 ? (isRetry ? "Retrying" : "Resuming")
                 : "Resuming existing partial file"
-            activities[index].quality = quality
+            activities[index].quality = repairFormat == nil ? quality : nil
+            activities[index].audioFormat = repairFormat
             activities[index].bytesPerSecond = nil
             activities[index].errorMessage = nil
         } else {
@@ -1933,7 +1934,8 @@ final class NativeViewModel: ObservableObject {
                     id: activityID,
                     queueID: queueID,
                     title: item.title,
-                    quality: quality
+                    quality: repairFormat == nil ? quality : nil,
+                    audioFormat: repairFormat
                 ),
                 at: 0
             )
@@ -1943,7 +1945,8 @@ final class NativeViewModel: ObservableObject {
             "activityID": activityID.uuidString,
             "requestKind": item.request.kindName,
             "qobuzID": item.request.id.rawValue,
-            "quality": quality.rawValue,
+            "qualityPolicy": repairFormat == nil ? quality.rawValue : "exact-archive-repair",
+            "requestedFormatID": String((repairFormat ?? quality.maximumFormat).formatID),
             "downloadRoot": root.standardizedFileURL.path,
             "repair": String(item.repairTarget != nil),
             "selectedTrackCount": item.selectedTrackIDs.map { String($0.count) } ?? "all"
@@ -2073,11 +2076,12 @@ final class NativeViewModel: ObservableObject {
                 activity.title = title
                 activity.totalTracks = count
                 activity.phase = "Preparing media"
-            case .trackStarted(let track, let destination):
+            case .trackStarted(let track, let destination, let format):
                 activity.status = .downloading
                 activity.phase = "Downloading"
                 activity.currentTrack = track.track.displayTitle
                 activity.outputURL = destination
+                activity.audioFormat = format
                 activity.bytesPerSecond = nil
             case .progress(let progress):
                 activity.status = .downloading

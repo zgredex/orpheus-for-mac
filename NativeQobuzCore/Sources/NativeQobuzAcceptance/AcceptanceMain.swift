@@ -168,9 +168,9 @@ struct NativeQobuzAcceptance {
                     let value = if quality == .hiRes {
                         mediaFixture.hiResInfo
                     } else {
-                        try await client.fileInfo(trackID: mediaFixture.track.id, quality: quality)
+                        try await client.fileInfo(trackID: mediaFixture.track.id, format: quality.maximumFormat)
                     }
-                    try require(value.formatID == quality.formatID, "Qobuz returned format \(value.formatID), expected \(quality.formatID).")
+                    try require(value.format == quality.maximumFormat, "Qobuz returned format \(value.formatID), expected \(quality.maximumFormat.formatID).")
                     return value
                 }) {
                     fileInfo[quality] = info
@@ -314,8 +314,8 @@ struct NativeQobuzAcceptance {
                 throw AcceptanceFailure(message: "Explicit Hi-Res track has no album metadata.")
             }
             let album = try await client.album(id: albumID)
-            let info = try await client.fileInfo(trackID: track.id, quality: .hiRes)
-            try require(info.formatID == QobuzQuality.hiRes.formatID, "Explicit fixture is not native Hi-Res.")
+            let info = try await client.fileInfo(trackID: track.id, format: QobuzQuality.hiRes.maximumFormat)
+            try require(info.format == QobuzQuality.hiRes.maximumFormat, "Explicit fixture is not native Hi-Res.")
             return MediaFixture(album: album, track: track, hiResInfo: info)
         }
 
@@ -334,8 +334,8 @@ struct NativeQobuzAcceptance {
 
         for album in candidates where album.accountAvailabilityIssue == nil {
             for track in album.availableTracks.prefix(4) {
-                guard let info = try? await client.fileInfo(trackID: track.id, quality: .hiRes),
-                      info.formatID == QobuzQuality.hiRes.formatID else { continue }
+                guard let info = try? await client.fileInfo(trackID: track.id, format: QobuzQuality.hiRes.maximumFormat),
+                      info.format == QobuzQuality.hiRes.maximumFormat else { continue }
                 return MediaFixture(album: album, track: track, hiResInfo: info)
             }
         }
@@ -372,7 +372,7 @@ struct NativeQobuzAcceptance {
         let restored = try JSONDecoder().decode(ResumeRecord.self, from: Data(contentsOf: stateURL))
         try require(restored.trackID == trackID.rawValue && restored.quality == quality, "Relaunch state did not round-trip.")
 
-        let fresh = try await client.fileInfo(trackID: QobuzID(restored.trackID), quality: restored.quality)
+        let fresh = try await client.fileInfo(trackID: QobuzID(restored.trackID), format: restored.quality.maximumFormat)
         try await transfer(source: fresh.url, destination: destination)
         try require(!FileManager.default.fileExists(atPath: partial.path), "Partial file remained after resume completion.")
         let finalSize = (try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.int64Value ?? 0

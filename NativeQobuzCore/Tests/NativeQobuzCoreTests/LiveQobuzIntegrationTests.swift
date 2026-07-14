@@ -25,8 +25,8 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertFalse(album.title.isEmpty)
         XCTAssertFalse(album.tracks.isEmpty)
 
-        let fileInfo = try await client.fileInfo(trackID: firstTrack.id, quality: .mp3)
-        XCTAssertEqual(fileInfo.formatID, QobuzQuality.mp3.formatID)
+        let fileInfo = try await client.fileInfo(trackID: firstTrack.id, format: .mp3)
+        XCTAssertEqual(fileInfo.format, .mp3)
         XCTAssertEqual(fileInfo.url.scheme, "https")
 
         let search = try await client.search("Adele 19", category: .albums, limit: 30)
@@ -124,7 +124,7 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         let albumID = QobuzID(environment["QOBUZ_TEST_ALBUM_ID"] ?? "je3x92urb9drs")
         let album = try await client.album(id: albumID)
         let track = try XCTUnwrap(album.tracks.first)
-        let fileInfo = try await client.fileInfo(trackID: track.id, quality: .mp3)
+        let fileInfo = try await client.fileInfo(trackID: track.id, format: .mp3)
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("NativeQobuzCore-\(UUID().uuidString)", isDirectory: true)
         let destination = directory.appendingPathComponent("transfer-test.mp3")
