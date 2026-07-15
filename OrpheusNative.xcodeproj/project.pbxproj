@@ -56,6 +56,7 @@
 		B8484B44CB5958357ADF6C62 /* NativeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */; };
 		BB1C68F692DCBAF8FB217F57 /* CollectionPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C98826DBF67A0674794E05 /* CollectionPreview.swift */; };
 		BCE3D04D3C33FC0243F9018A /* QueueRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D453705AFB21557619B77B /* QueueRow.swift */; };
+		BE173022A727EEEB8658EF48 /* NativeDiagnosticsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */; };
 		C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */; };
 		C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */; };
 		D1C4D0D769F132B8890219C0 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
@@ -92,6 +93,7 @@
 		637C23C96791D0C949DD562A /* NativeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModels.swift; sourceTree = "<group>"; };
 		645BE67AA234B02DAC3353CD /* PaneHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneHeader.swift; sourceTree = "<group>"; };
 		677F6ED4075596CABC192F49 /* OrpheusNative.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrpheusNative.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticsController.swift; sourceTree = "<group>"; };
 		6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		70F067C0E236755A25C308E0 /* NativeConnectivityEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeConnectivityEvents.swift; sourceTree = "<group>"; };
 		7633B86BA2BFAB97FFB41551 /* StatusStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStyle.swift; sourceTree = "<group>"; };
@@ -285,6 +287,7 @@
 				003989D257DBD4DDB426B074 /* FileDialogs.swift */,
 				0705669E15A714623F9D53B4 /* Formatters.swift */,
 				70F067C0E236755A25C308E0 /* NativeConnectivityEvents.swift */,
+				6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */,
 				DD61966F61366548B91BD7B0 /* NativeDownloadStatus.swift */,
 				E6FC20CA7C9EFAA04ABBD7D2 /* NativeLogging.swift */,
 				637C23C96791D0C949DD562A /* NativeModels.swift */,
@@ -487,6 +490,7 @@
 				8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */,
 				5299B1EE55A439832966A4B2 /* NativeConnectivityEvents.swift in Sources */,
 				DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */,
+				BE173022A727EEEB8658EF48 /* NativeDiagnosticsController.swift in Sources */,
 				21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */,
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
 				0C611D9CE4F2A2FE1C00C53A /* NativeLibraryView.swift in Sources */,

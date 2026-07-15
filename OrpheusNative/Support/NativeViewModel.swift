@@ -47,8 +47,7 @@ final class NativeViewModel: ObservableObject {
     private let credentialStore: any NativeCredentialStoring
     private let archiveStore: any NativeArchiveIndexStoring
     private let sessionStore: any NativeSessionStoring
-    private let logStore: any NativeLogStoring
-    private let supplementalDiagnosticsCollector: any NativeSupplementalDiagnosticsCollecting
+    private let diagnostics: NativeDiagnosticsController
     private let archiveScanner: any QobuzArchiveScanning
     private let libraryAdopter: any QobuzLibraryAdopting
     private let connectivityMonitor: any NativeConnectivityMonitoring
@@ -96,9 +95,10 @@ final class NativeViewModel: ObservableObject {
         self.credentialStore = credentialStore ?? FileCredentialStore(paths: paths)
         self.archiveStore = archiveStore ?? NativeArchiveIndexStore(paths: paths)
         self.sessionStore = sessionStore ?? NativeSessionStore(paths: paths)
-        self.logStore = logStore ?? NativeLogFileStore(paths: paths)
-        self.supplementalDiagnosticsCollector = supplementalDiagnosticsCollector
-            ?? NativeSupplementalDiagnosticsCollector()
+        diagnostics = NativeDiagnosticsController(
+            logStore: logStore ?? NativeLogFileStore(paths: paths),
+            supplementalCollector: supplementalDiagnosticsCollector ?? NativeSupplementalDiagnosticsCollector()
+        )
         self.archiveScanner = archiveScanner
         self.libraryAdopter = libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
         self.connectivityMonitor = connectivityMonitor ?? NativeNetworkConnectivityMonitor()
@@ -106,7 +106,7 @@ final class NativeViewModel: ObservableObject {
         self.clientFactory = clientFactory
         settings = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
         do {
-            try self.logStore.activate()
+            try diagnostics.activate()
             qobuzLog.info("lifecycle", "Native view model initialized")
         } catch {
             FileHandle.standardError.write(Data("Could not activate diagnostics: \(error.localizedDescription)\n".utf8))
@@ -183,105 +183,23 @@ final class NativeViewModel: ObservableObject {
         return "\(flag) \(accountRegion.uppercased())"
     }
 
-    var diagnosticsDirectoryPath: String { logStore.directoryURL.path }
+    var diagnosticsDirectoryPath: String { diagnostics.directoryURL.path }
 
     func diagnosticEntries(limit: Int = 5_000) throws -> [QobuzLogEntry] {
-        try logStore.loadEntries(limit: limit)
+        try diagnostics.entries(limit: limit)
     }
 
     func clearDiagnostics() throws {
-        try logStore.clear()
+        try diagnostics.clear()
     }
 
     func revealDiagnostics() {
-        qobuzLog.info("ui", "Reveal diagnostics folder requested")
-        NSWorkspace.shared.activateFileViewerSelecting([logStore.directoryURL])
+        diagnostics.reveal()
     }
 
     @discardableResult
     func exportDiagnostics(to parent: URL) async throws -> URL {
-        let exportStartedAt = Date()
-        qobuzLog.notice("diagnostics", "Diagnostic export started", metadata: ["destination": parent.path])
-        let stamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-            .format(Date())
-            .replacingOccurrences(of: ":", with: "-")
-        let destination = parent.appendingPathComponent("Orpheus-Diagnostics-\(stamp)", isDirectory: true)
-        let logs = destination.appendingPathComponent("Logs", isDirectory: true)
-        let report = makeDiagnosticReport()
-        let collector = supplementalDiagnosticsCollector
-        let persistentLogStore = logStore
-        return try await Task.detached(priority: .userInitiated) {
-            do {
-                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                encoder.dateEncodingStrategy = .iso8601
-                try encoder.encode(report).write(
-                    to: destination.appendingPathComponent("system-info.json"),
-                    options: .atomic
-                )
-                let supplemental = collector.collect(into: destination)
-                try encoder.encode(supplemental).write(
-                    to: destination.appendingPathComponent("collection-status.json"),
-                    options: .atomic
-                )
-                try Data(
-                    """
-                    Credentials and authentication values are intentionally excluded and redacted from this bundle.
-
-                    Logs/ contains Orpheus's persistent structured JSONL diagnostics.
-                    UnifiedLog/, when available, contains only this running Orpheus process and never the privileged system-wide log.
-                    CrashReports/, when available, contains recent macOS reports matched to Orpheus and redacted for known authentication values.
-                    collection-status.json records which optional artifacts were collected and why any source was unavailable.
-
-                    Crash reports can contain local file paths and macOS system details. Review the bundle before sharing it publicly.
-                    """.utf8
-                ).write(to: destination.appendingPathComponent("README.txt"), options: .atomic)
-                qobuzLog.notice(
-                    "diagnostics",
-                    "Diagnostic export artifacts assembled",
-                    metadata: [
-                        "unifiedLogStatus": supplemental.currentProcessUnifiedLog.state.rawValue,
-                        "unifiedLogEntries": String(supplemental.currentProcessUnifiedLog.itemCount),
-                        "crashReportStatus": supplemental.crashReports.state.rawValue,
-                        "crashReports": String(supplemental.crashReports.itemCount)
-                    ]
-                )
-                try persistentLogStore.copyLogFiles(to: logs)
-                qobuzLog.notice(
-                    "diagnostics",
-                    "Diagnostic export completed",
-                    metadata: [
-                        "destination": destination.path,
-                        "durationMs": String(Int(Date().timeIntervalSince(exportStartedAt) * 1_000))
-                    ]
-                )
-                return destination
-            } catch {
-                do {
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        try FileManager.default.removeItem(at: destination)
-                    }
-                } catch {
-                    qobuzLog.warning(
-                        "diagnostics",
-                        "Failed diagnostic export could not be removed",
-                        metadata: ["destination": destination.path],
-                        error: error
-                    )
-                }
-                qobuzLog.error(
-                    "diagnostics",
-                    "Diagnostic export failed",
-                    metadata: [
-                        "destination": destination.path,
-                        "durationMs": String(Int(Date().timeIntervalSince(exportStartedAt) * 1_000))
-                    ],
-                    error: error
-                )
-                throw error
-            }
-        }.value
+        try await diagnostics.export(report: makeDiagnosticReport(), to: parent)
     }
 
     func start() {
