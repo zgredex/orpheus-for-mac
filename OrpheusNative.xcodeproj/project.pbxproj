@@ -14,6 +14,7 @@
 		0C611D9CE4F2A2FE1C00C53A /* NativeLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */; };
 		0D269BECD091F6F0FE0AD430 /* EditorialOverview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FCC9E16DCFF8327CED91BB3 /* EditorialOverview.swift */; };
 		0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F84910388BFB4F7DEBB16B /* NativeInputBar.swift */; };
+		13BF0FBF4716AE1DBFF062F9 /* NativeAppLifecycleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */; };
 		142B246D2F8A927B03ACD8BD /* ActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9299EA155D4AFB06EA6C7680 /* ActivityRow.swift */; };
 		14DE772DCBCE72612DE7605C /* AlbumPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */; };
 		19DF3B87F03FE29402C249EA /* NativeSecureFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0504E8EACB55220B9F71476 /* NativeSecureFileWriter.swift */; };
@@ -25,6 +26,7 @@
 		2A16AD28B4384DB4FE0439F8 /* CatalogMarkers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E3F750975BD46AD55E04F2 /* CatalogMarkers.swift */; };
 		2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */; };
 		2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C549640E3C4CC5A7454731C /* NativeDownloadStateStore.swift */; };
+		2E769A1C81D472E3D0F2FCC8 /* NativeDownloadOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F3D2CDE3338BA340D20AE4 /* NativeDownloadOrchestrator.swift */; };
 		35293EC701BE11B56041795A /* NativeQueueController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */; };
 		3603F64FA2F9BCA66AC0D517 /* NativePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */; };
 		3ABCA393158C6CC12E695212 /* NativePreviewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBFDEB0AA71E7BF694342F5 /* NativePreviewState.swift */; };
@@ -44,9 +46,11 @@
 		586A981F30D8993655793031 /* NativePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923659614A8B428EF4C2ADE2 /* NativePersistence.swift */; };
 		5AC0704CF7A4650B3F76BF8B /* NativeLibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */; };
 		5C2AC8D7A317969465F84529 /* NativeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A65459F1F88915E30A939C /* NativeAdapterTests.swift */; };
+		6155F8AE7B17E9498CAC2810 /* NativeRequestIntakeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DC1ACBD7261521C591C90F /* NativeRequestIntakeController.swift */; };
 		6D6BA088B16709AD839A3764 /* TrackPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2704F594552DAF12733A3709 /* TrackPreview.swift */; };
 		6F47EECC1DAC3005D3A4F7FD /* NativeLoggingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99536D23BDAF3AD8F187C289 /* NativeLoggingTests.swift */; };
 		6FA64BF1219B5A88F8195203 /* EditorialHeroPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B642C18087F0EF6F7230A62E /* EditorialHeroPanel.swift */; };
+		732D19BFA5D4D62DE8869D4E /* NativeDiagnosticSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10A14C40B3A1482C04D2095 /* NativeDiagnosticSnapshotBuilder.swift */; };
 		740BCE4DD6E55B4CA542B5E2 /* PreviewScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2DC716836FF36DF0090471F /* PreviewScaffold.swift */; };
 		7BD6ADBD6C07578B18F250D7 /* NativeSettingsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BFB3B9A1FFD6D8D3008CBCD /* NativeSettingsModels.swift */; };
 		7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */; };
@@ -75,6 +79,7 @@
 		BB1C68F692DCBAF8FB217F57 /* CollectionPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C98826DBF67A0674794E05 /* CollectionPreview.swift */; };
 		BCE3D04D3C33FC0243F9018A /* QueueRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D453705AFB21557619B77B /* QueueRow.swift */; };
 		BE173022A727EEEB8658EF48 /* NativeDiagnosticsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */; };
+		BF37B6EC389F9E350A7B02E5 /* NativeSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFD94316353838D6095EA51D /* NativeSessionController.swift */; };
 		C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */; };
 		C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */; };
 		C5BE9431BCB98704FB67FDA7 /* NativeDownloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A3AE3BF79AC58159CBD9005 /* NativeDownloadController.swift */; };
@@ -84,12 +89,15 @@
 		D6B10B98C315E5C80AEC24CE /* NativeLibraryCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8BDFAF3A22A5513784246C /* NativeLibraryCategoryView.swift */; };
 		D8B66A1C2A5B145AD8FA727F /* NativeDownloadStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA986A2A917D8F063500CCA0 /* NativeDownloadStateStoreTests.swift */; };
 		DBB4CB0D6FE8CAE424DD2793 /* NativePreviewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B23711D8D961E4DF7715B2 /* NativePreviewController.swift */; };
+		DC67CA2A118AC3A94A6EE70B /* NativeBrowseNavigationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CF9CE7AB59289B455575E2A /* NativeBrowseNavigationController.swift */; };
 		DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */; };
 		F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
 		F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */; };
 		FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40D28F3F550CBABAEC1CD16 /* NativeAccountController.swift */; };
+		FBB47FE6DAA5BE9D8932D493 /* NativeDomainObservationRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76584BE0204F6A6B2FFFFD3B /* NativeDomainObservationRelay.swift */; };
 		FCFEB1D2D5FAF854FF34B879 /* NativeSupplementalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */; };
+		FF742D4E70AFC266461E99B7 /* NativeQueueOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7623A8B45F73A6BA08643E7D /* NativeQueueOrchestrator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -135,10 +143,13 @@
 		6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticsController.swift; sourceTree = "<group>"; };
 		6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		70F067C0E236755A25C308E0 /* NativeConnectivityEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeConnectivityEvents.swift; sourceTree = "<group>"; };
+		7623A8B45F73A6BA08643E7D /* NativeQueueOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueueOrchestrator.swift; sourceTree = "<group>"; };
 		7633B86BA2BFAB97FFB41551 /* StatusStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStyle.swift; sourceTree = "<group>"; };
+		76584BE0204F6A6B2FFFFD3B /* NativeDomainObservationRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDomainObservationRelay.swift; sourceTree = "<group>"; };
 		7A3AE3BF79AC58159CBD9005 /* NativeDownloadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadController.swift; sourceTree = "<group>"; };
 		7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommandBar.swift; sourceTree = "<group>"; };
 		7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseView.swift; sourceTree = "<group>"; };
+		7CF9CE7AB59289B455575E2A /* NativeBrowseNavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseNavigationController.swift; sourceTree = "<group>"; };
 		81F3296DBFA84D9AEF4CC927 /* EditorialTextFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTextFormatterTests.swift; sourceTree = "<group>"; };
 		8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSamples.swift; sourceTree = "<group>"; };
 		83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueueModels.swift; sourceTree = "<group>"; };
@@ -156,11 +167,14 @@
 		AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueuePane.swift; sourceTree = "<group>"; };
 		AB38BF8B7F13870BEF444120 /* NativeQobuzCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NativeQobuzCore; path = NativeQobuzCore; sourceTree = SOURCE_ROOT; };
 		AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryArchiveRows.swift; sourceTree = "<group>"; };
+		B10A14C40B3A1482C04D2095 /* NativeDiagnosticSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticSnapshotBuilder.swift; sourceTree = "<group>"; };
 		B3D453705AFB21557619B77B /* QueueRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueRow.swift; sourceTree = "<group>"; };
+		B4DC1ACBD7261521C591C90F /* NativeRequestIntakeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRequestIntakeController.swift; sourceTree = "<group>"; };
 		B642C18087F0EF6F7230A62E /* EditorialHeroPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialHeroPanel.swift; sourceTree = "<group>"; };
 		B6EB097B50DA94628D894D48 /* LabelPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelPreview.swift; sourceTree = "<group>"; };
 		B7F894D18FBA27D31C3D298D /* NativeLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogView.swift; sourceTree = "<group>"; };
 		B96C777437F88709C97FD469 /* EditorialContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialContent.swift; sourceTree = "<group>"; };
+		BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppLifecycleController.swift; sourceTree = "<group>"; };
 		C0504E8EACB55220B9F71476 /* NativeSecureFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSecureFileWriter.swift; sourceTree = "<group>"; };
 		C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContentView.swift; sourceTree = "<group>"; };
 		C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumPreview.swift; sourceTree = "<group>"; };
@@ -169,6 +183,7 @@
 		CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryController.swift; sourceTree = "<group>"; };
 		CFDA5A8D31B88CED18DDB9DD /* NativePartialDownloadLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePartialDownloadLocator.swift; sourceTree = "<group>"; };
 		D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSupplementalDiagnostics.swift; sourceTree = "<group>"; };
+		D4F3D2CDE3338BA340D20AE4 /* NativeDownloadOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadOrchestrator.swift; sourceTree = "<group>"; };
 		D51A5AB448A84780643E8102 /* LayoutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPolicyTests.swift; sourceTree = "<group>"; };
 		D57563958E39251BB8E57A83 /* AddToQueueButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToQueueButton.swift; sourceTree = "<group>"; };
 		D7F84910388BFB4F7DEBB16B /* NativeInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeInputBar.swift; sourceTree = "<group>"; };
@@ -189,6 +204,7 @@
 		FA8BDFAF3A22A5513784246C /* NativeLibraryCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryCategoryView.swift; sourceTree = "<group>"; };
 		FDA88442A935015C025CE423 /* SearchResultsList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsList.swift; sourceTree = "<group>"; };
 		FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStatusLabel.swift; sourceTree = "<group>"; };
+		FFD94316353838D6095EA51D /* NativeSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSessionController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -220,6 +236,7 @@
 				7A3AE3BF79AC58159CBD9005 /* NativeDownloadController.swift */,
 				299298E81FAB20EE3E90BDC5 /* NativeDownloadItemRunner.swift */,
 				865F0B88B9C6E354244E6439 /* NativeDownloadLedger.swift */,
+				D4F3D2CDE3338BA340D20AE4 /* NativeDownloadOrchestrator.swift */,
 				CFDA5A8D31B88CED18DDB9DD /* NativePartialDownloadLocator.swift */,
 			);
 			path = Download;
@@ -357,6 +374,7 @@
 			children = (
 				CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */,
 				54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */,
+				7CF9CE7AB59289B455575E2A /* NativeBrowseNavigationController.swift */,
 				0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */,
 			);
 			path = Browse;
@@ -384,6 +402,8 @@
 				02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */,
 				6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */,
 				83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */,
+				7623A8B45F73A6BA08643E7D /* NativeQueueOrchestrator.swift */,
+				B4DC1ACBD7261521C591C90F /* NativeRequestIntakeController.swift */,
 			);
 			path = Queue;
 			sourceTree = "<group>";
@@ -412,13 +432,17 @@
 				DB7F396DBCA963176977A9DE /* EditorialTextFormatter.swift */,
 				003989D257DBD4DDB426B074 /* FileDialogs.swift */,
 				0705669E15A714623F9D53B4 /* Formatters.swift */,
+				BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */,
 				70F067C0E236755A25C308E0 /* NativeConnectivityEvents.swift */,
 				6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */,
+				B10A14C40B3A1482C04D2095 /* NativeDiagnosticSnapshotBuilder.swift */,
+				76584BE0204F6A6B2FFFFD3B /* NativeDomainObservationRelay.swift */,
 				2C549640E3C4CC5A7454731C /* NativeDownloadStateStore.swift */,
 				DD61966F61366548B91BD7B0 /* NativeDownloadStatus.swift */,
 				E6FC20CA7C9EFAA04ABBD7D2 /* NativeLogging.swift */,
 				923659614A8B428EF4C2ADE2 /* NativePersistence.swift */,
 				C0504E8EACB55220B9F71476 /* NativeSecureFileWriter.swift */,
+				FFD94316353838D6095EA51D /* NativeSessionController.swift */,
 				F4687A6AFD49B7DEC9242E85 /* NativeSessionPersistence.swift */,
 				D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */,
 				8513EC42E41C3EAB595FAC39 /* NativeSystemServices.swift */,
@@ -621,19 +645,24 @@
 				4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */,
 				FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */,
 				1D9BBAEC775BF03CBC2E70A4 /* NativeActivityView.swift in Sources */,
+				13BF0FBF4716AE1DBFF062F9 /* NativeAppLifecycleController.swift in Sources */,
 				C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */,
 				F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */,
+				DC67CA2A118AC3A94A6EE70B /* NativeBrowseNavigationController.swift in Sources */,
 				7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */,
 				910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */,
 				8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */,
 				A779F1F644E153CE1F6F2E98 /* NativeConnectivityController.swift in Sources */,
 				5299B1EE55A439832966A4B2 /* NativeConnectivityEvents.swift in Sources */,
 				DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */,
+				732D19BFA5D4D62DE8869D4E /* NativeDiagnosticSnapshotBuilder.swift in Sources */,
 				BE173022A727EEEB8658EF48 /* NativeDiagnosticsController.swift in Sources */,
+				FBB47FE6DAA5BE9D8932D493 /* NativeDomainObservationRelay.swift in Sources */,
 				89C603BB7B24BD3E4E3223DC /* NativeDownloadActivity.swift in Sources */,
 				C5BE9431BCB98704FB67FDA7 /* NativeDownloadController.swift in Sources */,
 				05714791ED1614BDD4CF8E5F /* NativeDownloadItemRunner.swift in Sources */,
 				4D60D253C23468EE4541692D /* NativeDownloadLedger.swift in Sources */,
+				2E769A1C81D472E3D0F2FCC8 /* NativeDownloadOrchestrator.swift in Sources */,
 				2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */,
 				21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */,
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
@@ -657,8 +686,11 @@
 				F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */,
 				35293EC701BE11B56041795A /* NativeQueueController.swift in Sources */,
 				B51166C741F31E64F1523E03 /* NativeQueueModels.swift in Sources */,
+				FF742D4E70AFC266461E99B7 /* NativeQueueOrchestrator.swift in Sources */,
 				C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */,
+				6155F8AE7B17E9498CAC2810 /* NativeRequestIntakeController.swift in Sources */,
 				19DF3B87F03FE29402C249EA /* NativeSecureFileWriter.swift in Sources */,
+				BF37B6EC389F9E350A7B02E5 /* NativeSessionController.swift in Sources */,
 				3EEE70171830464F7D726D5B /* NativeSessionPersistence.swift in Sources */,
 				7BD6ADBD6C07578B18F250D7 /* NativeSettingsModels.swift in Sources */,
 				B30F89034197A12FEA98F0C0 /* NativeSettingsView.swift in Sources */,

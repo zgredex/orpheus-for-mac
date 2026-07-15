@@ -17,12 +17,12 @@ struct NativeContentView: View {
                 VSplitView {
                     Group {
                         if vm.isLibraryOpen { NativeLibraryView().transition(.opacity) }
-                        else if vm.isBrowseOpen { NativeBrowseView().transition(.opacity) }
+                        else if vm.browse.isOpen { NativeBrowseView().transition(.opacity) }
                         else { NativePreviewView().transition(.opacity) }
                     }
                     .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
                     .layoutPriority(1)
-                    .animation(.easeOut(duration: 0.15), value: vm.isBrowseOpen)
+                    .animation(.easeOut(duration: 0.15), value: vm.browse.isOpen)
                     NativeActivityView()
                         .frame(
                             maxWidth: .infinity,

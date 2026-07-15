@@ -7,7 +7,7 @@ struct NativeBrowseView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 10) {
-                if let page = vm.browsePath.last {
+                if let page = vm.browse.path.last {
                     detailHeader(page)
                 } else {
                     searchHeader
@@ -19,7 +19,7 @@ struct NativeBrowseView: View {
             Divider()
             browseContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .animation(.default, value: vm.browsePath)
+                .animation(.default, value: vm.browse.path)
         }
     }
 
@@ -29,11 +29,11 @@ struct NativeBrowseView: View {
                 .foregroundStyle(.secondary)
             Text("Results for")
                 .foregroundStyle(.secondary)
-            Text(vm.browseQuery)
+            Text(vm.browse.query)
                 .fontWeight(.semibold)
                 .lineLimit(1)
             Spacer()
-            if vm.isBrowseLoading {
+            if vm.browse.isLoading {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -61,9 +61,15 @@ struct NativeBrowseView: View {
     }
 
     private var categoryPicker: some View {
-        Picker("Category", selection: $vm.browseCategory) {
+        Picker(
+            "Category",
+            selection: Binding(
+                get: { vm.browse.category },
+                set: { vm.browse.category = $0 }
+            )
+        ) {
             ForEach(NativeBrowseCategory.allCases) { category in
-                Text("\(category.rawValue)  \(vm.browseCountLabel(for: category))")
+                Text("\(category.rawValue)  \(vm.browse.countLabel(for: category))")
                     .monospacedDigit()
                     .lineLimit(1)
                     .tag(category)
@@ -74,7 +80,7 @@ struct NativeBrowseView: View {
     }
 
     private var categoryStatus: some View {
-        Text(vm.browseStatusText)
+        Text(vm.browse.statusText)
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -117,7 +123,7 @@ struct NativeBrowseView: View {
         case .album(let album):
             let queued = queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
             HStack(spacing: DS.Space.m) {
-                if let status = vm.libraryStatus(for: album) {
+                if let status = vm.library.status(for: album) {
                     LibraryStatusLabel(status: status)
                 }
                 Button(queued ? "In Queue" : "Add Album", systemImage: queued ? "checkmark" : "plus") {
@@ -195,12 +201,12 @@ struct NativeBrowseView: View {
     }
 
     @ViewBuilder private var browseContent: some View {
-        if let page = vm.browsePath.last {
+        if let page = vm.browse.path.last {
             pageContent(page)
-        } else if vm.loadingBrowseCategories.contains(vm.browseCategory) {
-            ProgressView("Searching \(vm.browseCategory.rawValue.lowercased())...")
+        } else if vm.browse.loadingCategories.contains(vm.browse.category) {
+            ProgressView("Searching \(vm.browse.category.rawValue.lowercased())...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error = vm.browseErrors[vm.browseCategory] {
+        } else if let error = vm.browse.errors[vm.browse.category] {
             ContentUnavailableView {
                 Label("Search failed", systemImage: "wifi.exclamationmark")
             } description: {
@@ -209,7 +215,7 @@ struct NativeBrowseView: View {
                 Button("Try Again") { vm.retryBrowseSearch() }
             }
         } else {
-            switch vm.browseCategory {
+            switch vm.browse.category {
             case .albums: paginatedResults(albumResults, category: .albums)
             case .artists: paginatedResults(artistResults, category: .artists)
             case .playlists: paginatedResults(playlistResults, category: .playlists)
@@ -225,10 +231,10 @@ struct NativeBrowseView: View {
         SearchResultsList(
             results: results,
             emptyCategory: category.rawValue.lowercased(),
-            hasMore: vm.canLoadMoreBrowseResults(for: category),
-            isLoadingMore: vm.isLoadingMoreBrowseResults(for: category),
-            loadMoreError: vm.browseLoadMoreErrors[category],
-            loadMore: { vm.loadMoreBrowseResults(for: category) }
+            hasMore: vm.browse.canLoadMore(for: category),
+            isLoadingMore: vm.browse.isLoadingMore(for: category),
+            loadMoreError: vm.browse.loadMoreErrors[category],
+            loadMore: { vm.browse.loadMore(for: category) }
         )
     }
 
@@ -267,8 +273,8 @@ struct NativeBrowseView: View {
                     isTrackQueued: { track in
                         queuedURLs.contains(QobuzRequest.track(track.id).canonicalURL)
                     },
-                    trackLibraryStatus: { vm.libraryStatus(for: $0) },
-                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
+                    trackLibraryStatus: { vm.library.status(for: $0) },
+                    trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) }
                 )
             }
         case .artist(let catalog):
@@ -280,7 +286,7 @@ struct NativeBrowseView: View {
                     isAlbumQueued: { album in
                         queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
                     },
-                    albumLibraryStatus: { vm.libraryStatus(for: $0) }
+                    albumLibraryStatus: { vm.library.status(for: $0) }
                 )
             }
         case .track(let track):
@@ -288,7 +294,7 @@ struct NativeBrowseView: View {
                 TrackPreview(
                     track: track,
                     onOpenAlbum: track.album.map { summary in { vm.openAlbum(summary.id) } },
-                    libraryStatus: vm.libraryStatus(for: track)
+                    libraryStatus: vm.library.status(for: track)
                 )
             }
         case .playlist(let playlist):
@@ -301,9 +307,9 @@ struct NativeBrowseView: View {
                     artworkURL: metadata.artworkURL,
                     metadata: CatalogFormat.playlistFacts(metadata),
                     collectionDescription: metadata.editorialDescription,
-                    libraryStatus: vm.libraryStatus(for: playlist.tracks),
-                    trackLibraryStatus: { vm.libraryStatus(for: $0) },
-                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) }
+                    libraryStatus: vm.library.status(for: playlist.tracks),
+                    trackLibraryStatus: { vm.library.status(for: $0) },
+                    trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) }
                 )
             }
         case .label(let label):
@@ -315,7 +321,7 @@ struct NativeBrowseView: View {
                     isAlbumQueued: { album in
                         queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
                     },
-                    albumLibraryStatus: { vm.libraryStatus(for: $0) }
+                    albumLibraryStatus: { vm.library.status(for: $0) }
                 )
             }
         }
@@ -361,7 +367,7 @@ struct NativeBrowseView: View {
 
     private var albumResults: [SearchResult] {
         let queued = queuedURLs
-        return vm.browseAlbums.map { album in
+        return vm.browse.albums.map { album in
             SearchResult(
                 id: album.id.rawValue,
                 artworkURL: album.image?.bestURL,
@@ -371,7 +377,7 @@ struct NativeBrowseView: View {
                     metadata: album.catalogMetadata
                 ),
                 isQueued: queued.contains(QobuzRequest.album(album.id).canonicalURL),
-                libraryStatus: vm.libraryStatus(for: album),
+                libraryStatus: vm.library.status(for: album),
                 quality: .catalog(album),
                 open: { vm.openAlbum(album.id) },
                 add: nil
@@ -381,7 +387,7 @@ struct NativeBrowseView: View {
 
     private var artistResults: [SearchResult] {
         let queued = queuedURLs
-        return vm.browseArtists.map { artist in
+        return vm.browse.artists.map { artist in
             SearchResult(
                 id: artist.id?.rawValue ?? artist.name,
                 artworkURL: artist.image?.bestURL,
@@ -398,14 +404,14 @@ struct NativeBrowseView: View {
 
     private var trackResults: [SearchResult] {
         let queued = queuedURLs
-        return vm.browseTracks.map { track in
+        return vm.browse.tracks.map { track in
             SearchResult(
                 id: track.id.rawValue,
                 artworkURL: track.album?.image?.bestURL,
                 title: track.displayTitle,
                 subtitle: track.performer?.name ?? track.album?.title ?? "Track",
                 isQueued: queued.contains(QobuzRequest.track(track.id).canonicalURL),
-                libraryStatus: vm.libraryStatus(for: track),
+                libraryStatus: vm.library.status(for: track),
                 quality: .catalog(track),
                 open: { vm.openTrack(track.id) },
                 add: nil
@@ -415,7 +421,7 @@ struct NativeBrowseView: View {
 
     private var playlistResults: [SearchResult] {
         let queued = queuedURLs
-        return vm.browsePlaylists.map { playlist in
+        return vm.browse.playlists.map { playlist in
             let metadata = playlist.catalogMetadata
             let count = metadata.tracksCount ?? 0
             return SearchResult(
@@ -426,7 +432,7 @@ struct NativeBrowseView: View {
                     .compactMap { $0 }
                     .joined(separator: " · "),
                 isQueued: queued.contains(QobuzRequest.playlist(playlist.id).canonicalURL),
-                libraryStatus: vm.libraryStatus(for: playlist.tracks),
+                libraryStatus: vm.library.status(for: playlist.tracks),
                 placeholderSymbol: "music.note.list",
                 open: { vm.openPlaylist(playlist.id) },
                 add: nil

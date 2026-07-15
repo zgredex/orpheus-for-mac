@@ -18,9 +18,9 @@ struct NativePreviewView: View {
                     album: album,
                     onOpenArtist: album.artist.id.map { id in { vm.openArtist(id) } },
                     onOpenLabel: album.labelInfo?.id.map { id in { vm.openLabel(id) } },
-                    libraryStatus: vm.libraryStatus(for: album),
-                    trackLibraryStatus: { vm.libraryStatus(for: $0) },
-                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) },
+                    libraryStatus: vm.library.status(for: album),
+                    trackLibraryStatus: { vm.library.status(for: $0) },
+                    trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) },
                     selectedTrackIDs: vm.queueTrackSelection(for: .album(album.id)),
                     onToggleTrackSelection: vm.toggleSelectedQueueTrack,
                     onSelectAllTracks: vm.selectAllSelectedQueueTracks,
@@ -30,7 +30,7 @@ struct NativePreviewView: View {
                 TrackPreview(
                     track: track,
                     onOpenAlbum: track.album.map { summary in { vm.openAlbum(summary.id) } },
-                    libraryStatus: vm.libraryStatus(for: track)
+                    libraryStatus: vm.library.status(for: track)
                 )
             case .playlist(let playlist):
                 let metadata = playlist.catalogMetadata
@@ -41,9 +41,9 @@ struct NativePreviewView: View {
                     artworkURL: metadata.artworkURL,
                     metadata: CatalogFormat.playlistFacts(metadata),
                     collectionDescription: metadata.editorialDescription,
-                    libraryStatus: vm.libraryStatus(for: playlist.tracks),
-                    trackLibraryStatus: { vm.libraryStatus(for: $0) },
-                    trackAvailabilityMessage: { vm.unavailabilityMessage(for: $0) },
+                    libraryStatus: vm.library.status(for: playlist.tracks),
+                    trackLibraryStatus: { vm.library.status(for: $0) },
+                    trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) },
                     selectedTrackIDs: vm.queueTrackSelection(for: .playlist(playlist.id)),
                     onToggleTrackSelection: vm.toggleSelectedQueueTrack,
                     onSelectAllTracks: vm.selectAllSelectedQueueTracks,
@@ -57,7 +57,7 @@ struct NativePreviewView: View {
                     isAlbumQueued: { album in
                         vm.queue.contains { $0.canonicalURL == QobuzRequest.album(album.id).canonicalURL }
                     },
-                    albumLibraryStatus: { vm.libraryStatus(for: $0) }
+                    albumLibraryStatus: { vm.library.status(for: $0) }
                 )
             case .label(let label):
                 LabelPreview(
@@ -67,7 +67,7 @@ struct NativePreviewView: View {
                     isAlbumQueued: { album in
                         vm.queue.contains { $0.canonicalURL == QobuzRequest.album(album.id).canonicalURL }
                     },
-                    albumLibraryStatus: { vm.libraryStatus(for: $0) }
+                    albumLibraryStatus: { vm.library.status(for: $0) }
                 )
             case .error(let message):
                 ContentUnavailableView("Could not load metadata", systemImage: "exclamationmark.triangle", description: Text(message))

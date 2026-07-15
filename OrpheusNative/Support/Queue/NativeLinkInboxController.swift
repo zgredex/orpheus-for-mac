@@ -114,7 +114,7 @@ final class NativeLinkInboxController: ObservableObject {
                 }
                 while let result = await group.next() {
                     guard let self, !Task.isCancelled else { return }
-                    apply(result)
+                    self.apply(result)
                     if next < work.count {
                         let value = work[next]
                         next += 1
@@ -125,7 +125,7 @@ final class NativeLinkInboxController: ObservableObject {
                 }
             }
             guard let self, !Task.isCancelled else { return }
-            reviewTask = nil
+            self.reviewTask = nil
         }
         return false
     }

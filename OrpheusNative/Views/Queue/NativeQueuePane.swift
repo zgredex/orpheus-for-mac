@@ -31,7 +31,7 @@ struct NativeQueuePane: View {
                             item: item,
                             status: vm.status(for: item),
                             targetQuality: item.downloadQuality ?? vm.settings.quality,
-                            libraryStatus: vm.libraryStatus(for: item),
+                            libraryStatus: vm.library.status(for: item),
                             isExpanded: expandedIDs.contains(item.id),
                             toggleExpanded: { toggleExpanded(item.id) }
                         )

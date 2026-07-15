@@ -545,16 +545,16 @@ final class NativeAdapterTests: XCTestCase {
         viewModel.addText("https://www.qobuz.com/fr-fr/album/30/30")
 
         XCTAssertTrue(viewModel.queue.isEmpty)
-        XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("30")))
+        XCTAssertEqual(viewModel.browse.path.last?.destination, .album(QobuzID("30")))
 
-        for _ in 0..<100 where viewModel.browsePath.last?.content == .loading {
+        for _ in 0..<100 where viewModel.browse.path.last?.content == .loading {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        guard case .album(let album)? = viewModel.browsePath.last?.content else {
+        guard case .album(let album)? = viewModel.browse.path.last?.content else {
             return XCTFail("Expected an account-verified album detail")
         }
-        XCTAssertEqual(viewModel.browsePath.last?.availability, .available)
+        XCTAssertEqual(viewModel.browse.path.last?.availability, .available)
         XCTAssertTrue(viewModel.queue.isEmpty)
 
         viewModel.addRequest(
@@ -590,7 +590,7 @@ final class NativeAdapterTests: XCTestCase {
             viewModel.start()
             viewModel.handleOpenURL(try XCTUnwrap(components.url))
 
-            XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("30")), scheme)
+            XCTAssertEqual(viewModel.browse.path.last?.destination, .album(QobuzID("30")), scheme)
             XCTAssertTrue(viewModel.queue.isEmpty, scheme)
         }
     }
@@ -617,13 +617,13 @@ final class NativeAdapterTests: XCTestCase {
         }
 
         XCTAssertTrue(viewModel.queue.isEmpty)
-        XCTAssertTrue(viewModel.browsePath.isEmpty)
+        XCTAssertTrue(viewModel.browse.path.isEmpty)
         XCTAssertEqual(viewModel.linkInbox.map(\.request), [.album(QobuzID("a")), .album(QobuzID("b"))])
         XCTAssertTrue(viewModel.linkInbox.allSatisfy { $0.status == .available })
 
         let firstID = try XCTUnwrap(viewModel.linkInbox.first?.id)
         viewModel.openInboxItem(firstID)
-        XCTAssertEqual(viewModel.browsePath.last?.destination, .album(QobuzID("a")))
+        XCTAssertEqual(viewModel.browse.path.last?.destination, .album(QobuzID("a")))
     }
 
     func testInboxClassifiesAccountRegionMissAsUnavailable() async throws {
@@ -670,15 +670,15 @@ final class NativeAdapterTests: XCTestCase {
 
         viewModel.start()
         viewModel.addText("https://www.qobuz.com/us-en/label/example/download-streaming-albums/4587")
-        for _ in 0..<100 where viewModel.browsePath.last?.content == .loading {
+        for _ in 0..<100 where viewModel.browse.path.last?.content == .loading {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        guard case .label(let label)? = viewModel.browsePath.last?.content else {
+        guard case .label(let label)? = viewModel.browse.path.last?.content else {
             return XCTFail("Expected a label detail page")
         }
         XCTAssertEqual(label.name, "Test Label")
-        XCTAssertEqual(viewModel.browsePath.last?.availability, .available)
+        XCTAssertEqual(viewModel.browse.path.last?.availability, .available)
         XCTAssertTrue(viewModel.queue.isEmpty)
     }
 
@@ -701,14 +701,14 @@ final class NativeAdapterTests: XCTestCase {
             ]
         )
 
-        guard case .partial(let message) = viewModel.availability(for: album) else {
+        guard case .partial(let message) = viewModel.browse.availability(for: album) else {
             return XCTFail("Expected partial availability")
         }
-        XCTAssertTrue(viewModel.availability(for: album).allowsQueue)
+        XCTAssertTrue(viewModel.browse.availability(for: album).allowsQueue)
         XCTAssertEqual(album.availableTracks.map(\.id), [QobuzID("available")])
         XCTAssertTrue(message.contains("1 of 3 tracks"))
-        XCTAssertNotNil(viewModel.unavailabilityMessage(for: album.tracks[1]))
-        XCTAssertNotNil(viewModel.unavailabilityMessage(for: album.tracks[2]))
+        XCTAssertNotNil(viewModel.browse.unavailabilityMessage(for: album.tracks[1]))
+        XCTAssertNotNil(viewModel.browse.unavailabilityMessage(for: album.tracks[2]))
     }
 
     func testAdeleSearchPopulatesVisibleBrowseStateAndPreservesSelectedCategory() async throws {
@@ -725,21 +725,21 @@ final class NativeAdapterTests: XCTestCase {
 
         viewModel.start()
         viewModel.search("adele")
-        viewModel.browseCategory = .tracks
+        viewModel.browse.category = .tracks
 
-        for _ in 0..<100 where viewModel.isBrowseLoading {
+        for _ in 0..<100 where viewModel.browse.isLoading {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        XCTAssertTrue(viewModel.isBrowseOpen)
-        XCTAssertEqual(viewModel.browseQuery, "adele")
-        XCTAssertEqual(viewModel.browseAlbums.map(\.title), ["30", "19"])
-        XCTAssertEqual(viewModel.browseArtists.map(\.name), ["Adele"])
-        XCTAssertEqual(viewModel.browsePlaylists.map(\.name), ["Adele Essentials"])
-        XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Hello"])
-        XCTAssertEqual(viewModel.browseCategory, .tracks)
-        XCTAssertEqual(viewModel.browseStatusText, "5 results")
-        XCTAssertFalse(viewModel.isBrowseLoading)
+        XCTAssertTrue(viewModel.browse.isOpen)
+        XCTAssertEqual(viewModel.browse.query, "adele")
+        XCTAssertEqual(viewModel.browse.albums.map(\.title), ["30", "19"])
+        XCTAssertEqual(viewModel.browse.artists.map(\.name), ["Adele"])
+        XCTAssertEqual(viewModel.browse.playlists.map(\.name), ["Adele Essentials"])
+        XCTAssertEqual(viewModel.browse.tracks.map(\.title), ["Hello"])
+        XCTAssertEqual(viewModel.browse.category, .tracks)
+        XCTAssertEqual(viewModel.browse.statusText, "5 results")
+        XCTAssertFalse(viewModel.browse.isLoading)
     }
 
     func testSearchLoadsASecondCategoryPageAndUpdatesLoadedCounts() async throws {
@@ -756,24 +756,24 @@ final class NativeAdapterTests: XCTestCase {
 
         viewModel.start()
         viewModel.search("Sting")
-        for _ in 0..<100 where viewModel.isBrowseLoading {
+        for _ in 0..<100 where viewModel.browse.isLoading {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Track One", "Track Two"])
-        XCTAssertEqual(viewModel.browseCountLabel(for: .tracks), "2+")
-        XCTAssertEqual(viewModel.browseStatusText, "2 loaded")
-        XCTAssertTrue(viewModel.canLoadMoreBrowseResults(for: .tracks))
+        XCTAssertEqual(viewModel.browse.tracks.map(\.title), ["Track One", "Track Two"])
+        XCTAssertEqual(viewModel.browse.countLabel(for: .tracks), "2+")
+        XCTAssertEqual(viewModel.browse.statusText, "2 loaded")
+        XCTAssertTrue(viewModel.browse.canLoadMore(for: .tracks))
 
-        viewModel.loadMoreBrowseResults(for: .tracks)
-        for _ in 0..<100 where viewModel.isLoadingMoreBrowseResults(for: .tracks) {
+        viewModel.browse.loadMore(for: .tracks)
+        for _ in 0..<100 where viewModel.browse.isLoadingMore(for: .tracks) {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        XCTAssertEqual(viewModel.browseTracks.map(\.title), ["Track One", "Track Two", "Track Three"])
-        XCTAssertEqual(viewModel.browseCountLabel(for: .tracks), "3")
-        XCTAssertEqual(viewModel.browseStatusText, "3 results")
-        XCTAssertFalse(viewModel.canLoadMoreBrowseResults(for: .tracks))
+        XCTAssertEqual(viewModel.browse.tracks.map(\.title), ["Track One", "Track Two", "Track Three"])
+        XCTAssertEqual(viewModel.browse.countLabel(for: .tracks), "3")
+        XCTAssertEqual(viewModel.browse.statusText, "3 results")
+        XCTAssertFalse(viewModel.browse.canLoadMore(for: .tracks))
     }
 
     func testBrowseDrillDownOpensAlbumPageAndBackReturnsToResults() async throws {
@@ -791,26 +791,26 @@ final class NativeAdapterTests: XCTestCase {
         viewModel.start()
         viewModel.search("adele")
         viewModel.openAlbum(QobuzID("30"))
-        XCTAssertEqual(viewModel.browsePath.count, 1)
-        XCTAssertEqual(viewModel.browsePath.last?.content, .loading)
+        XCTAssertEqual(viewModel.browse.path.count, 1)
+        XCTAssertEqual(viewModel.browse.path.last?.content, .loading)
 
-        for _ in 0..<100 where viewModel.browsePath.last?.content == .loading {
+        for _ in 0..<100 where viewModel.browse.path.last?.content == .loading {
             try await Task.sleep(for: .milliseconds(10))
         }
 
-        guard case .album(let album)? = viewModel.browsePath.last?.content else {
+        guard case .album(let album)? = viewModel.browse.path.last?.content else {
             return XCTFail("Expected a loaded album page")
         }
         XCTAssertEqual(album.title, "30")
         XCTAssertEqual(album.tracks.map(\.title), ["Easy On Me"])
 
         viewModel.browseBack()
-        XCTAssertTrue(viewModel.browsePath.isEmpty)
-        XCTAssertTrue(viewModel.isBrowseOpen)
+        XCTAssertTrue(viewModel.browse.path.isEmpty)
+        XCTAssertTrue(viewModel.browse.isOpen)
 
         viewModel.openAlbum(QobuzID("30"))
         viewModel.search("adele")
-        XCTAssertTrue(viewModel.browsePath.isEmpty)
+        XCTAssertTrue(viewModel.browse.path.isEmpty)
     }
 
     func testArtistPreviewReportsOfficialReleaseCountInsteadOfCreditedCatalogTotal() async throws {
@@ -908,8 +908,11 @@ final class NativeAdapterTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let configuredRoot = root.appendingPathComponent("ConfiguredMusic", isDirectory: true)
+        let settingsStore = NativeSettingsStore(paths: paths)
+        try settingsStore.save(NativeSettings(downloadPath: configuredRoot.path, quality: .hiRes))
         let snapshot = QobuzArchiveSnapshot(
-            rootPath: paths.defaultDownloadRoot.path,
+            rootPath: configuredRoot.path,
             tracks: [Self.archiveTrack(
                 relativePath: "Adele/30/01.flac",
                 trackID: "easy",
@@ -918,7 +921,7 @@ final class NativeAdapterTests: XCTestCase {
         )
         let viewModel = NativeViewModel(
             paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
+            settingsStore: settingsStore,
             credentialStore: MemoryCredentialStore(credentials: .complete),
             archiveStore: MemoryArchiveStore(snapshot: snapshot),
             clientFactory: { _ in FakeQobuzService() }
@@ -926,7 +929,7 @@ final class NativeAdapterTests: XCTestCase {
 
         viewModel.start()
         let summary = QobuzAlbumSummary(id: QobuzID("30"), title: "30")
-        XCTAssertEqual(viewModel.libraryStatus(for: summary), .indexed(verified: 1, problems: 0))
+        XCTAssertEqual(viewModel.library.status(for: summary), .indexed(verified: 1, problems: 0))
 
         viewModel.addRequest(.album(QobuzID("30")), title: "30")
         for _ in 0..<100 where viewModel.preview == .loading {
@@ -935,7 +938,7 @@ final class NativeAdapterTests: XCTestCase {
 
         guard let item = viewModel.queue.first else { return XCTFail("Expected queued album") }
         XCTAssertEqual(item.expectedTrackIDs, [QobuzID("easy")])
-        XCTAssertEqual(viewModel.libraryStatus(for: item), .verified)
+        XCTAssertEqual(viewModel.library.status(for: item), .verified)
     }
 
     func testCachedArchiveForAnotherDownloadRootIsIgnored() {
@@ -955,7 +958,7 @@ final class NativeAdapterTests: XCTestCase {
         viewModel.start()
 
         XCTAssertNil(viewModel.archiveSnapshot)
-        XCTAssertNil(viewModel.libraryStatus(for: QobuzAlbumSummary(id: QobuzID("album-id"), title: "Album")))
+        XCTAssertNil(viewModel.library.status(for: QobuzAlbumSummary(id: QobuzID("album-id"), title: "Album")))
     }
 
     func testRepairStagingKeepsExactTargetAndSkipsVerifiedUnsupportedAndDuplicateRows() {

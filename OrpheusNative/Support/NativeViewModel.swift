@@ -10,28 +10,23 @@ final class NativeViewModel: ObservableObject {
     @Published var showSettings = false
     @Published var showDiagnostics = false
 
-    private let sessionStore: any NativeSessionStoring
     private let diagnostics: NativeDiagnosticsController
     private let account: NativeAccountController
-    private let browse = NativeBrowseController()
+    let browse: NativeBrowseController
     private let queueController: NativeQueueController
-    private let previewController = NativePreviewController()
-    private let linkInboxController = NativeLinkInboxController()
-    private let library: NativeLibraryController
+    private let previewController: NativePreviewController
+    private let linkInboxController: NativeLinkInboxController
+    let library: NativeLibraryController
     private let connectivity: NativeConnectivityController
     private let downloads: NativeDownloadController
-    private var sessionPersistenceTask: Task<Void, Never>?
-    private var started = false
-    private var restoringSession = false
-    private var isTerminating = false
-    private var accountObservation: AnyCancellable?
-    private var browseObservation: AnyCancellable?
-    private var queueObservation: AnyCancellable?
-    private var previewObservation: AnyCancellable?
-    private var linkInboxObservation: AnyCancellable?
-    private var libraryObservation: AnyCancellable?
-    private var connectivityObservation: AnyCancellable?
-    private var downloadsObservation: AnyCancellable?
+    private let downloadOrchestrator: NativeDownloadOrchestrator
+    private let queueOrchestrator: NativeQueueOrchestrator
+    private let browseNavigation: NativeBrowseNavigationController
+    private let session: NativeSessionController
+    private let lifecycle: NativeAppLifecycleController
+    private let requestIntake: NativeRequestIntakeController
+    private let diagnosticSnapshotBuilder: NativeDiagnosticSnapshotBuilder
+    private var observationRelay: NativeDomainObservationRelay?
 
     init(
         paths: NativePaths,
@@ -49,65 +44,100 @@ final class NativeViewModel: ObservableObject {
             QobuzAPIClient(credentials: $0)
         }
     ) {
+        let browse = NativeBrowseController()
         let queueController = NativeQueueController()
+        let previewController = NativePreviewController()
+        let linkInboxController = NativeLinkInboxController()
         let connectivity = NativeConnectivityController(
             monitor: connectivityMonitor ?? NativeNetworkConnectivityMonitor()
         )
-        account = NativeAccountController(
+        let account = NativeAccountController(
             paths: paths,
             settingsStore: settingsStore,
             credentialStore: credentialStore,
             clientFactory: clientFactory
         )
-        library = NativeLibraryController(
+        let library = NativeLibraryController(
             archiveStore: archiveStore ?? NativeArchiveIndexStore(paths: paths),
             scanner: archiveScanner,
             adopter: libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
         )
-        self.queueController = queueController
-        self.connectivity = connectivity
-        downloads = NativeDownloadController(
+        let downloads = NativeDownloadController(
             queue: queueController,
             connectivity: connectivity,
             powerActivityManager: powerActivityManager ?? NativePowerActivityManager()
         )
-        self.sessionStore = sessionStore ?? NativeSessionStore(paths: paths)
+        let session = NativeSessionController(
+            store: sessionStore ?? NativeSessionStore(paths: paths),
+            queue: queueController,
+            downloads: downloads,
+            linkInbox: linkInboxController
+        )
+        self.account = account
+        self.browse = browse
+        self.queueController = queueController
+        self.previewController = previewController
+        self.linkInboxController = linkInboxController
+        self.library = library
+        self.connectivity = connectivity
+        self.downloads = downloads
+        downloadOrchestrator = NativeDownloadOrchestrator(
+            account: account,
+            queue: queueController,
+            downloads: downloads
+        )
+        queueOrchestrator = NativeQueueOrchestrator(
+            queue: queueController,
+            preview: previewController,
+            downloads: downloads
+        )
+        browseNavigation = NativeBrowseNavigationController(browse: browse, library: library)
+        self.session = session
+        lifecycle = NativeAppLifecycleController(
+            account: account,
+            browse: browse,
+            queue: queueController,
+            preview: previewController,
+            linkInbox: linkInboxController,
+            library: library,
+            connectivity: connectivity,
+            downloads: downloads,
+            session: session
+        )
+        requestIntake = NativeRequestIntakeController(linkInbox: linkInboxController)
+        diagnosticSnapshotBuilder = NativeDiagnosticSnapshotBuilder(
+            account: account,
+            queue: queueController,
+            downloads: downloads,
+            library: library
+        )
         diagnostics = NativeDiagnosticsController(
             logStore: logStore ?? NativeLogFileStore(paths: paths),
             supplementalCollector: supplementalDiagnosticsCollector ?? NativeSupplementalDiagnosticsCollector()
         )
-        accountObservation = account.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        browseObservation = browse.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        queueObservation = queueController.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-            self?.scheduleSessionPersistence()
-        }
-        previewObservation = previewController.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        linkInboxObservation = linkInboxController.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-            self?.scheduleSessionPersistence()
-        }
-        libraryObservation = library.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        connectivityObservation = connectivity.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        downloadsObservation = downloads.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-            self?.scheduleSessionPersistence()
+        let observationRelay = NativeDomainObservationRelay(
+            onChange: { [weak self] in self?.objectWillChange.send() },
+            onPersistenceChange: { [weak self] in self?.session.schedulePersistence() }
+        )
+        observationRelay.observe(account)
+        observationRelay.observe(browse)
+        observationRelay.observe(queueController, persistsSession: true)
+        observationRelay.observe(previewController)
+        observationRelay.observe(linkInboxController, persistsSession: true)
+        observationRelay.observe(library)
+        observationRelay.observe(connectivity)
+        observationRelay.observe(downloads, persistsSession: true)
+        self.observationRelay = observationRelay
+        session.configure { [weak self] message in self?.notice = message }
+        browseNavigation.configure { [weak self] message in
+            self?.notice = message
+            self?.showSettings = true
         }
         downloads.configureCallbacks(
             onNotice: { [weak self] message in self?.notice = message },
             onRequireSettings: { [weak self] in self?.showSettings = true },
             onArchiveRefresh: { [weak self] in self?.refreshArchive() },
-            onCheckpoint: { [weak self] in self?.persistSessionNow(reportErrors: false) }
+            onCheckpoint: { [weak self] in self?.session.persistNow(reportErrors: false) }
         )
         do {
             try diagnostics.activate()
@@ -132,35 +162,27 @@ final class NativeViewModel: ObservableObject {
     }
 
     func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
-        guard let item = selectedQueueItem,
-              item.request == request,
-              item.trackPlan != nil else { return nil }
-        return item.effectiveSelectedTrackIDs
+        queueOrchestrator.selectedTrackIDs(for: request)
     }
 
     func toggleSelectedQueueTrack(_ trackID: QobuzID) {
-        guard let selectedQueueID else { return }
-        toggleQueueTrack(trackID, in: selectedQueueID)
+        queueOrchestrator.toggleSelectedTrack(trackID, mutationsAllowed: !isDownloading)
     }
 
     func selectAllSelectedQueueTracks() {
-        guard let selectedQueueID else { return }
-        selectAllQueueTracks(in: selectedQueueID)
+        queueOrchestrator.selectAllSelectedTracks(mutationsAllowed: !isDownloading)
     }
 
     func clearSelectedQueueTracks() {
-        guard let selectedQueueID else { return }
-        clearQueueTrackSelection(in: selectedQueueID)
+        queueOrchestrator.clearSelectedTracks(mutationsAllowed: !isDownloading)
     }
 
     var canDownloadSelected: Bool {
-        !isDownloading
-            && selectedQueueItem.map { downloads.isStartable($0) } == true
-            && credentials.isComplete
+        downloadOrchestrator.canDownloadSelected
     }
 
     var canDownloadAll: Bool {
-        !isDownloading && credentials.isComplete && queue.contains { downloads.isStartable($0) }
+        downloadOrchestrator.canDownloadAll
     }
 
     var canDownloadNext: Bool { canDownloadAll }
@@ -172,25 +194,6 @@ final class NativeViewModel: ObservableObject {
     var credentials: CredentialDraft { account.credentials }
     var accountRegion: String? { account.accountRegion }
     private var client: (any NativeQobuzServicing)? { account.client }
-    var browseQuery: String { browse.query }
-    var browseCategory: NativeBrowseCategory {
-        get { browse.category }
-        set { browse.category = newValue }
-    }
-    var browseResults: NativeBrowseResults { browse.results }
-    var loadingBrowseCategories: Set<NativeBrowseCategory> { browse.loadingCategories }
-    var loadingMoreBrowseCategories: Set<NativeBrowseCategory> { browse.loadingMoreCategories }
-    var browseErrors: [NativeBrowseCategory: String] { browse.errors }
-    var browseLoadMoreErrors: [NativeBrowseCategory: String] { browse.loadMoreErrors }
-    var isBrowseOpen: Bool { browse.isOpen }
-    var browsePath: [BrowsePage] { browse.path }
-    var isBrowseLoading: Bool { browse.isLoading }
-    var browseStatusText: String { browse.statusText }
-    var browseAlbums: [QobuzAlbumSummary] { browse.albums }
-    var browseArtists: [QobuzArtist] { browse.artists }
-    var browsePlaylists: [QobuzPlaylist] { browse.playlists }
-    var browseTracks: [QobuzTrack] { browse.tracks }
-
     var regionDisplay: String { account.regionDisplay }
 
     var diagnosticsDirectoryPath: String { diagnostics.directoryURL.path }
@@ -221,66 +224,25 @@ final class NativeViewModel: ObservableObject {
 
     @discardableResult
     func exportDiagnostics(to parent: URL) async throws -> URL {
-        try await diagnostics.export(snapshot: makeDiagnosticSnapshot(), to: parent)
+        try await diagnostics.export(snapshot: diagnosticSnapshotBuilder.makeSnapshot(), to: parent)
     }
 
     func start() {
-        guard !started else {
-            qobuzLog.debug("lifecycle", "Ignored duplicate app startup request")
-            return
-        }
-        started = true
-        connectivity.start()
-        let startedAt = Date()
-        qobuzLog.notice("lifecycle", "Native app startup started")
-        do {
-            try account.load()
-            qobuzLog.info(
-                "lifecycle",
-                "Startup configuration loaded",
-                metadata: [
-                    "credentialsConfigured": String(credentials.isComplete),
-                    "downloadPath": settings.downloadPath,
-                    "quality": settings.quality.rawValue
-                ]
-            )
-            library.loadCache(for: libraryRoot)
-            do {
-                try restoreSession()
-            } catch {
-                qobuzLog.error("persistence.session", "Download queue restoration failed", error: error)
-                notice = "Could not restore the download queue: \(error.localizedDescription)"
-            }
-            synchronizeBrowseAccount()
-            if let selectedQueueID,
-               let item = queue.first(where: { $0.id == selectedQueueID }) {
-                loadPreview(item)
-            }
-            if credentials.isComplete {
-                Task { await testConnection(showSuccess: false) }
-            } else {
-                showSettings = true
-            }
-            persistSessionNow(reportErrors: false)
-            qobuzLog.notice(
-                "lifecycle",
-                "Native app startup completed",
-                metadata: [
-                    "queueCount": String(queue.count),
-                    "activityCount": String(activities.count),
-                    "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
-                ]
-            )
-        } catch {
-            qobuzLog.critical(
-                "lifecycle",
-                "Native app startup failed",
-                metadata: ["durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))],
-                error: error
-            )
-            notice = "Could not load native settings: \(error.localizedDescription)"
-            showSettings = true
-        }
+        lifecycle.start(
+            onLoadPreview: { [weak self] item in
+                guard let self else { return }
+                queueOrchestrator.loadPreview(
+                    item,
+                    client: client,
+                    unavailabilityMessage: unavailableTrackMessage
+                )
+            },
+            onValidateAccount: { [weak self] in
+                Task { @MainActor [weak self] in await self?.testConnection(showSuccess: false) }
+            },
+            onNotice: { [weak self] message in self?.notice = message },
+            onRequireSettings: { [weak self] in self?.showSettings = true }
+        )
     }
 
     var settingsDraft: SettingsDraft {
@@ -304,47 +266,24 @@ final class NativeViewModel: ObservableObject {
     func testConnection(showSuccess: Bool = true) async {
         do {
             _ = try await account.validateConnection()
-            synchronizeBrowseAccount()
+            lifecycle.synchronizeAccount()
             if showSuccess { notice = "Connected to the \(regionDisplay) Qobuz account." }
         } catch {
-            synchronizeBrowseAccount()
+            lifecycle.synchronizeAccount()
             notice = error.localizedDescription
         }
     }
 
     func submitInput() {
-        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return }
-        let extraction = QobuzLinkParser.extract(from: value)
-        qobuzLog.info(
-            "input",
-            "User input classified",
-            metadata: [
-                "characterCount": String(value.count),
-                "validLinks": String(extraction.links.count),
-                "duplicateLinks": String(extraction.duplicateCount),
-                "invalidQobuzLinks": String(extraction.invalidQobuzURLs.count),
-                "mode": extraction.links.isEmpty ? "search" : "links"
-            ]
-        )
-        if extraction.links.count == 1, extraction.duplicateCount == 0,
-           let link = extraction.links.first {
-            openRequest(link.request)
-            input = ""
-            notice = extraction.invalidQobuzURLs.isEmpty
-                ? nil
-                : "Ignored \(extraction.invalidQobuzURLs.count) invalid Qobuz URL."
-        } else if !extraction.links.isEmpty {
-            reviewLinks(extraction.links)
-            input = ""
-            let invalid = extraction.invalidQobuzURLs.count
-            notice = invalid > 0 ? "Added the valid links for review and ignored \(invalid) unsupported Qobuz URL\(invalid == 1 ? "" : "s")." : nil
-        } else if !extraction.invalidQobuzURLs.isEmpty {
-            notice = "The Qobuz URL is not a supported track, album, playlist, artist, or label link."
-        } else {
-            search(value)
-            input = ""
+        let outcome = requestIntake.submit(input)
+        switch outcome.action {
+        case .open(let request): openRequest(request)
+        case .search(let query): search(query)
+        case nil: break
         }
+        if outcome.clearsInput { input = "" }
+        if outcome.updatesNotice { notice = outcome.notice }
+        if outcome.requiresConfiguration { showSettings = true }
     }
 
     func addText(_ text: String) {
@@ -354,34 +293,16 @@ final class NativeViewModel: ObservableObject {
 
     func importLinks(from url: URL) {
         do {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            qobuzLog.notice(
-                "input.import",
-                "Link text file imported",
-                metadata: ["sourcePath": url.path, "characterCount": String(text.count)]
-            )
-            addText(text)
+            addText(try requestIntake.importedText(from: url))
         } catch {
-            qobuzLog.error(
-                "input.import",
-                "Link text file could not be read",
-                metadata: ["sourcePath": url.path],
-                error: error
-            )
             notice = "Could not read the text file: \(error.localizedDescription)"
         }
     }
 
     func handleOpenURL(_ url: URL) {
-        if ["orpheus-for-mac", "orpheus-native"].contains(url.scheme?.lowercased() ?? "") {
-            guard let submitted = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "url" })?.value else {
-                notice = "The Orpheus link did not contain a Qobuz URL."
-                return
-            }
-            addText(submitted)
-        } else {
-            addText(url.absoluteString)
+        switch requestIntake.submittedText(from: url) {
+        case .success(let text): addText(text)
+        case .failure(let message): notice = message
         }
     }
 
@@ -406,94 +327,60 @@ final class NativeViewModel: ObservableObject {
         if linkInboxController.retry(id) { showSettings = true }
     }
 
-    private func reviewLinks(_ links: [ParsedQobuzLink]) {
-        let result = linkInboxController.add(links)
-        if result.duplicateOnly {
-            notice = "Those links are already in the review inbox."
-        }
-        if result.requiresConfiguration { showSettings = true }
-    }
-
     func addRequest(
         _ request: QobuzRequest,
         title: String? = nil,
         subtitle: String? = nil,
         artworkURL: URL? = nil
     ) {
-        guard let item = queueController.add(
-            request,
-            title: title,
-            subtitle: subtitle,
-            artworkURL: artworkURL
-        ) else {
-            notice = "That Qobuz item is already queued."
-            return
-        }
-        downloads.registerQueue(item.id)
-        loadPreview(item)
+        applyNotice(
+            queueOrchestrator.addRequest(
+                request,
+                title: title,
+                subtitle: subtitle,
+                artworkURL: artworkURL,
+                client: client,
+                unavailabilityMessage: unavailableTrackMessage
+            )
+        )
     }
 
     func addAlbums(_ albums: [QobuzAlbum]) {
-        let result = queueController.addAlbums(albums)
-        guard !result.added.isEmpty else {
-            if result.skipped > 0 { notice = "Those editions are already queued." }
-            return
-        }
-        downloads.registerQueues(result.added.map(\.id))
-        loadPreview(result.added[0])
-        if result.skipped > 0 {
-            let noun = result.skipped == 1 ? "edition" : "editions"
-            notice = "Skipped \(result.skipped) already queued \(noun)."
-        } else {
-            notice = nil
-        }
+        applyNotice(
+            queueOrchestrator.addAlbums(
+                albums,
+                client: client,
+                unavailabilityMessage: unavailableTrackMessage
+            )
+        )
     }
 
     func selectQueueItem(_ id: UUID?) {
-        guard let item = queueController.select(id) else {
-            previewController.clear()
-            return
-        }
-        loadPreview(item)
+        queueOrchestrator.select(id, client: client, unavailabilityMessage: unavailableTrackMessage)
     }
 
     func removeQueueItem(_ id: UUID) {
-        let result = queueController.remove(
-            id,
-            isActive: downloads.status(forQueueID: id).isActive
-        )
-        guard result.removedID != nil else { return }
-        downloads.removeQueue(id)
-        if let selectedItem = result.selectedItem { loadPreview(selectedItem) }
-        else { previewController.clear() }
+        queueOrchestrator.remove(id, client: client, unavailabilityMessage: unavailableTrackMessage)
     }
 
     func clearQueue() {
-        let activeIDs = Set(queue.filter { status(for: $0).isActive }.map(\.id))
-        let result = queueController.clear(retaining: activeIDs)
-        for id in result.removedIDs { downloads.removeQueue(id) }
-        if let selectedItem = result.selectedItem { loadPreview(selectedItem) }
-        else { previewController.clear() }
+        queueOrchestrator.clear(client: client, unavailabilityMessage: unavailableTrackMessage)
     }
 
     func setQueueQuality(_ quality: QobuzQuality?, for id: UUID) {
-        guard queueController.setQuality(quality, for: id, mutationsAllowed: !isDownloading) else { return }
-        downloads.resetAfterPlanChange(id)
+        queueOrchestrator.setQuality(quality, for: id, mutationsAllowed: !isDownloading)
     }
 
     func toggleQueueTrack(_ trackID: QobuzID, in id: UUID) {
-        guard queueController.toggleTrack(trackID, in: id, mutationsAllowed: !isDownloading) else { return }
-        downloads.resetAfterPlanChange(id)
+        queueOrchestrator.toggleTrack(trackID, in: id, mutationsAllowed: !isDownloading)
     }
 
     func selectAllQueueTracks(in id: UUID) {
-        guard queueController.selectAllTracks(in: id, mutationsAllowed: !isDownloading) else { return }
-        downloads.resetAfterPlanChange(id)
+        queueOrchestrator.selectAllTracks(in: id, mutationsAllowed: !isDownloading)
     }
 
     func clearQueueTrackSelection(in id: UUID) {
-        guard queueController.clearTrackSelection(in: id, mutationsAllowed: !isDownloading) else { return }
-        downloads.resetAfterPlanChange(id)
+        queueOrchestrator.clearTrackSelection(in: id, mutationsAllowed: !isDownloading)
     }
 
     func moveQueueItems(from offsets: IndexSet, to destination: Int) {
@@ -517,103 +404,47 @@ final class NativeViewModel: ObservableObject {
     }
 
     func search(_ query: String) {
-        library.close()
-        do {
-            try browse.search(query)
-        } catch {
-            notice = error.localizedDescription
-            showSettings = true
-        }
+        browseNavigation.search(query)
     }
 
     func closeBrowse() {
-        browse.close()
+        browseNavigation.close()
     }
 
     func openAlbum(_ id: QobuzID) {
-        openBrowseDestination(.album(id))
+        browseNavigation.open(BrowseDestination.album(id))
     }
 
     func openArtist(_ id: QobuzID) {
-        openBrowseDestination(.artist(id))
+        browseNavigation.open(BrowseDestination.artist(id))
     }
 
     func openTrack(_ id: QobuzID) {
-        openBrowseDestination(.track(id))
+        browseNavigation.open(BrowseDestination.track(id))
     }
 
     func openPlaylist(_ id: QobuzID) {
-        openBrowseDestination(.playlist(id))
+        browseNavigation.open(BrowseDestination.playlist(id))
     }
 
     func openLabel(_ id: QobuzID) {
-        openBrowseDestination(.label(id))
+        browseNavigation.open(BrowseDestination.label(id))
     }
 
     func openRequest(_ request: QobuzRequest) {
-        library.close()
-        do {
-            try browse.open(request)
-        } catch {
-            notice = error.localizedDescription
-            showSettings = true
-        }
+        browseNavigation.open(request)
     }
 
     func browseBack() {
-        browse.back()
+        browseNavigation.back()
     }
 
     func retryBrowsePage() {
-        do {
-            try browse.retryPage()
-        } catch {
-            notice = error.localizedDescription
-            showSettings = true
-        }
-    }
-
-    private func openBrowseDestination(_ destination: BrowseDestination) {
-        library.close()
-        do {
-            try browse.open(destination)
-        } catch {
-            notice = error.localizedDescription
-            showSettings = true
-        }
-    }
-
-    func availability(for album: QobuzAlbum) -> NativeBrowseAvailability {
-        browse.availability(for: album)
-    }
-
-    func availability(for track: QobuzTrack) -> NativeBrowseAvailability {
-        browse.availability(for: track)
-    }
-
-    func availability(for playlist: QobuzPlaylist) -> NativeBrowseAvailability {
-        browse.availability(for: playlist)
-    }
-
-    func availability(for artist: QobuzArtistCatalog) -> NativeBrowseAvailability {
-        browse.availability(for: artist)
-    }
-
-    func availability(for label: QobuzLabelCatalog) -> NativeBrowseAvailability {
-        browse.availability(for: label)
-    }
-
-    func unavailabilityMessage(for track: QobuzTrack) -> String? {
-        browse.unavailabilityMessage(for: track)
+        browseNavigation.retryPage()
     }
 
     func retryBrowseSearch() {
-        do {
-            try browse.retrySearch()
-        } catch {
-            notice = error.localizedDescription
-            showSettings = true
-        }
+        browseNavigation.retrySearch()
     }
 
     func openLibrary() {
@@ -677,78 +508,24 @@ final class NativeViewModel: ObservableObject {
         library.revealIssue(issue)
     }
 
-    func libraryStatus(for item: NativeQueueItem) -> NativeLibraryStatus? {
-        library.status(for: item)
-    }
-
-    func libraryStatus(for album: QobuzAlbumSummary) -> NativeLibraryStatus? {
-        library.status(for: album)
-    }
-
-    func libraryStatus(for album: QobuzAlbum) -> NativeLibraryStatus? {
-        library.status(for: album)
-    }
-
-    func libraryStatus(for track: QobuzTrack) -> NativeLibraryStatus? {
-        library.status(for: track)
-    }
-
-    func libraryStatus(for tracks: [QobuzTrack]) -> NativeLibraryStatus? {
-        library.status(for: tracks)
-    }
-
-    func browseCount(for category: NativeBrowseCategory) -> Int {
-        browse.count(for: category)
-    }
-
-    func browseCountLabel(for category: NativeBrowseCategory) -> String {
-        browse.countLabel(for: category)
-    }
-
-    func canLoadMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
-        browse.canLoadMore(for: category)
-    }
-
-    func isLoadingMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
-        browse.isLoadingMore(for: category)
-    }
-
-    func loadMoreBrowseResults(for category: NativeBrowseCategory) {
-        browse.loadMore(for: category)
-    }
-
     func downloadSelected() {
-        guard let selectedQueueID else { return }
-        startDownloads(ids: [selectedQueueID])
+        downloadOrchestrator.downloadSelected()
     }
 
     func downloadAll() {
-        startDownloads(ids: queue.filter { downloads.isStartable($0) }.map(\.id))
+        downloadOrchestrator.downloadAll()
     }
 
     func downloadNext() {
-        guard let next = queue.first(where: { downloads.isStartable($0) }) else { return }
-        startDownloads(ids: [next.id])
+        downloadOrchestrator.downloadNext()
     }
 
     func resume(_ activity: NativeDownloadActivity) {
-        downloads.resume(
-            activity,
-            client: client,
-            credentialsConfigured: credentials.isComplete,
-            defaultQuality: settings.quality,
-            defaultRootPath: settings.downloadPath
-        )
+        downloadOrchestrator.resume(activity)
     }
 
     func retry(_ activity: NativeDownloadActivity) {
-        downloads.retry(
-            activity,
-            client: client,
-            credentialsConfigured: credentials.isComplete,
-            defaultQuality: settings.quality,
-            defaultRootPath: settings.downloadPath
-        )
+        downloadOrchestrator.retry(activity)
     }
 
     func canRestart(_ activity: NativeDownloadActivity) -> Bool {
@@ -772,13 +549,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func repairArchiveTracks(_ tracks: [QobuzArchiveTrack]) {
-        downloads.repairArchiveTracks(
-            tracks,
-            client: client,
-            credentialsConfigured: credentials.isComplete,
-            defaultQuality: settings.quality,
-            defaultRootPath: settings.downloadPath
-        )
+        downloadOrchestrator.repairArchiveTracks(tracks)
     }
 
     @discardableResult
@@ -795,25 +566,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func prepareForTermination() {
-        guard !isTerminating else { return }
-        isTerminating = true
-        qobuzLog.notice(
-            "lifecycle",
-            "App termination preparation started",
-            metadata: [
-                "activeDownload": String(downloads.isDownloading),
-                "queueCount": String(queue.count),
-                "activityCount": String(activities.count)
-            ]
-        )
-        sessionPersistenceTask?.cancel()
-        linkInboxController.cancel()
-        previewController.cancel()
-        library.cancelRefresh()
-        connectivity.stop()
-        downloads.prepareForTermination()
-        persistSessionNow(reportErrors: false)
-        qobuzLog.notice("lifecycle", "App termination state persisted")
+        lifecycle.prepareForTermination()
     }
 
     func reveal(_ activity: NativeDownloadActivity) {
@@ -828,132 +581,18 @@ final class NativeViewModel: ObservableObject {
         if change.downloadRootChanged {
             library.invalidate()
         }
-        synchronizeBrowseAccount()
+        lifecycle.synchronizeAccount()
         showSettings = false
         Task { await testConnection(showSuccess: true) }
     }
 
-    private func synchronizeBrowseAccount() {
-        browse.configure(client: account.client, accountRegion: account.accountRegion)
-        linkInboxController.configure(client: account.client, accountRegion: account.accountRegion)
+    private var unavailableTrackMessage: (QobuzTrack) -> String? {
+        { [weak self] track in self?.browse.unavailabilityMessage(for: track) }
     }
 
-    private func restoreSession() throws {
-        guard let snapshot = try sessionStore.load() else { return }
-        try snapshot.validate()
-        restoringSession = true
-        defer { restoringSession = false }
-
-        downloads.restore(activities: snapshot.activities, operations: snapshot.operations)
-        linkInboxController.restore(snapshot.linkInbox)
-        queueController.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
-    }
-
-    private func scheduleSessionPersistence() {
-        guard started, !restoringSession, !isTerminating else { return }
-        guard sessionPersistenceTask == nil else { return }
-        sessionPersistenceTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(1))
-            guard let self, !Task.isCancelled else { return }
-            sessionPersistenceTask = nil
-            persistSessionNow()
-        }
-    }
-
-    private func persistSessionNow(reportErrors: Bool = true) {
-        sessionPersistenceTask?.cancel()
-        sessionPersistenceTask = nil
-        do {
-            try sessionStore.save(
-                NativeSessionSnapshot(
-                    queue: queue,
-                    activities: activities,
-                    operations: downloads.operations,
-                    selectedQueueID: selectedQueueID,
-                    linkInbox: linkInbox
-                )
-            )
-        } catch where reportErrors {
-            qobuzLog.error("persistence.session", "Download session save failed", error: error)
-            notice = "Could not save the download queue: \(error.localizedDescription)"
-        } catch {
-            qobuzLog.error("persistence.session", "Background download session save failed", error: error)
-        }
-    }
-
-    private func loadPreview(_ item: NativeQueueItem) {
-        previewController.load(
-            item,
-            client: client,
-            onResolved: { [weak self] resolution in
-                guard let self else { return }
-                updateQueueMetadata(
-                    resolution.queueID,
-                    title: resolution.title,
-                    subtitle: resolution.subtitle,
-                    artworkURL: resolution.artworkURL
-                )
-                if let tracks = resolution.tracks {
-                    updateQueueTrackPlan(resolution.queueID, tracks: tracks)
-                }
-            },
-            onFailure: { [weak self] message in
-                self?.downloads.markFailed(queueID: item.id, message: message)
-            }
-        )
-    }
-
-    private func startDownloads(ids: [UUID]) {
-        downloads.start(
-            ids: ids,
-            client: client,
-            credentialsConfigured: credentials.isComplete,
-            defaultQuality: settings.quality,
-            defaultRootPath: settings.downloadPath
-        )
-    }
-
-    private func updateQueueTrackPlan(_ id: UUID, tracks: [QobuzTrack]) {
-        queueController.updateTrackPlan(id, tracks: tracks) { [weak self] track in
-            self?.unavailabilityMessage(for: track)
-        }
-    }
-
-    private func updateQueueMetadata(_ id: UUID, title: String, subtitle: String, artworkURL: URL? = nil) {
-        queueController.updateMetadata(id, title: title, subtitle: subtitle, artworkURL: artworkURL)
-    }
-
-    private func makeDiagnosticSnapshot() -> NativeDiagnosticSnapshot {
-        NativeDiagnosticSnapshot(
-            downloadQuality: settings.quality.displayName,
-            downloadRoot: settings.downloadPath,
-            queue: queue.map { item in
-                NativeDiagnosticQueueSummary(
-                    id: item.id,
-                    request: "\(item.request.kindName):\(item.request.id.rawValue)",
-                    title: item.title,
-                    status: status(for: item).diagnosticDescription,
-                    selectedTracks: queuePreflight(for: item).selected,
-                    quality: item.downloadQuality?.displayName
-                )
-            },
-            activities: activities.map { activity in
-                NativeDiagnosticActivitySummary(
-                    id: activity.id,
-                    queueID: activity.queueID,
-                    title: activity.title,
-                    status: status(for: activity).diagnosticDescription,
-                    phase: activity.phase,
-                    progress: activity.progress,
-                    outputPath: activity.outputURL?.path,
-                    warnings: activity.warnings,
-                    error: activity.errorMessage
-                )
-            },
-            libraryTrackCount: archiveSnapshot?.tracks.count ?? 0,
-            libraryIssueCount: archiveSnapshot?.issues.count ?? 0,
-            credentialsConfigured: credentials.isComplete
-        )
+    private func applyNotice(_ mutation: NativeNoticeMutation) {
+        guard case .set(let message) = mutation else { return }
+        notice = message
     }
 
 }
