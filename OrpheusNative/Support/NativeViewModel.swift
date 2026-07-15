@@ -3,9 +3,6 @@ import Combine
 import Foundation
 import NativeQobuzCore
 
-protocol NativeQobuzServicing: QobuzCatalogService, QobuzBrowsingService {}
-extension QobuzAPIClient: NativeQobuzServicing {}
-
 @MainActor
 final class NativeViewModel: ObservableObject {
     @Published var input = ""
@@ -29,15 +26,6 @@ final class NativeViewModel: ObservableObject {
     @Published var showSettings = false
     @Published var showDiagnostics = false
 
-    @Published private(set) var browseQuery = ""
-    @Published var browseCategory: NativeBrowseCategory = .albums
-    @Published private(set) var browseResults = NativeBrowseResults()
-    @Published private(set) var loadingBrowseCategories: Set<NativeBrowseCategory> = []
-    @Published private(set) var loadingMoreBrowseCategories: Set<NativeBrowseCategory> = []
-    @Published private(set) var browseErrors: [NativeBrowseCategory: String] = [:]
-    @Published private(set) var browseLoadMoreErrors: [NativeBrowseCategory: String] = [:]
-    @Published private(set) var isBrowseOpen = false
-    @Published private(set) var browsePath: [BrowsePage] = []
     @Published private(set) var isLibraryOpen = false
     @Published private(set) var archiveSnapshot: QobuzArchiveSnapshot?
     @Published private(set) var isArchiveScanning = false
@@ -53,11 +41,9 @@ final class NativeViewModel: ObservableObject {
     private let connectivityMonitor: any NativeConnectivityMonitoring
     private let powerActivityManager: any NativePowerActivityManaging
     private let clientFactory: (QobuzCredentials) -> any NativeQobuzServicing
+    private let browse = NativeBrowseController()
     private var client: (any NativeQobuzServicing)?
     private var previewTask: Task<Void, Never>?
-    private var browseTasks: [Task<Void, Never>] = []
-    private var browseRequestID: UUID?
-    private var browsePageTask: Task<Void, Never>?
     private var linkInboxTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
     private var archiveRefreshID: UUID?
@@ -71,6 +57,7 @@ final class NativeViewModel: ObservableObject {
     private var restoringSession = false
     private var isTerminating = false
     private var connectivityGeneration: UInt64 = 0
+    private var browseObservation: AnyCancellable?
     private let connectivityEvents = NativeConnectivityEvents()
     private let reusableAudioIndex = QobuzReusableAudioIndex()
 
@@ -104,6 +91,9 @@ final class NativeViewModel: ObservableObject {
         self.powerActivityManager = powerActivityManager ?? NativePowerActivityManager()
         self.clientFactory = clientFactory
         settings = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
+        browseObservation = browse.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         do {
             try diagnostics.activate()
             qobuzLog.info("lifecycle", "Native view model initialized")
@@ -153,28 +143,24 @@ final class NativeViewModel: ObservableObject {
     var isDownloading: Bool { downloadTask != nil }
     var canCancel: Bool { downloadTask != nil }
     var canClearActivity: Bool { activities.contains { status(for: $0).isClearable } }
-    var isBrowseLoading: Bool {
-        !loadingBrowseCategories.isEmpty || !loadingMoreBrowseCategories.isEmpty
+    var browseQuery: String { browse.query }
+    var browseCategory: NativeBrowseCategory {
+        get { browse.category }
+        set { browse.category = newValue }
     }
-
-    var browseStatusText: String {
-        if !loadingBrowseCategories.isEmpty {
-            return "Searching all categories"
-        }
-        let loaded = browseResults.totalCount
-        if !loadingMoreBrowseCategories.isEmpty {
-            return "\(loaded) loaded · Loading more"
-        }
-        if browseResults.hasMoreResults {
-            return "\(loaded) loaded"
-        }
-        return loaded == 1 ? "1 result" : "\(loaded) results"
-    }
-
-    var browseAlbums: [QobuzAlbumSummary] { browseResults.albums }
-    var browseArtists: [QobuzArtist] { browseResults.artists }
-    var browsePlaylists: [QobuzPlaylist] { browseResults.playlists }
-    var browseTracks: [QobuzTrack] { browseResults.tracks }
+    var browseResults: NativeBrowseResults { browse.results }
+    var loadingBrowseCategories: Set<NativeBrowseCategory> { browse.loadingCategories }
+    var loadingMoreBrowseCategories: Set<NativeBrowseCategory> { browse.loadingMoreCategories }
+    var browseErrors: [NativeBrowseCategory: String] { browse.errors }
+    var browseLoadMoreErrors: [NativeBrowseCategory: String] { browse.loadMoreErrors }
+    var isBrowseOpen: Bool { browse.isOpen }
+    var browsePath: [BrowsePage] { browse.path }
+    var isBrowseLoading: Bool { browse.isLoading }
+    var browseStatusText: String { browse.statusText }
+    var browseAlbums: [QobuzAlbumSummary] { browse.albums }
+    var browseArtists: [QobuzArtist] { browse.artists }
+    var browsePlaylists: [QobuzPlaylist] { browse.playlists }
+    var browseTracks: [QobuzTrack] { browse.tracks }
 
     var regionDisplay: String {
         guard let accountRegion else { return "Qobuz" }
@@ -344,6 +330,7 @@ final class NativeViewModel: ObservableObject {
             accountRegion = try await QobuzLogScope.withValue(["connectionTestID": testID]) {
                 try await client.validateAccount()
             }
+            browse.updateAccountRegion(accountRegion)
             qobuzLog.notice(
                 "account.connection",
                 "Qobuz connection test succeeded",
@@ -356,6 +343,7 @@ final class NativeViewModel: ObservableObject {
             if showSuccess { notice = "Connected to the \(regionDisplay) Qobuz account." }
         } catch {
             accountRegion = nil
+            browse.updateAccountRegion(nil)
             qobuzLog.error(
                 "account.connection",
                 "Qobuz connection test failed",
@@ -768,336 +756,107 @@ final class NativeViewModel: ObservableObject {
     }
 
     func search(_ query: String) {
-        guard let client else {
-            qobuzLog.warning("browse.search", "Search blocked because credentials are not configured")
-            notice = "Configure Qobuz credentials before searching."
-            showSettings = true
-            return
-        }
-        browseTasks.forEach { $0.cancel() }
-        browseTasks.removeAll()
-        let requestID = UUID()
-        browseRequestID = requestID
-        browseQuery = query
-        browseResults = NativeBrowseResults()
-        browseErrors = [:]
-        browseLoadMoreErrors = [:]
-        browsePageTask?.cancel()
-        browsePath = []
         isLibraryOpen = false
-        loadingBrowseCategories = Set(NativeBrowseCategory.allCases)
-        loadingMoreBrowseCategories = []
-        browseCategory = .albums
-        isBrowseOpen = true
-        qobuzLog.notice(
-            "browse.search",
-            "Catalog search started",
-            metadata: ["searchID": requestID.uuidString, "query": query, "categoryCount": String(NativeBrowseCategory.allCases.count)]
-        )
-
-        for category in NativeBrowseCategory.allCases {
-            browseTasks.append(Task { [weak self] in
-                do {
-                    let results = try await QobuzLogScope.withValue([
-                        "searchID": requestID.uuidString,
-                        "searchCategory": category.rawValue,
-                        "searchQuery": query
-                    ]) {
-                        try await client.search(
-                            query,
-                            category: category.coreValue,
-                            limit: 30,
-                            offset: 0
-                        )
-                    }
-                    guard let self, self.browseRequestID == requestID, !Task.isCancelled else { return }
-                    let loadedCount = switch category {
-                    case .albums: results.albums.count
-                    case .artists: results.artists.count
-                    case .playlists: results.playlists.count
-                    case .tracks: results.tracks.count
-                    }
-                    qobuzLog.info(
-                        "browse.search",
-                        "Search category loaded",
-                        metadata: [
-                            "searchID": requestID.uuidString,
-                            "category": category.rawValue,
-                            "loadedCount": String(loadedCount),
-                            "totalCount": results.total.map(String.init) ?? "unknown"
-                        ]
-                    )
-                    self.apply(results, category: category)
-                } catch {
-                    guard let self, self.browseRequestID == requestID, !Task.isCancelled else { return }
-                    qobuzLog.error(
-                        "browse.search",
-                        "Search category failed",
-                        metadata: ["searchID": requestID.uuidString, "category": category.rawValue, "query": query],
-                        error: error
-                    )
-                    self.loadingBrowseCategories.remove(category)
-                    self.browseErrors[category] = error.localizedDescription
-                }
-            })
+        do {
+            try browse.search(query)
+        } catch {
+            notice = error.localizedDescription
+            showSettings = true
         }
     }
 
     func closeBrowse() {
-        browseTasks.forEach { $0.cancel() }
-        browseTasks.removeAll()
-        loadingBrowseCategories = []
-        loadingMoreBrowseCategories = []
-        browsePageTask?.cancel()
-        browsePath = []
-        isBrowseOpen = false
+        browse.close()
     }
 
     func openAlbum(_ id: QobuzID) {
-        openBrowsePage(.album(id))
+        openBrowseDestination(.album(id))
     }
 
     func openArtist(_ id: QobuzID) {
-        openBrowsePage(.artist(id))
+        openBrowseDestination(.artist(id))
     }
 
     func openTrack(_ id: QobuzID) {
-        openBrowsePage(.track(id))
+        openBrowseDestination(.track(id))
     }
 
     func openPlaylist(_ id: QobuzID) {
-        openBrowsePage(.playlist(id))
+        openBrowseDestination(.playlist(id))
     }
 
     func openLabel(_ id: QobuzID) {
-        openBrowsePage(.label(id))
+        openBrowseDestination(.label(id))
     }
 
     func openRequest(_ request: QobuzRequest) {
-        browseTasks.forEach { $0.cancel() }
-        browseTasks.removeAll()
-        browsePageTask?.cancel()
-        browseRequestID = nil
-        browseQuery = ""
-        browseResults = NativeBrowseResults()
-        browseErrors = [:]
-        browseLoadMoreErrors = [:]
-        loadingBrowseCategories = []
-        loadingMoreBrowseCategories = []
-        browsePath = []
-
-        switch request {
-        case .album(let id): openAlbum(id)
-        case .artist(let id): openArtist(id)
-        case .track(let id): openTrack(id)
-        case .playlist(let id): openPlaylist(id)
-        case .label(let id): openLabel(id)
+        isLibraryOpen = false
+        do {
+            try browse.open(request)
+        } catch {
+            notice = error.localizedDescription
+            showSettings = true
         }
     }
 
     func browseBack() {
-        browsePageTask?.cancel()
-        _ = browsePath.popLast()
-        if browsePath.isEmpty, browseQuery.isEmpty {
-            closeBrowse()
-        }
+        browse.back()
     }
 
     func retryBrowsePage() {
-        guard let page = browsePath.popLast() else { return }
-        openBrowsePage(page.destination)
-    }
-
-    private func openBrowsePage(_ destination: BrowseDestination) {
-        guard let client else {
-            qobuzLog.warning("browse.page", "Browse page blocked because credentials are not configured")
-            notice = "Configure Qobuz credentials before browsing."
+        do {
+            try browse.retryPage()
+        } catch {
+            notice = error.localizedDescription
             showSettings = true
-            return
-        }
-        browsePageTask?.cancel()
-        isLibraryOpen = false
-        let page = BrowsePage(id: UUID(), destination: destination, content: .loading)
-        let destinationMetadata: [String: String] = switch destination {
-        case .album(let id): ["browseKind": "album", "qobuzID": id.rawValue]
-        case .artist(let id): ["browseKind": "artist", "qobuzID": id.rawValue]
-        case .track(let id): ["browseKind": "track", "qobuzID": id.rawValue]
-        case .playlist(let id): ["browseKind": "playlist", "qobuzID": id.rawValue]
-        case .label(let id): ["browseKind": "label", "qobuzID": id.rawValue]
-        }
-        let pageMetadata = destinationMetadata.merging(["browsePageID": page.id.uuidString]) { _, new in new }
-        browsePath.append(page)
-        isBrowseOpen = true
-        qobuzLog.info("browse.page", "Browse page loading started", metadata: pageMetadata)
-        browsePageTask = Task { [weak self] in
-            do {
-                let (content, availability): (BrowsePageContent, NativeBrowseAvailability) = try await QobuzLogScope.withValue(pageMetadata) {
-                    switch destination {
-                    case .album(let id):
-                        let value = try await client.album(id: id)
-                        return (.album(value), self?.availability(for: value) ?? .checking)
-                    case .artist(let id):
-                        let value = try await client.artist(id: id)
-                        return (.artist(value), self?.availability(for: value) ?? .checking)
-                    case .track(let id):
-                        let value = try await client.track(id: id)
-                        return (.track(value), self?.availability(for: value) ?? .checking)
-                    case .playlist(let id):
-                        let value = try await client.playlist(id: id)
-                        return (.playlist(value), self?.availability(for: value) ?? .checking)
-                    case .label(let id):
-                        let value = try await client.label(id: id)
-                        return (.label(value), self?.availability(for: value) ?? .checking)
-                    }
-                }
-                guard let self, !Task.isCancelled else { return }
-                qobuzLog.info("browse.page", "Browse page loaded", metadata: pageMetadata)
-                updateBrowsePage(page.id, content: content, availability: availability)
-            } catch {
-                guard let self, !Task.isCancelled else { return }
-                qobuzLog.error("browse.page", "Browse page failed to load", metadata: pageMetadata, error: error)
-                let message = browseErrorMessage(error)
-                updateBrowsePage(
-                    page.id,
-                    content: .error(message),
-                    availability: browseFailureAvailability(error, message: message)
-                )
-            }
         }
     }
 
-    private func updateBrowsePage(
-        _ id: UUID,
-        content: BrowsePageContent,
-        availability: NativeBrowseAvailability
-    ) {
-        guard let index = browsePath.firstIndex(where: { $0.id == id }) else { return }
-        browsePath[index].content = content
-        browsePath[index].availability = availability
+    private func openBrowseDestination(_ destination: BrowseDestination) {
+        isLibraryOpen = false
+        do {
+            try browse.open(destination)
+        } catch {
+            notice = error.localizedDescription
+            showSettings = true
+        }
     }
 
     func availability(for album: QobuzAlbum) -> NativeBrowseAvailability {
-        if let issue = album.accountAvailabilityIssue {
-            return .unavailable(availabilityMessage(for: issue, item: "This album"))
-        }
-        let available = album.availableTracks.count
-        let unavailable = album.unavailableTrackCount
-        guard available > 0 else {
-            return .unavailable("None of this album's tracks are available for \(accountDescription).")
-        }
-        guard unavailable > 0 else { return .available }
-        let trackWord = unavailable == 1 ? "track is" : "tracks are"
-        return .partial(
-            "\(available) of \(album.tracks.count) tracks are available for \(accountDescription). "
-                + "The \(unavailable) unavailable \(trackWord) shown below and will be skipped."
-        )
+        browse.availability(for: album)
     }
 
     func availability(for track: QobuzTrack) -> NativeBrowseAvailability {
-        guard let issue = track.accountAvailabilityIssue else { return .available }
-        return .unavailable(availabilityMessage(for: issue, item: "This track"))
+        browse.availability(for: track)
     }
 
     func availability(for playlist: QobuzPlaylist) -> NativeBrowseAvailability {
-        let available = playlist.availableTracks.count
-        let unavailable = playlist.unavailableTrackCount
-        guard available > 0 else {
-            return .unavailable("None of this playlist's tracks are available for \(accountDescription).")
-        }
-        guard unavailable > 0 else { return .available }
-        return .partial(
-            "\(available) of \(playlist.tracks.count) tracks are available for \(accountDescription). "
-                + "Unavailable tracks are shown below and will be skipped."
-        )
+        browse.availability(for: playlist)
     }
 
     func availability(for artist: QobuzArtistCatalog) -> NativeBrowseAvailability {
-        let allOfficial = artist.allOfficialAlbums
-        let available = artist.officialAlbums
-        guard !available.isEmpty else {
-            return .unavailable("Qobuz returned no available official releases for this artist and \(accountDescription).")
-        }
-        let unavailable = allOfficial.count - available.count
-        guard unavailable > 0 else { return .available }
-        let releaseWord = unavailable == 1 ? "release is" : "releases are"
-        return .partial(
-            "\(available.count) of \(allOfficial.count) official releases are available for \(accountDescription). "
-                + "The \(unavailable) unavailable \(releaseWord) excluded."
-        )
+        browse.availability(for: artist)
     }
 
     func availability(for label: QobuzLabelCatalog) -> NativeBrowseAvailability {
-        let available = label.availableAlbums.count
-        guard available > 0 else {
-            return .unavailable("Qobuz returned no albums from this label for \(accountDescription).")
-        }
-        let total = label.albums.count
-        guard available < total else { return .available }
-        return .partial(
-            "\(available) of \(total) label albums are available for \(accountDescription). Unavailable albums are excluded."
-        )
+        browse.availability(for: label)
     }
 
     func unavailabilityMessage(for track: QobuzTrack) -> String? {
-        guard let issue = track.accountAvailabilityIssue else { return nil }
-        return availabilityMessage(for: issue, item: "Track")
-    }
-
-    private var accountDescription: String {
-        accountRegion == nil ? "this Qobuz account" : "the \(regionDisplay) account"
-    }
-
-    private func availabilityMessage(for issue: QobuzAvailabilityIssue, item: String) -> String {
-        switch issue {
-        case .notDisplayable:
-            "\(item) is not present in the catalog for \(accountDescription). It may belong to another region or have been removed."
-        case .notStreamable:
-            "\(item) is not streamable for \(accountDescription)."
-        case .notPurchasable:
-            "\(item) is not purchasable in the store for \(accountDescription)."
-        }
-    }
-
-    private func browseErrorMessage(_ error: Error) -> String {
-        guard let qobuzError = error as? NativeQobuzError else {
-            return error.localizedDescription
-        }
-        switch qobuzError {
-        case .unavailable:
-            return "Qobuz did not return this item for \(accountDescription). It may belong to another region, be unavailable, or have been removed."
-        case .emptyCollection:
-            return "Qobuz returned no available tracks for this item and \(accountDescription)."
-        default:
-            return error.localizedDescription
-        }
-    }
-
-    private func browseFailureAvailability(
-        _ error: Error,
-        message: String
-    ) -> NativeBrowseAvailability {
-        guard let qobuzError = error as? NativeQobuzError else { return .checking }
-        switch qobuzError {
-        case .unavailable, .emptyCollection:
-            return .unavailable(message)
-        default:
-            return .checking
-        }
+        browse.unavailabilityMessage(for: track)
     }
 
     func retryBrowseSearch() {
-        guard !browseQuery.isEmpty else { return }
-        let category = browseCategory
-        search(browseQuery)
-        browseCategory = category
+        do {
+            try browse.retrySearch()
+        } catch {
+            notice = error.localizedDescription
+            showSettings = true
+        }
     }
 
     func openLibrary() {
-        browseTasks.forEach { $0.cancel() }
-        browseTasks.removeAll()
-        browsePageTask?.cancel()
-        browsePath = []
-        isBrowseOpen = false
+        browse.close()
         isLibraryOpen = true
         qobuzLog.notice("library.ui", "Library opened", metadata: ["downloadRoot": settings.downloadPath])
 
@@ -1242,7 +1001,7 @@ final class NativeViewModel: ObservableObject {
             try archiveStore.save(result.snapshot)
             isArchiveScanning = false
             isLibraryOpen = true
-            isBrowseOpen = false
+            browse.close()
             showSettings = false
             let repaired = result.plan.manifestAction != .none
             notice = repaired
@@ -1349,90 +1108,23 @@ final class NativeViewModel: ObservableObject {
     }
 
     func browseCount(for category: NativeBrowseCategory) -> Int {
-        browseResults.count(for: category)
+        browse.count(for: category)
     }
 
     func browseCountLabel(for category: NativeBrowseCategory) -> String {
-        let loaded = browseResults.count(for: category)
-        let hasMore = browseResults.nextOffset(for: category) != nil
-        return "\(loaded)\(hasMore ? "+" : "")"
+        browse.countLabel(for: category)
     }
 
     func canLoadMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
-        browseResults.nextOffset(for: category) != nil
+        browse.canLoadMore(for: category)
     }
 
     func isLoadingMoreBrowseResults(for category: NativeBrowseCategory) -> Bool {
-        loadingMoreBrowseCategories.contains(category)
+        browse.isLoadingMore(for: category)
     }
 
     func loadMoreBrowseResults(for category: NativeBrowseCategory) {
-        guard let client,
-              let requestID = browseRequestID,
-              let offset = browseResults.nextOffset(for: category),
-              !loadingMoreBrowseCategories.contains(category),
-              !browseQuery.isEmpty else { return }
-
-        let query = browseQuery
-        loadingMoreBrowseCategories.insert(category)
-        browseLoadMoreErrors.removeValue(forKey: category)
-        qobuzLog.info(
-            "browse.pagination",
-            "Loading next search result page",
-            metadata: [
-                "searchID": requestID.uuidString,
-                "category": category.rawValue,
-                "offset": String(offset),
-                "query": query
-            ]
-        )
-        let task = Task { [weak self] in
-            do {
-                let results = try await QobuzLogScope.withValue([
-                    "searchID": requestID.uuidString,
-                    "searchCategory": category.rawValue,
-                    "searchOffset": String(offset)
-                ]) {
-                    try await client.search(
-                        query,
-                        category: category.coreValue,
-                        limit: 30,
-                        offset: offset
-                    )
-                }
-                guard let self,
-                      self.browseRequestID == requestID,
-                      self.browseQuery == query,
-                      !Task.isCancelled else { return }
-                self.browseResults.append(results, for: category)
-                self.loadingMoreBrowseCategories.remove(category)
-                qobuzLog.info(
-                    "browse.pagination",
-                    "Next search result page loaded",
-                    metadata: [
-                        "searchID": requestID.uuidString,
-                        "category": category.rawValue,
-                        "offset": String(offset),
-                        "nextOffset": results.nextOffset.map(String.init) ?? "none",
-                        "loadedTotal": String(self.browseResults.count(for: category))
-                    ]
-                )
-            } catch {
-                guard let self,
-                      self.browseRequestID == requestID,
-                      self.browseQuery == query,
-                      !Task.isCancelled else { return }
-                qobuzLog.error(
-                    "browse.pagination",
-                    "Next search result page failed",
-                    metadata: ["searchID": requestID.uuidString, "category": category.rawValue, "offset": String(offset)],
-                    error: error
-                )
-                self.loadingMoreBrowseCategories.remove(category)
-                self.browseLoadMoreErrors[category] = error.localizedDescription
-            }
-        }
-        browseTasks.append(task)
+        browse.loadMore(for: category)
     }
 
     func downloadSelected() {
@@ -1665,6 +1357,7 @@ final class NativeViewModel: ObservableObject {
 
     private func configureClient() {
         client = credentials.isComplete ? clientFactory(credentials.coreValue) : nil
+        browse.configure(client: client, accountRegion: accountRegion)
         qobuzLog.info(
             "account.client",
             "Qobuz client configuration updated",
@@ -1859,14 +1552,6 @@ final class NativeViewModel: ObservableObject {
                 preview = .error(error.localizedDescription)
                 transitionDownload(queueID: item.id, to: .failed(error.localizedDescription))
             }
-        }
-    }
-
-    private func apply(_ results: QobuzSearchResults, category: NativeBrowseCategory) {
-        browseResults.replace(results, for: category)
-        loadingBrowseCategories.remove(category)
-        if loadingBrowseCategories.isEmpty, browseCategory == .albums, browseAlbums.isEmpty {
-            browseCategory = browseResults.firstNonemptyCategory ?? .albums
         }
     }
 
@@ -2304,7 +1989,7 @@ final class NativeViewModel: ObservableObject {
             let status: NativeLinkReviewStatus
             switch result.failure {
             case .qobuz(let error):
-                let message = browseErrorMessage(error)
+                let message = browse.errorMessage(error)
                 switch error {
                 case .unavailable, .emptyCollection:
                     status = .unavailable(message)

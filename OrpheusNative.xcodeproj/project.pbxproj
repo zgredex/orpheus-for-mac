@@ -20,6 +20,7 @@
 		20EF95BD35A9895BA249E85B /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */; };
 		21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD61966F61366548B91BD7B0 /* NativeDownloadStatus.swift */; };
 		263609391AFCC835C9B62A79 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0705669E15A714623F9D53B4 /* Formatters.swift */; };
+		2811C1CCF96A0A36CCCB14CA /* NativeBrowseAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43021B52EC3EC94DCB4E5538 /* NativeBrowseAvailabilityPolicy.swift */; };
 		2A16AD28B4384DB4FE0439F8 /* CatalogMarkers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E3F750975BD46AD55E04F2 /* CatalogMarkers.swift */; };
 		2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */; };
 		2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C549640E3C4CC5A7454731C /* NativeDownloadStateStore.swift */; };
@@ -65,12 +66,14 @@
 		BE173022A727EEEB8658EF48 /* NativeDiagnosticsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */; };
 		C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */; };
 		C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */; };
+		C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */; };
 		D1C4D0D769F132B8890219C0 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
 		D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */; };
 		D8B66A1C2A5B145AD8FA727F /* NativeDownloadStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA986A2A917D8F063500CCA0 /* NativeDownloadStateStoreTests.swift */; };
 		DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */; };
 		F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
+		F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */; };
 		FCFEB1D2D5FAF854FF34B879 /* NativeSupplementalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */; };
 /* End PBXBuildFile section */
 
@@ -99,6 +102,8 @@
 		360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadActivity.swift; sourceTree = "<group>"; };
 		3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryView.swift; sourceTree = "<group>"; };
 		3FCC9E16DCFF8327CED91BB3 /* EditorialOverview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialOverview.swift; sourceTree = "<group>"; };
+		43021B52EC3EC94DCB4E5538 /* NativeBrowseAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseAvailabilityPolicy.swift; sourceTree = "<group>"; };
+		4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQobuzServicing.swift; sourceTree = "<group>"; };
 		4DBFDEB0AA71E7BF694342F5 /* NativePreviewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePreviewState.swift; sourceTree = "<group>"; };
 		5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeViewModel.swift; sourceTree = "<group>"; };
 		54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseModels.swift; sourceTree = "<group>"; };
@@ -134,6 +139,7 @@
 		C0504E8EACB55220B9F71476 /* NativeSecureFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSecureFileWriter.swift; sourceTree = "<group>"; };
 		C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContentView.swift; sourceTree = "<group>"; };
 		C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumPreview.swift; sourceTree = "<group>"; };
+		CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseController.swift; sourceTree = "<group>"; };
 		CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkInboxSection.swift; sourceTree = "<group>"; };
 		D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSupplementalDiagnostics.swift; sourceTree = "<group>"; };
 		D51A5AB448A84780643E8102 /* LayoutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPolicyTests.swift; sourceTree = "<group>"; };
@@ -280,6 +286,14 @@
 			path = OrpheusNativeTests;
 			sourceTree = "<group>";
 		};
+		A8CAAA754678EA29AB10F48C /* Account */ = {
+			isa = PBXGroup;
+			children = (
+				4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */,
+			);
+			path = Account;
+			sourceTree = "<group>";
+		};
 		AA8C724EE06E62E96890E2A9 /* Library */ = {
 			isa = PBXGroup;
 			children = (
@@ -299,6 +313,8 @@
 		AFD0247A177304ED32DF6A7C /* Browse */ = {
 			isa = PBXGroup;
 			children = (
+				43021B52EC3EC94DCB4E5538 /* NativeBrowseAvailabilityPolicy.swift */,
+				CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */,
 				54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */,
 			);
 			path = Browse;
@@ -363,6 +379,7 @@
 				8513EC42E41C3EAB595FAC39 /* NativeSystemServices.swift */,
 				5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */,
 				8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */,
+				A8CAAA754678EA29AB10F48C /* Account */,
 				AFD0247A177304ED32DF6A7C /* Browse */,
 				33D0D45C90F7B2D560BD662B /* Download */,
 				72DD175F65440B5406620948 /* Library */,
@@ -558,6 +575,8 @@
 				2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */,
 				4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */,
 				1D9BBAEC775BF03CBC2E70A4 /* NativeActivityView.swift in Sources */,
+				2811C1CCF96A0A36CCCB14CA /* NativeBrowseAvailabilityPolicy.swift in Sources */,
+				C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */,
 				F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */,
 				7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */,
 				8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */,
@@ -576,6 +595,7 @@
 				586A981F30D8993655793031 /* NativePersistence.swift in Sources */,
 				3ABCA393158C6CC12E695212 /* NativePreviewState.swift in Sources */,
 				3603F64FA2F9BCA66AC0D517 /* NativePreviewView.swift in Sources */,
+				F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */,
 				B51166C741F31E64F1523E03 /* NativeQueueModels.swift in Sources */,
 				C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */,
 				19DF3B87F03FE29402C249EA /* NativeSecureFileWriter.swift in Sources */,
