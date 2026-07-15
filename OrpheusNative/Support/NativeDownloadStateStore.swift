@@ -22,8 +22,8 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
 }
 
 /// Focused owner for download lifecycle state. It intentionally has no UI or
-/// persistence dependencies; `NativeViewModel` only publishes projections and
-/// schedules persistence after mutations.
+/// persistence dependencies; `NativeDownloadLedger` publishes projections and
+/// is the sole mutation boundary for the app's operation lifecycle.
 struct NativeDownloadStateStore: Equatable {
     private var operationsByQueueID: [UUID: NativeDownloadOperation] = [:]
 
