@@ -3,6 +3,7 @@ import Foundation
 struct QobuzTrackTransferResult: Sendable {
     let checksum: String
     let installedBytes: Int64
+    let delivery: QobuzValidatedAudioDelivery
 }
 
 struct QobuzTrackTransferPipeline: @unchecked Sendable {
@@ -10,6 +11,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
     private let validator: any MediaValidating
     private let metadataWriter: any AudioMetadataWriting
     private let assetWriter: QobuzCollectionAssetWriter
+    private let deliveryPolicy: QobuzDeliveryPolicy
     private let fileManager: FileManager
 
     init(
@@ -17,12 +19,14 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
         validator: any MediaValidating,
         metadataWriter: any AudioMetadataWriting,
         assetWriter: QobuzCollectionAssetWriter,
+        deliveryPolicy: QobuzDeliveryPolicy,
         fileManager: FileManager
     ) {
         self.transfer = transfer
         self.validator = validator
         self.metadataWriter = metadataWriter
         self.assetWriter = assetWriter
+        self.deliveryPolicy = deliveryPolicy
         self.fileManager = fileManager
     }
 
@@ -90,7 +94,8 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             try metadataWriter.write(metadata: QobuzAudioMetadata(item: item), artwork: artwork, to: staging)
             qobuzLog.debug("download.metadata", "Audio metadata written", metadata: trackMetadata)
             continuation.yield(.validating(track: item))
-            try await validator.validate(staging)
+            let media = try await validator.validate(staging)
+            let delivery = try deliveryPolicy.validate(fileInfo: fileInfo, media: media)
             try Task.checkCancellation()
             let checksum = try MusicFileIntegrity.sha256(of: staging)
             qobuzLog.info(
@@ -107,7 +112,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             try assetWriter.recordProvenance(
                 QobuzFileProvenance(
                     item: item,
-                    fileInfo: fileInfo,
+                    delivery: delivery,
                     sha256: checksum,
                     archiveKind: repairTarget?.archiveKind
                 ),
@@ -126,7 +131,8 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             let size = try fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber
             return QobuzTrackTransferResult(
                 checksum: checksum,
-                installedBytes: size?.int64Value ?? state.currentTrackBytes
+                installedBytes: size?.int64Value ?? state.currentTrackBytes,
+                delivery: delivery
             )
         } catch {
             artworkTask.cancel()

@@ -149,7 +149,7 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertGreaterThan((attributes[.size] as? NSNumber)?.int64Value ?? 0, 128 * 1024)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.appendingPathExtension("partial").path))
         let validator = try FFmpegMediaValidator.bundled()
-        try await validator.validate(destination)
+        _ = try await validator.validate(destination)
         let checksum = try MusicFileIntegrity.sha256(of: destination)
         XCTAssertEqual(checksum.count, 64)
         XCTAssertTrue(try MusicFileIntegrity.verify(destination, expectedSHA256: checksum))

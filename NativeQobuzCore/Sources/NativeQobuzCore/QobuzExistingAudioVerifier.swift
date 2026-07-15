@@ -4,17 +4,20 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
     private let validator: any MediaValidating
     private let assetWriter: QobuzCollectionAssetWriter
     private let reuseRegistry: QobuzAudioReuseRegistry
+    private let deliveryPolicy: QobuzDeliveryPolicy
     private let fileManager: FileManager
 
     init(
         validator: any MediaValidating,
         assetWriter: QobuzCollectionAssetWriter,
         reuseRegistry: QobuzAudioReuseRegistry,
+        deliveryPolicy: QobuzDeliveryPolicy,
         fileManager: FileManager
     ) {
         self.validator = validator
         self.assetWriter = assetWriter
         self.reuseRegistry = reuseRegistry
+        self.deliveryPolicy = deliveryPolicy
         self.fileManager = fileManager
     }
 
@@ -31,10 +34,16 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
     ) async throws -> Bool {
         guard fileManager.fileExists(atPath: destination.path),
               let provenance = try? assetWriter.provenance(for: destination),
-              provenance.matches(item: item, fileInfo: fileInfo) else { return false }
+              provenance.matchesIdentityAndFormat(item: item, fileInfo: fileInfo) else { return false }
         do {
             continuation.yield(.validating(track: item))
-            try await validator.validate(destination)
+            let media = try await validator.validate(destination)
+            let delivery = try deliveryPolicy.validate(fileInfo: fileInfo, media: media)
+            guard provenance.matches(item: item, delivery: delivery) else {
+                throw NativeQobuzError.invalidResponse(
+                    "Existing file properties do not match its archive provenance"
+                )
+            }
             try Task.checkCancellation()
             let checksum = try MusicFileIntegrity.sha256(of: destination)
             guard provenance.sha256.caseInsensitiveCompare(checksum) == .orderedSame else {
@@ -43,7 +52,7 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
             try assetWriter.recordProvenance(
                 QobuzFileProvenance(
                     item: item,
-                    fileInfo: fileInfo,
+                    delivery: delivery,
                     sha256: checksum,
                     archiveKind: repairTarget?.archiveKind
                         ?? (provenance.archiveKind == .unclassified ? nil : provenance.archiveKind)
@@ -56,7 +65,7 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
                 destination: destination,
                 checksum: checksum,
                 bytes: size?.int64Value ?? 0,
-                fileInfo: fileInfo,
+                delivery: delivery,
                 reuseRegistry: reuseRegistry,
                 root: root
             )

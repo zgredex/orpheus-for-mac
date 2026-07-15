@@ -99,7 +99,7 @@ final class DownloadEngineTests: XCTestCase {
                 fileInfos: [trackID: fileInfo]
             ),
             transfer: FakeTransferClient(recorder: TransferRecorder()),
-            validator: AcceptingValidator(),
+            validator: AcceptingValidator(format: .lossless),
             metadataWriter: RecordingMetadataWriter()
         )
         let root = temporaryDirectory()
@@ -115,6 +115,89 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertEqual(notices.count, 1)
         XCTAssertTrue(notices[0].contains("Lossless FLAC delivered under the Hi-Res FLAC maximum"))
         XCTAssertTrue(warnings.isEmpty)
+    }
+
+    func testEngineRejectsDeliveryAboveCeilingBeforeStartingTransfer() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let trackID = try XCTUnwrap(album.tracks.first?.id)
+        let recorder = TransferRecorder()
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(
+                albums: [album.id: album],
+                fileInfos: [
+                    trackID: QobuzFileInfo(
+                        url: URL(string: "https://media.example/one.flac")!,
+                        format: .hiRes96,
+                        bitDepth: 24,
+                        samplingRate: 96
+                    )
+                ]
+            ),
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(format: .hiRes96),
+            metadataWriter: RecordingMetadataWriter()
+        )
+
+        do {
+            for try await _ in engine.events(for: .album(album.id), quality: .lossless, downloadRoot: root) {}
+            XCTFail("Expected delivery above the lossless ceiling to fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("above the configured Lossless FLAC maximum"))
+        }
+
+        let sourceCount = await recorder.sources.count
+        XCTAssertEqual(sourceCount, 0)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("Artist/Album/01. One.flac").path
+            )
+        )
+    }
+
+    func testEngineRejectsInconsistentMediaBeforeInstallingOrRecordingProvenance() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let trackID = try XCTUnwrap(album.tracks.first?.id)
+        let recorder = TransferRecorder()
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(
+                albums: [album.id: album],
+                fileInfos: [
+                    trackID: QobuzFileInfo(
+                        url: URL(string: "https://media.example/one.flac")!,
+                        format: .hiRes,
+                        bitDepth: 24,
+                        samplingRate: 96
+                    )
+                ]
+            ),
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(
+                properties: AudioStreamProperties(
+                    container: .mp3,
+                    codec: .mp3,
+                    bitDepth: nil,
+                    samplingRate: 44.1
+                )
+            ),
+            metadataWriter: RecordingMetadataWriter()
+        )
+
+        do {
+            for try await _ in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {}
+            XCTFail("Expected inconsistent downloaded media to fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("requires a FLAC container"))
+        }
+
+        let sourceCount = await recorder.sources.count
+        XCTAssertEqual(sourceCount, 1)
+        let finalAudio = root.appendingPathComponent("Artist/Album/01. One.flac")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalAudio.path))
+        XCTAssertNil(try QobuzCollectionAssetWriter().provenance(for: finalAudio))
     }
 
     func testMaximumPolicyDownloadsEverySupportedDeliveredFormat() async throws {
@@ -136,7 +219,7 @@ final class DownloadEngineTests: XCTestCase {
             let engine = NativeQobuzDownloadEngine(
                 service: service,
                 transfer: FakeTransferClient(recorder: TransferRecorder()),
-                validator: AcceptingValidator(),
+                validator: AcceptingValidator(format: format),
                 metadataWriter: RecordingMetadataWriter(),
                 assetWriter: assetWriter
             )
@@ -317,7 +400,11 @@ final class DownloadEngineTests: XCTestCase {
         )
         let assetWriter = QobuzCollectionAssetWriter()
         try assetWriter.recordProvenance(
-            QobuzFileProvenance(item: item, fileInfo: fileInfo, sha256: String(repeating: "0", count: 64)),
+            QobuzFileProvenance(
+                item: item,
+                delivery: try validatedTestDelivery(for: fileInfo),
+                sha256: String(repeating: "0", count: 64)
+            ),
             for: destination
         )
         let engine = NativeQobuzDownloadEngine(
@@ -384,7 +471,11 @@ final class DownloadEngineTests: XCTestCase {
         let checksum = try MusicFileIntegrity.sha256(of: destination)
         let assetWriter = QobuzCollectionAssetWriter()
         try assetWriter.recordProvenance(
-            QobuzFileProvenance(item: item, fileInfo: fileInfo, sha256: checksum),
+            QobuzFileProvenance(
+                item: item,
+                delivery: try validatedTestDelivery(for: fileInfo),
+                sha256: checksum
+            ),
             for: destination
         )
         let engine = NativeQobuzDownloadEngine(
@@ -423,7 +514,7 @@ final class DownloadEngineTests: XCTestCase {
         try assetWriter.recordProvenance(
             QobuzFileProvenance(
                 item: item,
-                fileInfo: oldInfo,
+                delivery: try validatedTestDelivery(for: oldInfo),
                 sha256: try MusicFileIntegrity.sha256(of: destination)
             ),
             for: destination
@@ -504,9 +595,11 @@ final class DownloadEngineTests: XCTestCase {
         try assetWriter.recordProvenance(
             QobuzFileProvenance(
                 item: resolvedItem(for: album),
-                fileInfo: QobuzFileInfo(
-                    url: URL(string: "https://media.example/one.flac")!,
-                    format: .hiRes96
+                delivery: try validatedTestDelivery(
+                    for: QobuzFileInfo(
+                        url: URL(string: "https://media.example/one.flac")!,
+                        format: .hiRes96
+                    )
                 ),
                 sha256: oldHash
             ),
@@ -528,7 +621,7 @@ final class DownloadEngineTests: XCTestCase {
         let engine = NativeQobuzDownloadEngine(
             service: service,
             transfer: FakeTransferClient(recorder: recorder),
-            validator: AcceptingValidator(),
+            validator: AcceptingValidator(format: .hiRes96),
             metadataWriter: RecordingMetadataWriter(),
             assetWriter: assetWriter
         )
@@ -674,7 +767,19 @@ struct FakeTransferClient: FileTransferClient {
 }
 
 struct AcceptingValidator: MediaValidating {
-    func validate(_ fileURL: URL) async throws {}
+    let properties: AudioStreamProperties
+
+    init(format: QobuzAudioFormat = .hiRes) {
+        properties = testAudioProperties(for: format)
+    }
+
+    init(properties: AudioStreamProperties) {
+        self.properties = properties
+    }
+
+    func validate(_ fileURL: URL) async throws -> AudioStreamProperties {
+        properties
+    }
 }
 
 struct RecordingMetadataWriter: AudioMetadataWriting {

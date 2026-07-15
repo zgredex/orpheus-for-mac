@@ -173,7 +173,7 @@ final class CollectionAssetTests: XCTestCase {
         )
         let provenance = QobuzFileProvenance(
             item: item,
-            fileInfo: fileInfo,
+            delivery: try validatedTestDelivery(for: fileInfo),
             sha256: try MusicFileIntegrity.sha256(of: audio)
         )
         let writer = QobuzCollectionAssetWriter()
@@ -182,7 +182,7 @@ final class CollectionAssetTests: XCTestCase {
 
         XCTAssertEqual(try writer.provenance(for: audio), provenance)
         XCTAssertTrue(provenance.belongs(to: item))
-        XCTAssertTrue(provenance.matches(item: item, fileInfo: fileInfo))
+        XCTAssertTrue(provenance.matches(item: item, delivery: try validatedTestDelivery(for: fileInfo)))
         let encoded = try JSONEncoder().encode(provenance)
         let keys = Set(try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any]).keys)
         XCTAssertEqual(keys, [
@@ -192,7 +192,14 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertFalse(
             provenance.matches(
                 item: item,
-                fileInfo: QobuzFileInfo(url: fileInfo.url, format: .lossless, bitDepth: 16, samplingRate: 44.1)
+                delivery: try validatedTestDelivery(
+                    for: QobuzFileInfo(
+                        url: fileInfo.url,
+                        format: .lossless,
+                        bitDepth: 16,
+                        samplingRate: 44.1
+                    )
+                )
             )
         )
     }

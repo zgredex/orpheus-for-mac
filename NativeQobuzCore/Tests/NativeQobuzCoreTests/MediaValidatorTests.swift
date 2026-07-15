@@ -14,7 +14,7 @@ final class MediaValidatorTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: validator.executableURL.path))
         do {
-            try await validator.validate(invalid)
+            _ = try await validator.validate(invalid)
             XCTFail("Corrupt media must not pass validation")
         } catch let error as NativeQobuzError {
             guard case .invalidResponse = error else {
@@ -40,11 +40,12 @@ final class MediaValidatorTests: XCTestCase {
         task.cancel()
 
         do {
-            try await task.value
+            _ = try await task.value
             XCTFail("Cancelled validation must not complete successfully")
         } catch let error as NativeQobuzError {
             XCTAssertEqual(error, .cancelled)
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
     }
+
 }

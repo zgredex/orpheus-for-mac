@@ -31,7 +31,7 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
         destination: URL,
         checksum: String,
         bytes: Int64,
-        fileInfo: QobuzFileInfo,
+        delivery: QobuzValidatedAudioDelivery,
         reuseRegistry: QobuzAudioReuseRegistry,
         root: URL
     ) {
@@ -40,7 +40,7 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
         recordOutput(item: item, destination: destination, checksum: checksum)
         registerReusable(
             item: item,
-            fileInfo: fileInfo,
+            delivery: delivery,
             destination: destination,
             reuseRegistry: reuseRegistry,
             root: root
@@ -52,7 +52,7 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
         destination: URL,
         checksum: String,
         bytes: Int64,
-        fileInfo: QobuzFileInfo,
+        delivery: QobuzValidatedAudioDelivery,
         reuseRegistry: QobuzAudioReuseRegistry,
         root: URL
     ) {
@@ -62,7 +62,7 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
         recordOutput(item: item, destination: destination, checksum: checksum)
         registerReusable(
             item: item,
-            fileInfo: fileInfo,
+            delivery: delivery,
             destination: destination,
             reuseRegistry: reuseRegistry,
             root: root
@@ -84,12 +84,12 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
 
     private func registerReusable(
         item: QobuzResolvedTrack,
-        fileInfo: QobuzFileInfo,
+        delivery: QobuzValidatedAudioDelivery,
         destination: URL,
         reuseRegistry: QobuzAudioReuseRegistry,
         root: URL
     ) {
-        let key = QobuzFileProvenance.reuseKey(item: item, fileInfo: fileInfo)
+        let key = QobuzFileProvenance.reuseKey(item: item, delivery: delivery)
         reusableAudio[key] = destination
         reuseRegistry.store(destination, reuseKey: key, root: root)
     }

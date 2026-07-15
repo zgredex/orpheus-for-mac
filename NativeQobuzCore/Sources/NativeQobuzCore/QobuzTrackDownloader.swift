@@ -51,6 +51,10 @@ struct QobuzTrackDownloader: @unchecked Sendable {
                 "formatID": String(fileInfo.formatID)
             ]) { _, new in new }
         )
+        try deliveryPolicy.validateCeiling(
+            requestedMaximum: configuration.requestedMaximum,
+            delivered: fileInfo
+        )
         emitDeliveryNotice(
             item: item,
             fileInfo: fileInfo,
@@ -99,7 +103,7 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             destination: destination,
             checksum: result.checksum,
             bytes: result.installedBytes,
-            fileInfo: fileInfo,
+            delivery: result.delivery,
             reuseRegistry: reuseRegistry,
             root: configuration.downloadRoot
         )

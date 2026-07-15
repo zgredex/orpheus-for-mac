@@ -14,16 +14,16 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
 
     public init(
         item: QobuzResolvedTrack,
-        fileInfo: QobuzFileInfo,
+        delivery: QobuzValidatedAudioDelivery,
         sha256: String,
         archiveKind: QobuzArchiveKind? = nil,
         isLibraryManaged: Bool = false
     ) {
         qobuzTrackID = item.track.id.rawValue
         qobuzAlbumID = item.album.id.rawValue
-        formatID = fileInfo.formatID
-        bitDepth = fileInfo.bitDepth
-        samplingRate = fileInfo.samplingRate
+        formatID = delivery.format.formatID
+        bitDepth = delivery.bitDepth
+        samplingRate = delivery.samplingRate
         self.sha256 = sha256
         self.archiveKind = archiveKind ?? item.collection.archiveKind
         self.isLibraryManaged = isLibraryManaged
@@ -56,20 +56,23 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
         qobuzTrackID == item.track.id.rawValue && qobuzAlbumID == item.album.id.rawValue
     }
 
-    public func matches(item: QobuzResolvedTrack, fileInfo: QobuzFileInfo) -> Bool {
+    public func matchesIdentityAndFormat(item: QobuzResolvedTrack, fileInfo: QobuzFileInfo) -> Bool {
         belongs(to: item)
             && formatID == fileInfo.formatID
-            && bitDepth == fileInfo.bitDepth
-            && ratesMatch(samplingRate, fileInfo.samplingRate)
+    }
+
+    public func matches(item: QobuzResolvedTrack, delivery: QobuzValidatedAudioDelivery) -> Bool {
+        belongs(to: item)
+            && formatID == delivery.format.formatID
+            && bitDepth == delivery.bitDepth
+            && ratesMatch(samplingRate, delivery.samplingRate)
     }
 
     public var reuseKey: String {
         Self.reuseKey(
             trackID: qobuzTrackID,
             albumID: qobuzAlbumID,
-            formatID: formatID,
-            bitDepth: bitDepth,
-            samplingRate: samplingRate
+            formatID: formatID
         )
     }
 
@@ -77,9 +80,15 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
         reuseKey(
             trackID: item.track.id.rawValue,
             albumID: item.album.id.rawValue,
-            formatID: fileInfo.formatID,
-            bitDepth: fileInfo.bitDepth,
-            samplingRate: fileInfo.samplingRate
+            formatID: fileInfo.formatID
+        )
+    }
+
+    public static func reuseKey(item: QobuzResolvedTrack, delivery: QobuzValidatedAudioDelivery) -> String {
+        reuseKey(
+            trackID: item.track.id.rawValue,
+            albumID: item.album.id.rawValue,
+            formatID: delivery.format.formatID
         )
     }
 
@@ -99,21 +108,14 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
     private static func reuseKey(
         trackID: String,
         albumID: String,
-        formatID: Int,
-        bitDepth: Int?,
-        samplingRate: Double?
+        formatID: Int
     ) -> String {
-        let depth = bitDepth.map { String($0) } ?? "-"
-        let rate = samplingRate.map { String($0) } ?? "-"
-        return "\(trackID)|\(albumID)|\(formatID)|\(depth)|\(rate)"
+        "\(trackID)|\(albumID)|\(formatID)"
     }
 
-    private func ratesMatch(_ lhs: Double?, _ rhs: Double?) -> Bool {
-        switch (lhs, rhs) {
-        case (.none, .none): true
-        case (.some(let lhs), .some(let rhs)): abs(lhs - rhs) < 0.001
-        default: false
-        }
+    private func ratesMatch(_ lhs: Double?, _ rhs: Double) -> Bool {
+        guard let lhs else { return false }
+        return abs(lhs - rhs) < 0.01
     }
 
     private init(

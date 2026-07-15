@@ -172,7 +172,10 @@ struct NativeQobuzAcceptance {
                     } else {
                         try await client.fileInfo(trackID: mediaFixture.track.id, format: quality.maximumFormat)
                     }
-                    try require(value.format == quality.maximumFormat, "Qobuz returned format \(value.formatID), expected \(quality.maximumFormat.formatID).")
+                    try QobuzDeliveryPolicy().validateCeiling(
+                        requestedMaximum: quality,
+                        delivered: value
+                    )
                     return value
                 }) {
                     fileInfo[quality] = info
@@ -221,7 +224,8 @@ struct NativeQobuzAcceptance {
                     try await transfer(source: info.url, destination: destination)
                 }
                 let validator = try FFmpegMediaValidator.bundled()
-                try await validator.validate(destination)
+                let media = try await validator.validate(destination)
+                _ = try QobuzDeliveryPolicy().validate(fileInfo: info, media: media)
                 let checksum = try MusicFileIntegrity.sha256(of: destination)
                 try require(checksum.count == 64, "SHA-256 output has an invalid length.")
                 let verified = try MusicFileIntegrity.verify(destination, expectedSHA256: checksum)
@@ -412,11 +416,15 @@ struct NativeQobuzAcceptance {
             throw AcceptanceFailure(message: "Album did not provide downloadable artwork.")
         }
         try NativeAudioMetadataWriter().write(metadata: QobuzAudioMetadata(item: item), artwork: artwork, to: destination)
-        try await FFmpegMediaValidator.bundled().validate(destination)
+        let media = try await FFmpegMediaValidator.bundled().validate(destination)
+        let delivery = try QobuzDeliveryPolicy().validate(fileInfo: fileInfo, media: media)
         let checksum = try MusicFileIntegrity.sha256(of: destination)
         let verified = try MusicFileIntegrity.verify(destination, expectedSHA256: checksum)
         try require(verified, "Tagged file checksum failed.")
-        try assets.recordProvenance(QobuzFileProvenance(item: item, fileInfo: fileInfo, sha256: checksum), for: destination)
+        try assets.recordProvenance(
+            QobuzFileProvenance(item: item, delivery: delivery, sha256: checksum),
+            for: destination
+        )
         _ = try assets.writeChecksumManifests(for: [(item, destination, checksum)])
         let cover = try assets.saveExternalArtwork(artwork, for: item, audioURL: destination)
         try require(cover.map { FileManager.default.fileExists(atPath: $0.path) } == true, "External cover artwork was not written.")

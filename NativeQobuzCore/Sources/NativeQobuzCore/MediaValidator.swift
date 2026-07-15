@@ -1,7 +1,7 @@
 import Foundation
 
 public protocol MediaValidating: Sendable {
-    func validate(_ fileURL: URL) async throws
+    func validate(_ fileURL: URL) async throws -> AudioStreamProperties
 }
 
 public struct FFmpegMediaValidator: MediaValidating, Sendable {
@@ -28,7 +28,7 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
         return FFmpegMediaValidator(executableURL: executable)
     }
 
-    public func validate(_ fileURL: URL) async throws {
+    public func validate(_ fileURL: URL) async throws -> AudioStreamProperties {
         let validationID = UUID().uuidString
         let started = Date()
         let metadata = [
@@ -102,13 +102,19 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
                 qobuzLog.notice("validation.media", "Media validation cancellation requested", metadata: metadata)
                 state.cancel()
             }
+            let properties = try AudioToolboxStreamInspector().inspect(fileURL)
             qobuzLog.notice(
                 "validation.media",
                 "Media validation passed",
                 metadata: metadata.merging([
-                    "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
+                    "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000)),
+                    "container": properties.container.rawValue,
+                    "codec": properties.codec.rawValue,
+                    "bitDepth": properties.bitDepth.map(String.init) ?? "unknown",
+                    "samplingRateKHz": String(properties.samplingRate)
                 ]) { _, new in new }
             )
+            return properties
         } catch {
             if let native = error as? NativeQobuzError, case .cancelled = native {
                 qobuzLog.notice("validation.media", "Media validation cancelled", metadata: metadata)

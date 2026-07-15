@@ -17,6 +17,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
     ) {
         let assetWriter = assetWriter ?? QobuzCollectionAssetWriter(outputPlanner: outputPlanner)
         let reuseRegistry = QobuzAudioReuseRegistry(assetWriter: assetWriter, index: reusableAudioIndex)
+        let deliveryPolicy = QobuzDeliveryPolicy()
         let destinationResolver = QobuzDownloadDestinationResolver(
             outputPlanner: outputPlanner,
             assetWriter: assetWriter,
@@ -26,6 +27,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             validator: validator,
             assetWriter: assetWriter,
             reuseRegistry: reuseRegistry,
+            deliveryPolicy: deliveryPolicy,
             fileManager: fileManager
         )
         let transferPipeline = QobuzTrackTransferPipeline(
@@ -33,6 +35,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             validator: validator,
             metadataWriter: metadataWriter,
             assetWriter: assetWriter,
+            deliveryPolicy: deliveryPolicy,
             fileManager: fileManager
         )
         let trackDownloader = QobuzTrackDownloader(
@@ -40,7 +43,7 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
             destinationResolver: destinationResolver,
             existingVerifier: existingVerifier,
             transferPipeline: transferPipeline,
-            deliveryPolicy: QobuzDeliveryPolicy(),
+            deliveryPolicy: deliveryPolicy,
             reuseRegistry: reuseRegistry
         )
         operation = QobuzDownloadOperation(

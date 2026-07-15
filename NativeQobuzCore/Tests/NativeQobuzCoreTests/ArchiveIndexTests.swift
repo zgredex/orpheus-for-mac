@@ -530,7 +530,14 @@ final class ArchiveIndexTests: XCTestCase {
         )
         return QobuzFileProvenance(
             item: item,
-            fileInfo: QobuzFileInfo(url: URL(string: "https://media.example/file.flac")!, format: .hiRes, bitDepth: 24, samplingRate: 96),
+            delivery: try! validatedTestDelivery(
+                for: QobuzFileInfo(
+                    url: URL(string: "https://media.example/file.flac")!,
+                    format: .hiRes,
+                    bitDepth: 24,
+                    samplingRate: 96
+                )
+            ),
             sha256: hash
         )
     }

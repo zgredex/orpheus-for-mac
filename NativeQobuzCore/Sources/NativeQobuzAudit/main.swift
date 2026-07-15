@@ -42,14 +42,17 @@ struct NativeQobuzAudit {
                     print("Saved \(url.path) (\(size?.int64Value ?? 0) bytes)")
                 }
             }
-            try await validator.validate(destination)
+            let media = try await validator.validate(destination)
+            try QobuzDeliveryPolicy().validateCeiling(requestedMaximum: quality, delivered: info)
+            _ = try QobuzDeliveryPolicy().validate(fileInfo: info, media: media)
             if shouldTag {
                 try NativeAudioMetadataWriter().write(
                     metadata: QobuzAudioMetadata(item: resolved),
                     artwork: artwork,
                     to: destination
                 )
-                try await validator.validate(destination)
+                let taggedMedia = try await validator.validate(destination)
+                _ = try QobuzDeliveryPolicy().validate(fileInfo: info, media: taggedMedia)
                 print("Validated and tagged \(destination.path)")
             }
         }
