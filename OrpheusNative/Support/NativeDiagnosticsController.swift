@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 import NativeQobuzCore
 
+struct NativeDiagnosticSnapshot: Sendable {
+    let downloadQuality: String
+    let downloadRoot: String
+    let queue: [NativeDiagnosticQueueSummary]
+    let activities: [NativeDiagnosticActivitySummary]
+    let libraryTrackCount: Int
+    let libraryIssueCount: Int
+    let credentialsConfigured: Bool
+}
+
 final class NativeDiagnosticsController: @unchecked Sendable {
     private let logStore: any NativeLogStoring
     private let supplementalCollector: any NativeSupplementalDiagnosticsCollecting
@@ -33,7 +43,8 @@ final class NativeDiagnosticsController: @unchecked Sendable {
         NSWorkspace.shared.activateFileViewerSelecting([directoryURL])
     }
 
-    func export(report: NativeDiagnosticReport, to parent: URL) async throws -> URL {
+    func export(snapshot: NativeDiagnosticSnapshot, to parent: URL) async throws -> URL {
+        let report = makeReport(from: snapshot)
         let exportStartedAt = Date()
         qobuzLog.notice("diagnostics", "Diagnostic export started", metadata: ["destination": parent.path])
         let stamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
@@ -116,5 +127,34 @@ final class NativeDiagnosticsController: @unchecked Sendable {
                 throw error
             }
         }.value
+    }
+
+    private func makeReport(from snapshot: NativeDiagnosticSnapshot) -> NativeDiagnosticReport {
+        let architecture: String
+        #if arch(arm64)
+        architecture = "arm64"
+        #elseif arch(x86_64)
+        architecture = "x86_64"
+        #else
+        architecture = "unknown"
+        #endif
+        let bundle = Bundle.main
+        return NativeDiagnosticReport(
+            generatedAt: Date(),
+            diagnosticSessionID: QobuzDiagnostics.shared.sessionID,
+            appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+            appBuild: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
+            architecture: architecture,
+            locale: Locale.current.identifier,
+            timeZone: TimeZone.current.identifier,
+            downloadQuality: snapshot.downloadQuality,
+            downloadRoot: snapshot.downloadRoot,
+            queue: snapshot.queue,
+            activities: snapshot.activities,
+            libraryTrackCount: snapshot.libraryTrackCount,
+            libraryIssueCount: snapshot.libraryIssueCount,
+            credentialsConfigured: snapshot.credentialsConfigured
+        )
     }
 }

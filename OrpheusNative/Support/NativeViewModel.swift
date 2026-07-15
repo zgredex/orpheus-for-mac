@@ -208,7 +208,7 @@ final class NativeViewModel: ObservableObject {
 
     @discardableResult
     func exportDiagnostics(to parent: URL) async throws -> URL {
-        try await diagnostics.export(report: makeDiagnosticReport(), to: parent)
+        try await diagnostics.export(snapshot: makeDiagnosticSnapshot(), to: parent)
     }
 
     func start() {
@@ -1552,25 +1552,8 @@ final class NativeViewModel: ObservableObject {
         mutate(&activities[index])
     }
 
-    private func makeDiagnosticReport() -> NativeDiagnosticReport {
-        let architecture: String
-        #if arch(arm64)
-        architecture = "arm64"
-        #elseif arch(x86_64)
-        architecture = "x86_64"
-        #else
-        architecture = "unknown"
-        #endif
-        let bundle = Bundle.main
-        return NativeDiagnosticReport(
-            generatedAt: Date(),
-            diagnosticSessionID: QobuzDiagnostics.shared.sessionID,
-            appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
-            appBuild: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
-            operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-            architecture: architecture,
-            locale: Locale.current.identifier,
-            timeZone: TimeZone.current.identifier,
+    private func makeDiagnosticSnapshot() -> NativeDiagnosticSnapshot {
+        NativeDiagnosticSnapshot(
             downloadQuality: settings.quality.displayName,
             downloadRoot: settings.downloadPath,
             queue: queue.map { item in
