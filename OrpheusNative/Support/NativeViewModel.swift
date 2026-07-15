@@ -6,12 +6,6 @@ import NativeQobuzCore
 @MainActor
 final class NativeViewModel: ObservableObject {
     @Published var input = ""
-    @Published private(set) var queue: [NativeQueueItem] = [] {
-        didSet { scheduleSessionPersistence() }
-    }
-    @Published var selectedQueueID: UUID? {
-        didSet { scheduleSessionPersistence() }
-    }
     @Published private(set) var preview: NativePreviewState = .empty
     @Published private(set) var activities: [NativeDownloadActivity] = [] {
         didSet { scheduleSessionPersistence() }
@@ -37,6 +31,7 @@ final class NativeViewModel: ObservableObject {
     private let powerActivityManager: any NativePowerActivityManaging
     private let account: NativeAccountController
     private let browse = NativeBrowseController()
+    private let queueController = NativeQueueController()
     private var previewTask: Task<Void, Never>?
     private var linkInboxTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
@@ -53,6 +48,7 @@ final class NativeViewModel: ObservableObject {
     private var connectivityGeneration: UInt64 = 0
     private var accountObservation: AnyCancellable?
     private var browseObservation: AnyCancellable?
+    private var queueObservation: AnyCancellable?
     private let connectivityEvents = NativeConnectivityEvents()
     private let reusableAudioIndex = QobuzReusableAudioIndex()
 
@@ -94,6 +90,10 @@ final class NativeViewModel: ObservableObject {
         browseObservation = browse.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        queueObservation = queueController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+            self?.scheduleSessionPersistence()
+        }
         do {
             try diagnostics.activate()
             qobuzLog.info("lifecycle", "Native view model initialized")
@@ -102,9 +102,9 @@ final class NativeViewModel: ObservableObject {
         }
     }
 
-    var selectedQueueItem: NativeQueueItem? {
-        queue.first { $0.id == selectedQueueID }
-    }
+    var queue: [NativeQueueItem] { queueController.items }
+    var selectedQueueID: UUID? { queueController.selectedID }
+    var selectedQueueItem: NativeQueueItem? { queueController.selectedItem }
 
     func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
         guard let item = selectedQueueItem,
@@ -448,243 +448,102 @@ final class NativeViewModel: ObservableObject {
         subtitle: String? = nil,
         artworkURL: URL? = nil
     ) {
-        guard !queue.contains(where: { $0.canonicalURL == request.canonicalURL }) else {
-            qobuzLog.info(
-                "queue",
-                "Duplicate Qobuz request was not added",
-                metadata: ["requestKind": request.kindName, "qobuzID": request.id.rawValue]
-            )
+        guard let item = queueController.add(
+            request,
+            title: title,
+            subtitle: subtitle,
+            artworkURL: artworkURL
+        ) else {
             notice = "That Qobuz item is already queued."
             return
         }
-        var item = NativeQueueItem(request: request, title: title)
-        if let subtitle { item.subtitle = subtitle }
-        item.artworkURL = artworkURL
-        queue.append(item)
         updateDownloadState { $0.registerQueue(item.id) }
-        qobuzLog.notice(
-            "queue",
-            "Qobuz request added to queue",
-            metadata: [
-                "queueID": item.id.uuidString,
-                "requestKind": request.kindName,
-                "qobuzID": request.id.rawValue,
-                "queueCount": String(queue.count)
-            ]
-        )
-        selectQueueItem(item.id)
+        loadPreview(item)
     }
 
     func addAlbums(_ albums: [QobuzAlbum]) {
-        var knownURLs = Set(queue.map(\.canonicalURL))
-        var added: [NativeQueueItem] = []
-        var skipped = 0
-
-        for album in albums where album.accountAvailabilityIssue == nil {
-            let request = QobuzRequest.album(album.id)
-            guard knownURLs.insert(request.canonicalURL).inserted else {
-                skipped += 1
-                continue
-            }
-            var item = NativeQueueItem(request: request, title: album.displayTitle)
-            item.subtitle = album.albumArtistDisplayName
-            item.artworkURL = album.image?.bestURL
-            added.append(item)
-        }
-
-        guard !added.isEmpty else {
-            if skipped > 0 { notice = "Those editions are already queued." }
+        let result = queueController.addAlbums(albums)
+        guard !result.added.isEmpty else {
+            if result.skipped > 0 { notice = "Those editions are already queued." }
             return
         }
-        queue.append(contentsOf: added)
-        updateDownloadState { $0.registerQueues(added.map(\.id)) }
-        qobuzLog.notice(
-            "queue",
-            "Album editions added to queue",
-            metadata: [
-                "addedCount": String(added.count),
-                "duplicateCount": String(skipped),
-                "queueCount": String(queue.count)
-            ]
-        )
-        selectQueueItem(added[0].id)
-        if skipped > 0 {
-            let noun = skipped == 1 ? "edition" : "editions"
-            notice = "Skipped \(skipped) already queued \(noun)."
+        updateDownloadState { $0.registerQueues(result.added.map(\.id)) }
+        loadPreview(result.added[0])
+        if result.skipped > 0 {
+            let noun = result.skipped == 1 ? "edition" : "editions"
+            notice = "Skipped \(result.skipped) already queued \(noun)."
         } else {
             notice = nil
         }
     }
 
     func selectQueueItem(_ id: UUID?) {
-        selectedQueueID = id
-        guard let id, let item = queue.first(where: { $0.id == id }) else {
-            qobuzLog.debug("queue.selection", "Queue selection cleared")
+        guard let item = queueController.select(id) else {
             preview = .empty
             return
         }
-        qobuzLog.debug(
-            "queue.selection",
-            "Queue item selected",
-            metadata: ["queueID": id.uuidString, "requestKind": item.request.kindName, "qobuzID": item.request.id.rawValue]
-        )
         loadPreview(item)
     }
 
     func removeQueueItem(_ id: UUID) {
-        guard !downloadState.status(forQueueID: id).isActive else {
-            qobuzLog.warning("queue", "Active download could not be removed", metadata: ["queueID": id.uuidString])
-            return
-        }
-        queue.removeAll { $0.id == id }
-        updateDownloadState { $0.removeQueue(id) }
-        qobuzLog.notice(
-            "queue",
-            "Queue item removed",
-            metadata: ["queueID": id.uuidString, "queueCount": String(queue.count)]
+        let result = queueController.remove(
+            id,
+            isActive: downloadState.status(forQueueID: id).isActive
         )
-        if selectedQueueID == id { selectQueueItem(queue.first?.id) }
+        guard result.removedID != nil else { return }
+        updateDownloadState { $0.removeQueue(id) }
+        if let selectedItem = result.selectedItem { loadPreview(selectedItem) }
+        else { preview = .empty }
     }
 
     func clearQueue() {
-        let before = queue.count
         let activeIDs = Set(queue.filter { status(for: $0).isActive }.map(\.id))
-        let removedIDs = Set(queue.map(\.id)).subtracting(activeIDs)
-        queue.removeAll { !activeIDs.contains($0.id) }
+        let result = queueController.clear(retaining: activeIDs)
         updateDownloadState { state in
-            for id in removedIDs { state.removeQueue(id) }
+            for id in result.removedIDs { state.removeQueue(id) }
         }
-        qobuzLog.notice(
-            "queue",
-            "Inactive queue items cleared",
-            metadata: ["removedCount": String(before - queue.count), "retainedActiveCount": String(queue.count)]
-        )
-        selectQueueItem(queue.first?.id)
+        if let selectedItem = result.selectedItem { loadPreview(selectedItem) }
+        else { preview = .empty }
     }
 
     func setQueueQuality(_ quality: QobuzQuality?, for id: UUID) {
-        guard !isDownloading,
-              queue.first(where: { $0.id == id })?.repairTarget == nil else { return }
-        updateQueue(id) { item in
-            item.downloadQuality = quality
-        }
+        guard queueController.setQuality(quality, for: id, mutationsAllowed: !isDownloading) else { return }
         resetQueueStatusAfterPlanChange(id)
-        qobuzLog.info(
-            "queue.plan",
-            "Queue quality override changed",
-            metadata: ["queueID": id.uuidString, "quality": quality?.rawValue ?? "default"]
-        )
     }
 
     func toggleQueueTrack(_ trackID: QobuzID, in id: UUID) {
-        guard !isDownloading,
-              queue.first(where: { $0.id == id })?.trackPlan != nil else { return }
-        updateQueue(id) { item in
-            var selected = item.effectiveSelectedTrackIDs
-            if selected.contains(trackID) { selected.remove(trackID) }
-            else if item.availableTrackIDs.contains(trackID) { selected.insert(trackID) }
-            item.selectedTrackIDs = selected
-        }
+        guard queueController.toggleTrack(trackID, in: id, mutationsAllowed: !isDownloading) else { return }
         resetQueueStatusAfterPlanChange(id)
-        if let item = queue.first(where: { $0.id == id }) {
-            qobuzLog.info(
-                "queue.plan",
-                "Queue track selection changed",
-                metadata: [
-                    "queueID": id.uuidString,
-                    "trackID": trackID.rawValue,
-                    "selectedTrackCount": String(item.effectiveSelectedTrackIDs.count)
-                ]
-            )
-        }
     }
 
     func selectAllQueueTracks(in id: UUID) {
-        guard !isDownloading,
-              queue.first(where: { $0.id == id })?.trackPlan != nil else { return }
-        updateQueue(id) { item in
-            item.selectedTrackIDs = nil
-        }
+        guard queueController.selectAllTracks(in: id, mutationsAllowed: !isDownloading) else { return }
         resetQueueStatusAfterPlanChange(id)
-        qobuzLog.info("queue.plan", "All available queue tracks selected", metadata: ["queueID": id.uuidString])
     }
 
     func clearQueueTrackSelection(in id: UUID) {
-        guard !isDownloading,
-              queue.first(where: { $0.id == id })?.trackPlan != nil else { return }
-        updateQueue(id) { item in
-            item.selectedTrackIDs = []
-        }
+        guard queueController.clearTrackSelection(in: id, mutationsAllowed: !isDownloading) else { return }
         resetQueueStatusAfterPlanChange(id)
-        qobuzLog.info("queue.plan", "Queue track selection cleared", metadata: ["queueID": id.uuidString])
     }
 
     func moveQueueItems(from offsets: IndexSet, to destination: Int) {
-        guard !isDownloading, !offsets.isEmpty else { return }
-        let moving = offsets.sorted().map { queue[$0] }
-        for index in offsets.sorted(by: >) { queue.remove(at: index) }
-        let removedBeforeDestination = offsets.filter { $0 < destination }.count
-        let insertion = min(max(destination - removedBeforeDestination, 0), queue.count)
-        queue.insert(contentsOf: moving, at: insertion)
-        qobuzLog.debug(
-            "queue.order",
-            "Queue items reordered",
-            metadata: ["movedCount": String(moving.count), "destinationIndex": String(insertion)]
-        )
+        queueController.move(from: offsets, to: destination, mutationsAllowed: !isDownloading)
     }
 
     func moveQueueItem(_ sourceID: UUID, before targetID: UUID) {
-        guard !isDownloading,
-              sourceID != targetID,
-              let source = queue.firstIndex(where: { $0.id == sourceID }),
-              queue.contains(where: { $0.id == targetID }) else { return }
-        let item = queue.remove(at: source)
-        guard let target = queue.firstIndex(where: { $0.id == targetID }) else { return }
-        queue.insert(item, at: target)
+        queueController.move(sourceID, before: targetID, mutationsAllowed: !isDownloading)
     }
 
     func moveQueueItemUp(_ id: UUID) {
-        guard !isDownloading,
-              let index = queue.firstIndex(where: { $0.id == id }),
-              index > 0 else { return }
-        queue.swapAt(index, index - 1)
+        queueController.moveUp(id, mutationsAllowed: !isDownloading)
     }
 
     func moveQueueItemDown(_ id: UUID) {
-        guard !isDownloading,
-              let index = queue.firstIndex(where: { $0.id == id }),
-              index + 1 < queue.count else { return }
-        queue.swapAt(index, index + 1)
+        queueController.moveDown(id, mutationsAllowed: !isDownloading)
     }
 
     func queuePreflight(for item: NativeQueueItem) -> NativeQueuePreflight {
-        let selectedIDs = item.effectiveSelectedTrackIDs
-        let selectedCount: Int?
-        let unavailable: Int
-        if let trackPlan = item.trackPlan {
-            selectedCount = trackPlan.count { $0.isAvailable && selectedIDs.contains($0.qobuzID) }
-            unavailable = trackPlan.count { !$0.isAvailable }
-        } else {
-            selectedCount = item.selectedTrackIDs?.count ?? item.expectedTrackIDs?.count
-            unavailable = 0
-        }
-
-        var verified = 0
-        var problems = 0
-        if let snapshot = archiveSnapshot, !selectedIDs.isEmpty {
-            let albumID: QobuzID? = if case .album(let id) = item.request { id } else { nil }
-            let coverage = snapshot.coverage(trackIDs: Array(selectedIDs), albumID: albumID)
-            verified = coverage.verifiedCount
-            problems = coverage.problemCount
-        }
-        return NativeQueuePreflight(
-            total: item.trackPlan?.count,
-            available: item.trackPlan?.filter(\.isAvailable).count,
-            selected: selectedCount,
-            unavailable: unavailable,
-            verified: verified,
-            problems: problems
-        )
+        queueController.preflight(for: item, archiveSnapshot: archiveSnapshot)
     }
 
     func search(_ query: String) {
@@ -1185,19 +1044,21 @@ final class NativeViewModel: ObservableObject {
         var seenPaths = Set<String>()
         for target in repairable where seenPaths.insert(target.relativePath).inserted {
             let request = QobuzRequest.track(QobuzID(target.qobuzTrackID))
-            if let index = queue.firstIndex(where: {
+            if let existing = queue.first(where: {
                 $0.repairTarget?.relativePath == target.relativePath
                     || ($0.repairTarget == nil && $0.canonicalURL == request.canonicalURL)
             }) {
-                guard !downloadState.status(forQueueID: queue[index].id).isActive else { continue }
-                queue[index].repairTarget = target
-                queue[index].title = URL(fileURLWithPath: target.relativePath).lastPathComponent
-                queue[index].subtitle = "Repair · \(target.audioFormat?.displayName ?? "Format \(target.formatID)")"
-                transitionDownload(queueID: queue[index].id, to: .ready)
-                ids.append(queue[index].id)
+                guard !downloadState.status(forQueueID: existing.id).isActive else { continue }
+                queueController.update(existing.id) { item in
+                    item.repairTarget = target
+                    item.title = URL(fileURLWithPath: target.relativePath).lastPathComponent
+                    item.subtitle = "Repair · \(target.audioFormat?.displayName ?? "Format \(target.formatID)")"
+                }
+                transitionDownload(queueID: existing.id, to: .ready)
+                ids.append(existing.id)
             } else {
                 let item = NativeQueueItem(repairTarget: target)
-                queue.append(item)
+                queueController.append(item)
                 updateDownloadState { $0.registerQueue(item.id) }
                 ids.append(item.id)
             }
@@ -1371,15 +1232,9 @@ final class NativeViewModel: ObservableObject {
             snapshot.activities[index].phase = "Paused after interruption"
             snapshot.activities[index].bytesPerSecond = nil
         }
-        queue = snapshot.queue
         activities = snapshot.activities
         linkInbox = snapshot.linkInbox
-        if let selected = snapshot.selectedQueueID,
-           queue.contains(where: { $0.id == selected }) {
-            selectedQueueID = selected
-        } else {
-            selectedQueueID = queue.first?.id
-        }
+        queueController.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
     }
 
     private func scheduleSessionPersistence() {
@@ -2055,8 +1910,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func updateQueue(_ id: UUID, mutate: (inout NativeQueueItem) -> Void) {
-        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
-        mutate(&queue[index])
+        queueController.update(id, mutate: mutate)
     }
 
     private func isQueueItemStartable(_ item: NativeQueueItem) -> Bool {
@@ -2075,34 +1929,13 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func updateQueueTrackPlan(_ id: UUID, tracks: [QobuzTrack]) {
-        let plan = tracks.enumerated().map { offset, track in
-            NativeQueueTrack(
-                id: "\(track.id.rawValue)#\(offset)",
-                qobuzID: track.id,
-                title: track.displayTitle,
-                subtitle: track.performer?.name ?? track.album?.title ?? "Track",
-                duration: track.duration,
-                position: offset + 1,
-                unavailableReason: unavailabilityMessage(for: track)
-            )
-        }
-        let available = Set(plan.filter(\.isAvailable).map(\.qobuzID))
-        updateQueue(id) { item in
-            item.trackPlan = plan
-            item.expectedTrackIDs = plan.filter(\.isAvailable).map(\.qobuzID)
-            if var selected = item.selectedTrackIDs {
-                selected.formIntersection(available)
-                item.selectedTrackIDs = selected
-            }
+        queueController.updateTrackPlan(id, tracks: tracks) { [weak self] track in
+            self?.unavailabilityMessage(for: track)
         }
     }
 
     private func updateQueueMetadata(_ id: UUID, title: String, subtitle: String, artworkURL: URL? = nil) {
-        updateQueue(id) { item in
-            item.title = title
-            item.subtitle = subtitle
-            if let artworkURL { item.artworkURL = artworkURL }
-        }
+        queueController.updateMetadata(id, title: title, subtitle: subtitle, artworkURL: artworkURL)
     }
 
     private func updateActivity(_ id: UUID, mutate: (inout NativeDownloadActivity) -> Void) {

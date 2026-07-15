@@ -24,6 +24,7 @@
 		2A16AD28B4384DB4FE0439F8 /* CatalogMarkers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E3F750975BD46AD55E04F2 /* CatalogMarkers.swift */; };
 		2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */; };
 		2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C549640E3C4CC5A7454731C /* NativeDownloadStateStore.swift */; };
+		35293EC701BE11B56041795A /* NativeQueueController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */; };
 		3603F64FA2F9BCA66AC0D517 /* NativePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */; };
 		3ABCA393158C6CC12E695212 /* NativePreviewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBFDEB0AA71E7BF694342F5 /* NativePreviewState.swift */; };
 		3C9615092FED111AB2786DE3 /* NativeLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F894D18FBA27D31C3D298D /* NativeLogView.swift */; };
@@ -112,6 +113,7 @@
 		624429738F2CC0D9F469EE1C /* ArtistPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistPreview.swift; sourceTree = "<group>"; };
 		645BE67AA234B02DAC3353CD /* PaneHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneHeader.swift; sourceTree = "<group>"; };
 		677F6ED4075596CABC192F49 /* OrpheusNative.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrpheusNative.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueueController.swift; sourceTree = "<group>"; };
 		6C1DAFCB00379977C256903A /* NativeDiagnosticsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticsController.swift; sourceTree = "<group>"; };
 		6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		70F067C0E236755A25C308E0 /* NativeConnectivityEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeConnectivityEvents.swift; sourceTree = "<group>"; };
@@ -342,6 +344,7 @@
 			isa = PBXGroup;
 			children = (
 				02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */,
+				6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */,
 				83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */,
 			);
 			path = Queue;
@@ -600,6 +603,7 @@
 				3ABCA393158C6CC12E695212 /* NativePreviewState.swift in Sources */,
 				3603F64FA2F9BCA66AC0D517 /* NativePreviewView.swift in Sources */,
 				F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */,
+				35293EC701BE11B56041795A /* NativeQueueController.swift in Sources */,
 				B51166C741F31E64F1523E03 /* NativeQueueModels.swift in Sources */,
 				C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */,
 				19DF3B87F03FE29402C249EA /* NativeSecureFileWriter.swift in Sources */,
