@@ -2263,9 +2263,7 @@ final class NativeViewModel: ObservableObject {
             case .assetCreated(let url):
                 activity.phase = "Created \(url.lastPathComponent)"
             case .notice(let message):
-                var notices = activity.notices ?? []
-                if !notices.contains(message) { notices.append(message) }
-                activity.notices = notices
+                if !activity.notices.contains(message) { activity.notices.append(message) }
             case .warning(let message):
                 if !activity.warnings.contains(message) { activity.warnings.append(message) }
                 activity.phase = "Finishing with warnings"

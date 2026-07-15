@@ -33,19 +33,22 @@ enum PreviewSamples {
         return [ready, downloading, failed]
     }()
 
-    static let activity = NativeDownloadActivity(
-        id: UUID(),
-        queueID: UUID(),
-        title: "Midnight Frequencies",
-        phase: "Downloading",
-        currentTrack: "Carrier Wave",
-        progress: 0.62,
-        completedTracks: 2,
-        totalTracks: 3,
-        bytesWritten: 96_400_000,
-        totalBytes: 154_000_000,
-        bytesPerSecond: 4_200_000
-    )
+    static let activity: NativeDownloadActivity = {
+        var activity = NativeDownloadActivity(
+            id: UUID(),
+            queueID: UUID(),
+            title: "Midnight Frequencies"
+        )
+        activity.phase = "Downloading"
+        activity.currentTrack = "Carrier Wave"
+        activity.progress = 0.62
+        activity.completedTracks = 2
+        activity.totalTracks = 3
+        activity.bytesWritten = 96_400_000
+        activity.totalBytes = 154_000_000
+        activity.bytesPerSecond = 4_200_000
+        return activity
+    }()
 
     static let searchResults: [SearchResult] = [
         SearchResult(id: "1", artworkURL: nil, title: "Midnight Frequencies", subtitle: "The Nocturnes", isQueued: false, add: {}),

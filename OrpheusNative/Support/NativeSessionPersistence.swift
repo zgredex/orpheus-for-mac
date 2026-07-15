@@ -2,7 +2,7 @@ import Foundation
 import NativeQobuzCore
 
 struct NativeSessionSnapshot: Codable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     var queue: [NativeQueueItem]
