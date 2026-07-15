@@ -1,60 +1,9 @@
-import CryptoKit
 import Foundation
 
-public protocol QobuzCatalogService: Sendable {
-    func validateAccount() async throws -> String?
-    func track(id: QobuzID) async throws -> QobuzTrack
-    func album(id: QobuzID) async throws -> QobuzAlbum
-    func playlist(id: QobuzID) async throws -> QobuzPlaylist
-    func artist(id: QobuzID) async throws -> QobuzArtistCatalog
-    func label(id: QobuzID) async throws -> QobuzLabelCatalog
-    func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo
-}
-
-public extension QobuzCatalogService {
-    func label(id: QobuzID) async throws -> QobuzLabelCatalog {
-        throw NativeQobuzError.unavailable("Label browsing is not supported by this catalog service.")
-    }
-}
-
-public protocol QobuzBrowsingService: Sendable {
-    func search(
-        _ query: String,
-        category: QobuzSearchCategory,
-        limit: Int,
-        offset: Int
-    ) async throws -> QobuzSearchResults
-}
-
-public extension QobuzBrowsingService {
-    func search(
-        _ query: String,
-        category: QobuzSearchCategory,
-        limit: Int
-    ) async throws -> QobuzSearchResults {
-        try await search(query, category: category, limit: limit, offset: 0)
-    }
-}
-
-public struct QobuzRetryPolicy: Equatable, Sendable {
-    public let maxAttempts: Int
-    public let baseDelay: Duration
-
-    public init(maxAttempts: Int = 3, baseDelay: Duration = .milliseconds(350)) {
-        self.maxAttempts = max(1, maxAttempts)
-        self.baseDelay = baseDelay
-    }
-
-    public static let standard = QobuzRetryPolicy()
-}
-
 public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @unchecked Sendable {
-    private let baseURL: URL
     private let credentials: QobuzCredentials
-    private let session: URLSession
-    private let retryPolicy: QobuzRetryPolicy
-    private let timestamp: @Sendable () -> Int64
-    private let sleep: @Sendable (Duration) async throws -> Void
+    private let transport: QobuzHTTPTransport
+    private let signer: QobuzRequestSigner
 
     public init(
         credentials: QobuzCredentials,
@@ -65,16 +14,19 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.credentials = credentials
-        self.session = session
-        self.retryPolicy = retryPolicy
-        self.baseURL = baseURL
-        self.timestamp = timestamp
-        self.sleep = sleep
+        transport = QobuzHTTPTransport(
+            baseURL: baseURL,
+            authToken: credentials.authToken,
+            session: session,
+            retryPolicy: retryPolicy,
+            sleep: sleep
+        )
+        signer = QobuzRequestSigner(appSecret: credentials.appSecret, timestamp: timestamp)
     }
 
     public func validateAccount() async throws -> String? {
         try requireCredentials()
-        let (account, response): (AccountResponse, HTTPURLResponse) = try await signedGet(
+        let (account, response): (QobuzAccountResponse, HTTPURLResponse) = try await signedGet(
             endpoint: "user/get",
             parameters: ["app_id": credentials.appID]
         )
@@ -93,10 +45,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func track(id: QobuzID) async throws -> QobuzTrack {
         let (value, _): (QobuzTrack, HTTPURLResponse) = try await get(
             endpoint: "track/get",
-            parameters: [
-                "track_id": id.rawValue,
-                "app_id": credentials.appID
-            ]
+            parameters: ["track_id": id.rawValue, "app_id": credentials.appID]
         )
         return value
     }
@@ -143,20 +92,6 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         )
     }
 
-    private func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
-        let (value, _): (QobuzPlaylist, HTTPURLResponse) = try await get(
-            endpoint: "playlist/get",
-            parameters: [
-                "playlist_id": id.rawValue,
-                "app_id": credentials.appID,
-                "extra": "tracks,subscribers,focusAll",
-                "limit": String(limit),
-                "offset": String(offset)
-            ]
-        )
-        return value
-    }
-
     public func artist(id: QobuzID) async throws -> QobuzArtistCatalog {
         let pageSize = 500
         let first = try await artistPage(id: id, offset: 0, limit: pageSize)
@@ -180,20 +115,6 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         )
     }
 
-    private func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
-        let (value, _): (QobuzArtistCatalog, HTTPURLResponse) = try await get(
-            endpoint: "artist/get",
-            parameters: [
-                "artist_id": id.rawValue,
-                "app_id": credentials.appID,
-                "extra": "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
-                "limit": String(limit),
-                "offset": String(offset)
-            ]
-        )
-        return value
-    }
-
     public func label(id: QobuzID) async throws -> QobuzLabelCatalog {
         let pageSize = 500
         let first = try await labelPage(id: id, offset: 0, limit: pageSize)
@@ -215,20 +136,6 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
             albumsOffset: 0,
             albumsLimit: albums.count
         )
-    }
-
-    private func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
-        let (value, _): (QobuzLabelCatalog, HTTPURLResponse) = try await get(
-            endpoint: "label/get",
-            parameters: [
-                "label_id": id.rawValue,
-                "app_id": credentials.appID,
-                "extra": "albums",
-                "limit": String(limit),
-                "offset": String(offset)
-            ]
-        )
-        return value
     }
 
     public func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo {
@@ -257,7 +164,7 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         guard !trimmed.isEmpty else { return QobuzSearchResults() }
         let requestedLimit = min(max(limit, 1), 100)
         let requestedOffset = max(offset, 0)
-        let (value, _): (SearchResponse, HTTPURLResponse) = try await get(
+        let (value, _): (QobuzSearchResponse, HTTPURLResponse) = try await get(
             endpoint: "catalog/search",
             parameters: [
                 "query": trimmed,
@@ -270,11 +177,8 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         switch category {
         case .albums:
             let page = value.albums
-            let raw = page?.items ?? []
-            let albums = raw
-                .filter { $0.accountAvailabilityIssue == nil }
             return QobuzSearchResults(
-                albums: albums,
+                albums: (page?.items ?? []).filter { $0.accountAvailabilityIssue == nil },
                 offset: page?.offset ?? requestedOffset,
                 nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
                 total: page?.total
@@ -297,11 +201,8 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
             )
         case .tracks:
             let page = value.tracks
-            let raw = page?.items ?? []
-            let tracks = raw
-                .filter { $0.accountAvailabilityIssue == nil }
             return QobuzSearchResults(
-                tracks: tracks,
+                tracks: (page?.items ?? []).filter { $0.accountAvailabilityIssue == nil },
                 offset: page?.offset ?? requestedOffset,
                 nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
                 total: page?.total
@@ -309,32 +210,57 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         }
     }
 
+    private func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
+        let (value, _): (QobuzPlaylist, HTTPURLResponse) = try await get(
+            endpoint: "playlist/get",
+            parameters: [
+                "playlist_id": id.rawValue,
+                "app_id": credentials.appID,
+                "extra": "tracks,subscribers,focusAll",
+                "limit": String(limit),
+                "offset": String(offset)
+            ]
+        )
+        return value
+    }
+
+    private func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
+        let (value, _): (QobuzArtistCatalog, HTTPURLResponse) = try await get(
+            endpoint: "artist/get",
+            parameters: [
+                "artist_id": id.rawValue,
+                "app_id": credentials.appID,
+                "extra": "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
+                "limit": String(limit),
+                "offset": String(offset)
+            ]
+        )
+        return value
+    }
+
+    private func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
+        let (value, _): (QobuzLabelCatalog, HTTPURLResponse) = try await get(
+            endpoint: "label/get",
+            parameters: [
+                "label_id": id.rawValue,
+                "app_id": credentials.appID,
+                "extra": "albums",
+                "limit": String(limit),
+                "offset": String(offset)
+            ]
+        )
+        return value
+    }
+
     private func nextOffset<Value>(
-        for page: SearchResponse.Items<Value>?,
+        for page: QobuzSearchResponse.Items<Value>?,
         fallbackOffset: Int,
         requestedLimit: Int
     ) -> Int? {
         guard let page, !page.items.isEmpty else { return nil }
         let candidate = (page.offset ?? fallbackOffset) + page.items.count
-        if let total = page.total {
-            return candidate < total ? candidate : nil
-        }
+        if let total = page.total { return candidate < total ? candidate : nil }
         return page.items.count >= requestedLimit ? candidate : nil
-    }
-
-    static func signature(
-        endpoint: String,
-        parameters: [String: String],
-        timestamp: Int64,
-        appSecret: String
-    ) -> String {
-        var input = endpoint.replacingOccurrences(of: "/", with: "")
-        for key in parameters.keys.sorted() where key != "app_id" && key != "user_auth_token" {
-            input += key + (parameters[key] ?? "")
-        }
-        input += String(timestamp) + appSecret
-        let digest = Insecure.MD5.hash(data: Data(input.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func requireCredentials() throws {
@@ -352,307 +278,16 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         endpoint: String,
         parameters: [String: String]
     ) async throws -> (T, HTTPURLResponse) {
-        qobuzLog.trace(
-            "api.signing",
-            "Preparing signed Qobuz request",
-            metadata: ["endpoint": endpoint, "parameterCount": String(parameters.count)]
-        )
-        let requestTimestamp = timestamp()
-        var signed = parameters
-        signed["request_ts"] = String(requestTimestamp)
-        signed["request_sig"] = Self.signature(
+        try await transport.get(
             endpoint: endpoint,
-            parameters: parameters,
-            timestamp: requestTimestamp,
-            appSecret: credentials.appSecret
+            parameters: signer.signedParameters(endpoint: endpoint, parameters: parameters)
         )
-        return try await get(endpoint: endpoint, parameters: signed)
     }
 
     private func get<T: Decodable>(
         endpoint: String,
         parameters: [String: String]
     ) async throws -> (T, HTTPURLResponse) {
-        let requestID = UUID().uuidString
-        let requestStarted = Date()
-        let baseMetadata = [
-            "requestID": requestID,
-            "endpoint": endpoint,
-            "responseType": String(reflecting: T.self),
-            "parameterNames": parameters.keys.sorted().joined(separator: ",")
-        ]
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent(endpoint),
-            resolvingAgainstBaseURL: false
-        ) else {
-            qobuzLog.error("api.request", "Could not construct Qobuz endpoint", metadata: baseMetadata)
-            throw NativeQobuzError.invalidResponse("Could not construct endpoint \(endpoint).")
-        }
-        components.queryItems = parameters
-            .filter { !$0.value.isEmpty }
-            .map { URLQueryItem(name: $0.key, value: $0.value) }
-            .sorted { lhs, rhs in
-                lhs.name == rhs.name ? (lhs.value ?? "") < (rhs.value ?? "") : lhs.name < rhs.name
-            }
-        guard let url = components.url else {
-            qobuzLog.error("api.request", "Could not construct Qobuz request URL", metadata: baseMetadata)
-            throw NativeQobuzError.invalidResponse("Could not construct a Qobuz request URL.")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.allHTTPHeaderFields = headers
-
-        qobuzLog.info(
-            "api.request",
-            "Qobuz request started",
-            metadata: baseMetadata.merging([
-                "method": "GET",
-                "host": url.host ?? "unknown",
-                "maxAttempts": String(retryPolicy.maxAttempts)
-            ]) { _, new in new }
-        )
-
-        for attempt in 0..<retryPolicy.maxAttempts {
-            let attemptStarted = Date()
-            let attemptMetadata = baseMetadata.merging([
-                "attempt": String(attempt + 1),
-                "maxAttempts": String(retryPolicy.maxAttempts)
-            ]) { _, new in new }
-            do {
-                let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse else {
-                    qobuzLog.error(
-                        "api.response",
-                        "Qobuz returned a non-HTTP response",
-                        metadata: attemptMetadata
-                    )
-                    throw NativeQobuzError.invalidResponse("Expected an HTTP response.")
-                }
-                let responseMetadata = attemptMetadata.merging([
-                    "status": String(http.statusCode),
-                    "responseBytes": String(data.count),
-                    "durationMs": String(Int(Date().timeIntervalSince(attemptStarted) * 1_000))
-                ]) { _, new in new }
-                qobuzLog.debug("api.response", "Qobuz response received", metadata: responseMetadata)
-                if (200...202).contains(http.statusCode) {
-                    do {
-                        let decoded = try JSONDecoder().decode(T.self, from: data)
-                        qobuzLog.info(
-                            "api.request",
-                            "Qobuz request completed",
-                            metadata: responseMetadata.merging([
-                                "totalDurationMs": String(Int(Date().timeIntervalSince(requestStarted) * 1_000))
-                            ]) { _, new in new }
-                        )
-                        return (decoded, http)
-                    } catch {
-                        let errorDetails = QobuzDiagnosticErrorDetails(error: error)
-                        qobuzLog.error(
-                            "api.decode",
-                            "Could not decode Qobuz response",
-                            metadata: responseMetadata,
-                            error: error
-                        )
-                        throw LoggedQobuzRequestError(
-                            error: .invalidResponse(errorDetails.description)
-                        )
-                    }
-                }
-                if isRetryable(status: http.statusCode), attempt + 1 < retryPolicy.maxAttempts {
-                    qobuzLog.warning(
-                        "api.retry",
-                        "Qobuz request will retry after HTTP failure",
-                        metadata: responseMetadata
-                    )
-                    try await wait(attempt: attempt, response: http)
-                    continue
-                }
-                let mapped = mapHTTPError(status: http.statusCode, data: data, response: http)
-                qobuzLog.error(
-                    "api.request",
-                    "Qobuz request failed with HTTP error",
-                    metadata: responseMetadata,
-                    error: mapped
-                )
-                throw LoggedQobuzRequestError(error: mapped)
-            } catch let logged as LoggedQobuzRequestError {
-                throw logged.error
-            } catch let error where error.isQobuzCancellation {
-                qobuzLog.notice("api.request", "Qobuz request cancelled", metadata: attemptMetadata)
-                throw NativeQobuzError.cancelled
-            } catch let error as NativeQobuzError {
-                qobuzLog.error(
-                    "api.request",
-                    "Qobuz request stopped",
-                    metadata: attemptMetadata,
-                    error: error
-                )
-                throw error
-            } catch {
-                let networkFailure = NativeQobuzError.networkFailure(error)
-                if networkFailure.isConnectivityLoss {
-                    qobuzLog.warning(
-                        "api.connectivity",
-                        "Qobuz request stopped because the network path is unavailable",
-                        metadata: attemptMetadata,
-                        error: networkFailure
-                    )
-                    throw networkFailure
-                }
-                if isRetryable(error: error), attempt + 1 < retryPolicy.maxAttempts {
-                    qobuzLog.warning(
-                        "api.retry",
-                        "Qobuz request will retry after network failure",
-                        metadata: attemptMetadata,
-                        error: error
-                    )
-                    try await wait(attempt: attempt, response: nil)
-                    continue
-                }
-                qobuzLog.error(
-                    "api.request",
-                    "Qobuz request failed with a network error",
-                    metadata: attemptMetadata,
-                    error: error
-                )
-                throw networkFailure
-            }
-        }
-        qobuzLog.error(
-            "api.request",
-            "Qobuz request exhausted all retry attempts",
-            metadata: baseMetadata.merging([
-                "totalDurationMs": String(Int(Date().timeIntervalSince(requestStarted) * 1_000))
-            ]) { _, new in new }
-        )
-        throw NativeQobuzError.network("Request failed after retrying.")
-    }
-
-    private var headers: [String: String] {
-        var values = [
-            "X-Device-Platform": "android",
-            "X-Device-Model": "Pixel 3",
-            "X-Device-Os-Version": "10",
-            "X-Device-Manufacturer-Id": "482D8CB7-015D-402F-A93B-5EEF0E0996F3",
-            "X-App-Version": "5.16.1.5",
-            "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 10; Pixel 3 Build/QP1A.190711.020))QobuzMobileAndroid/5.16.1.5-b21041415"
-        ]
-        if !credentials.authToken.isEmpty {
-            values["X-User-Auth-Token"] = credentials.authToken
-        }
-        return values
-    }
-
-    private func isRetryable(status: Int) -> Bool {
-        status == 429 || (500...599).contains(status)
-    }
-
-    private func isRetryable(error: Error) -> Bool {
-        guard let code = (error as? URLError)?.code else { return false }
-        return [
-            .timedOut,
-            .cannotFindHost,
-            .cannotConnectToHost,
-            .networkConnectionLost,
-            .notConnectedToInternet,
-            .dnsLookupFailed
-        ].contains(code)
-    }
-
-    private func wait(attempt: Int, response: HTTPURLResponse?) async throws {
-        if let rawValue = response?.value(forHTTPHeaderField: "Retry-After"),
-           let retryAfter = retryDelay(from: rawValue) {
-            try await sleep(.seconds(min(max(retryAfter, 0), 5)))
-            return
-        }
-        let multiplier = 1 << min(attempt, 4)
-        try await sleep(retryPolicy.baseDelay * multiplier)
-    }
-
-    private func mapHTTPError(status: Int, data: Data, response: HTTPURLResponse) -> NativeQobuzError {
-        let rawBody = String(data: data, encoding: .utf8) ?? ""
-        let body = rawBody.count > 500
-            ? String(rawBody.prefix(500)) + "… [truncated]"
-            : rawBody
-        if status == 401 || status == 403 {
-            return .invalidCredentials
-        }
-        if status == 404 {
-            let region = response.value(forHTTPHeaderField: "X-Store").map { String($0.prefix(2)).uppercased() }
-            let suffix = region.map { " It may belong to the \($0) store." } ?? ""
-            return .unavailable("This Qobuz item is unavailable for the account region.\(suffix)")
-        }
-        return .http(status, body.isEmpty ? "No response body" : body)
-    }
-
-    private func retryDelay(from value: String) -> TimeInterval? {
-        if let seconds = Double(value) { return seconds }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        for format in [
-            "EEE',' dd MMM yyyy HH':'mm':'ss zzz",
-            "EEEE',' dd-MMM-yy HH':'mm':'ss zzz",
-            "EEE MMM d HH':'mm':'ss yyyy"
-        ] {
-            formatter.dateFormat = format
-            if let date = formatter.date(from: value) {
-                return max(0, date.timeIntervalSinceNow)
-            }
-        }
-        return nil
-    }
-}
-
-private struct LoggedQobuzRequestError: Error {
-    let error: NativeQobuzError
-}
-
-private struct SearchResponse: Decodable {
-    let albums: Items<QobuzAlbumSummary>?
-    let artists: Items<QobuzArtist>?
-    let playlists: Items<QobuzPlaylist>?
-    let tracks: Items<QobuzTrack>?
-
-    struct Items<Value: Decodable>: Decodable {
-        let items: [Value]
-        let offset: Int?
-        let limit: Int?
-        let total: Int?
-    }
-}
-
-private struct AccountResponse: Decodable {
-    let country: String?
-    let credential: Credential?
-
-    struct Credential: Decodable {
-        let parameters: [String: JSONFragment]?
-    }
-}
-
-private enum JSONFragment: Decodable {
-    case string(String)
-    case number(Double)
-    case bool(Bool)
-    case object([String: JSONFragment])
-    case array([JSONFragment])
-    case null
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() { self = .null }
-        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
-        else if let value = try? container.decode(Double.self) { self = .number(value) }
-        else if let value = try? container.decode(String.self) { self = .string(value) }
-        else if let value = try? container.decode([String: JSONFragment].self) { self = .object(value) }
-        else if let value = try? container.decode([JSONFragment].self) { self = .array(value) }
-        else {
-            throw DecodingError.typeMismatch(
-                JSONFragment.self,
-                .init(codingPath: decoder.codingPath, debugDescription: "Unsupported JSON value")
-            )
-        }
+        try await transport.get(endpoint: endpoint, parameters: parameters)
     }
 }

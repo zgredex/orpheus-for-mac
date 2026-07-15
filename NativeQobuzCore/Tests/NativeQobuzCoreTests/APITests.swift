@@ -17,7 +17,7 @@ final class APITests: XCTestCase {
     }
 
     func testSignatureMatchesPythonReferenceAlgorithm() {
-        let signature = QobuzAPIClient.signature(
+        let signature = QobuzRequestSigner.signature(
             endpoint: "track/getFileUrl",
             parameters: [
                 "track_id": "123",
