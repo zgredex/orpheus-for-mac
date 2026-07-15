@@ -74,6 +74,7 @@
 		F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
 		F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */; };
+		FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40D28F3F550CBABAEC1CD16 /* NativeAccountController.swift */; };
 		FCFEB1D2D5FAF854FF34B879 /* NativeSupplementalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */; };
 /* End PBXBuildFile section */
 
@@ -152,6 +153,7 @@
 		E2DC716836FF36DF0090471F /* PreviewScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewScaffold.swift; sourceTree = "<group>"; };
 		E2E3F750975BD46AD55E04F2 /* CatalogMarkers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogMarkers.swift; sourceTree = "<group>"; };
 		E384DA9996171C996D607BDF /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
+		E40D28F3F550CBABAEC1CD16 /* NativeAccountController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountController.swift; sourceTree = "<group>"; };
 		E6FC20CA7C9EFAA04ABBD7D2 /* NativeLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogging.swift; sourceTree = "<group>"; };
 		F46425A495CF2949A8A3F56A /* NativeHardeningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHardeningTests.swift; sourceTree = "<group>"; };
 		F4687A6AFD49B7DEC9242E85 /* NativeSessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSessionPersistence.swift; sourceTree = "<group>"; };
@@ -289,6 +291,7 @@
 		A8CAAA754678EA29AB10F48C /* Account */ = {
 			isa = PBXGroup;
 			children = (
+				E40D28F3F550CBABAEC1CD16 /* NativeAccountController.swift */,
 				4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */,
 			);
 			path = Account;
@@ -574,6 +577,7 @@
 				4A6AE3D6EC56FE0BC3A9C1EA /* LabelPreview.swift in Sources */,
 				2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */,
 				4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */,
+				FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */,
 				1D9BBAEC775BF03CBC2E70A4 /* NativeActivityView.swift in Sources */,
 				2811C1CCF96A0A36CCCB14CA /* NativeBrowseAvailabilityPolicy.swift in Sources */,
 				C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */,

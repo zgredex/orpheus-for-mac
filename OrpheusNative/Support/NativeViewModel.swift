@@ -19,9 +19,6 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var linkInbox: [NativeLinkInboxItem] = [] {
         didSet { scheduleSessionPersistence() }
     }
-    @Published private(set) var settings: NativeSettings
-    @Published private(set) var credentials = CredentialDraft()
-    @Published private(set) var accountRegion: String?
     @Published var notice: String?
     @Published var showSettings = false
     @Published var showDiagnostics = false
@@ -31,8 +28,6 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var isArchiveScanning = false
     @Published private(set) var connectivityState: NativeConnectivityState = .unknown
 
-    private let settingsStore: any NativeSettingsStoring
-    private let credentialStore: any NativeCredentialStoring
     private let archiveStore: any NativeArchiveIndexStoring
     private let sessionStore: any NativeSessionStoring
     private let diagnostics: NativeDiagnosticsController
@@ -40,9 +35,8 @@ final class NativeViewModel: ObservableObject {
     private let libraryAdopter: any QobuzLibraryAdopting
     private let connectivityMonitor: any NativeConnectivityMonitoring
     private let powerActivityManager: any NativePowerActivityManaging
-    private let clientFactory: (QobuzCredentials) -> any NativeQobuzServicing
+    private let account: NativeAccountController
     private let browse = NativeBrowseController()
-    private var client: (any NativeQobuzServicing)?
     private var previewTask: Task<Void, Never>?
     private var linkInboxTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
@@ -57,6 +51,7 @@ final class NativeViewModel: ObservableObject {
     private var restoringSession = false
     private var isTerminating = false
     private var connectivityGeneration: UInt64 = 0
+    private var accountObservation: AnyCancellable?
     private var browseObservation: AnyCancellable?
     private let connectivityEvents = NativeConnectivityEvents()
     private let reusableAudioIndex = QobuzReusableAudioIndex()
@@ -77,8 +72,12 @@ final class NativeViewModel: ObservableObject {
             QobuzAPIClient(credentials: $0)
         }
     ) {
-        self.settingsStore = settingsStore ?? NativeSettingsStore(paths: paths)
-        self.credentialStore = credentialStore ?? FileCredentialStore(paths: paths)
+        account = NativeAccountController(
+            paths: paths,
+            settingsStore: settingsStore,
+            credentialStore: credentialStore,
+            clientFactory: clientFactory
+        )
         self.archiveStore = archiveStore ?? NativeArchiveIndexStore(paths: paths)
         self.sessionStore = sessionStore ?? NativeSessionStore(paths: paths)
         diagnostics = NativeDiagnosticsController(
@@ -89,8 +88,9 @@ final class NativeViewModel: ObservableObject {
         self.libraryAdopter = libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
         self.connectivityMonitor = connectivityMonitor ?? NativeNetworkConnectivityMonitor()
         self.powerActivityManager = powerActivityManager ?? NativePowerActivityManager()
-        self.clientFactory = clientFactory
-        settings = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
+        accountObservation = account.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         browseObservation = browse.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -143,6 +143,10 @@ final class NativeViewModel: ObservableObject {
     var isDownloading: Bool { downloadTask != nil }
     var canCancel: Bool { downloadTask != nil }
     var canClearActivity: Bool { activities.contains { status(for: $0).isClearable } }
+    var settings: NativeSettings { account.settings }
+    var credentials: CredentialDraft { account.credentials }
+    var accountRegion: String? { account.accountRegion }
+    private var client: (any NativeQobuzServicing)? { account.client }
     var browseQuery: String { browse.query }
     var browseCategory: NativeBrowseCategory {
         get { browse.category }
@@ -162,11 +166,7 @@ final class NativeViewModel: ObservableObject {
     var browsePlaylists: [QobuzPlaylist] { browse.playlists }
     var browseTracks: [QobuzTrack] { browse.tracks }
 
-    var regionDisplay: String {
-        guard let accountRegion else { return "Qobuz" }
-        guard let flag = CountryFlag.emoji(for: accountRegion) else { return accountRegion }
-        return "\(flag) \(accountRegion.uppercased())"
-    }
+    var regionDisplay: String { account.regionDisplay }
 
     var diagnosticsDirectoryPath: String { diagnostics.directoryURL.path }
 
@@ -211,8 +211,7 @@ final class NativeViewModel: ObservableObject {
         let startedAt = Date()
         qobuzLog.notice("lifecycle", "Native app startup started")
         do {
-            settings = try settingsStore.load()
-            credentials = try credentialStore.load() ?? CredentialDraft()
+            try account.load()
             qobuzLog.info(
                 "lifecycle",
                 "Startup configuration loaded",
@@ -229,7 +228,7 @@ final class NativeViewModel: ObservableObject {
                 qobuzLog.error("persistence.session", "Download queue restoration failed", error: error)
                 notice = "Could not restore the download queue: \(error.localizedDescription)"
             }
-            configureClient()
+            synchronizeBrowseAccount()
             if let selectedQueueID,
                let item = queue.first(where: { $0.id == selectedQueueID }) {
                 loadPreview(item)
@@ -262,97 +261,30 @@ final class NativeViewModel: ObservableObject {
     }
 
     var settingsDraft: SettingsDraft {
-        SettingsDraft(credentials: credentials, quality: settings.quality, downloadPath: settings.downloadPath)
+        account.draft
     }
 
     func saveConfiguration(_ draft: SettingsDraft) throws {
-        try saveConfiguration(
-            credentials: draft.credentials,
-            settings: NativeSettings(downloadPath: draft.downloadPath, quality: draft.quality)
-        )
+        let change = try account.save(draft, downloadIsActive: isDownloading)
+        applyConfigurationChange(change)
     }
 
     func saveConfiguration(credentials: CredentialDraft, settings: NativeSettings) throws {
-        guard !isDownloading else {
-            qobuzLog.warning("settings", "Settings change blocked during an active download")
-            throw NativeQobuzError.unavailable("Settings cannot change during a download.")
-        }
-        let rootChanged = self.settings.downloadPath != settings.downloadPath
-        qobuzLog.notice(
-            "settings",
-            "Saving app configuration",
-            metadata: [
-                "downloadPath": settings.downloadPath,
-                "quality": settings.quality.rawValue,
-                "rootChanged": String(rootChanged),
-                "credentialsConfigured": String(credentials.isComplete)
-            ]
+        let change = try account.save(
+            credentials: credentials,
+            settings: settings,
+            downloadIsActive: isDownloading
         )
-        do {
-            try settingsStore.save(settings)
-            try credentialStore.save(credentials)
-            self.settings = settings
-            self.credentials = credentials
-            if rootChanged {
-                archiveTask?.cancel()
-                archiveRefreshID = nil
-                archiveSnapshot = nil
-                isArchiveScanning = false
-            }
-            configureClient()
-            showSettings = false
-            qobuzLog.notice("settings", "App configuration saved")
-            Task { await testConnection(showSuccess: true) }
-        } catch {
-            qobuzLog.error("settings", "App configuration could not be saved", error: error)
-            throw error
-        }
+        applyConfigurationChange(change)
     }
 
     func testConnection(showSuccess: Bool = true) async {
-        guard let client else {
-            qobuzLog.warning(
-                "account.connection",
-                "Qobuz connection test blocked because credentials are incomplete",
-                metadata: ["credentialsConfigured": "false"]
-            )
-            notice = "Enter complete Qobuz credentials first."
-            return
-        }
-        let testID = UUID().uuidString
-        let startedAt = Date()
-        qobuzLog.info(
-            "account.connection",
-            "Qobuz connection test started",
-            metadata: ["connectionTestID": testID]
-        )
         do {
-            accountRegion = try await QobuzLogScope.withValue(["connectionTestID": testID]) {
-                try await client.validateAccount()
-            }
-            browse.updateAccountRegion(accountRegion)
-            qobuzLog.notice(
-                "account.connection",
-                "Qobuz connection test succeeded",
-                metadata: [
-                    "connectionTestID": testID,
-                    "accountRegion": accountRegion ?? "unknown",
-                    "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
-                ]
-            )
+            _ = try await account.validateConnection()
+            synchronizeBrowseAccount()
             if showSuccess { notice = "Connected to the \(regionDisplay) Qobuz account." }
         } catch {
-            accountRegion = nil
-            browse.updateAccountRegion(nil)
-            qobuzLog.error(
-                "account.connection",
-                "Qobuz connection test failed",
-                metadata: [
-                    "connectionTestID": testID,
-                    "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
-                ],
-                error: error
-            )
+            synchronizeBrowseAccount()
             notice = error.localizedDescription
         }
     }
@@ -1355,14 +1287,21 @@ final class NativeViewModel: ObservableObject {
         return NativePartialDownload(url: url, bytes: value.int64Value)
     }
 
-    private func configureClient() {
-        client = credentials.isComplete ? clientFactory(credentials.coreValue) : nil
-        browse.configure(client: client, accountRegion: accountRegion)
-        qobuzLog.info(
-            "account.client",
-            "Qobuz client configuration updated",
-            metadata: ["credentialsConfigured": String(credentials.isComplete), "clientAvailable": String(client != nil)]
-        )
+    private func applyConfigurationChange(_ change: NativeConfigurationChange) {
+        if change.downloadRootChanged {
+            archiveTask?.cancel()
+            archiveTask = nil
+            archiveRefreshID = nil
+            archiveSnapshot = nil
+            isArchiveScanning = false
+        }
+        synchronizeBrowseAccount()
+        showSettings = false
+        Task { await testConnection(showSuccess: true) }
+    }
+
+    private func synchronizeBrowseAccount() {
+        browse.configure(client: account.client, accountRegion: account.accountRegion)
     }
 
     private func applyConnectivityState(_ state: NativeConnectivityState) {
