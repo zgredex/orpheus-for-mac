@@ -6,7 +6,6 @@ import NativeQobuzCore
 @MainActor
 final class NativeViewModel: ObservableObject {
     @Published var input = ""
-    @Published private(set) var preview: NativePreviewState = .empty
     @Published private(set) var activities: [NativeDownloadActivity] = [] {
         didSet { scheduleSessionPersistence() }
     }
@@ -32,7 +31,7 @@ final class NativeViewModel: ObservableObject {
     private let account: NativeAccountController
     private let browse = NativeBrowseController()
     private let queueController = NativeQueueController()
-    private var previewTask: Task<Void, Never>?
+    private let previewController = NativePreviewController()
     private var linkInboxTask: Task<Void, Never>?
     private var archiveTask: Task<Void, Never>?
     private var archiveRefreshID: UUID?
@@ -49,6 +48,7 @@ final class NativeViewModel: ObservableObject {
     private var accountObservation: AnyCancellable?
     private var browseObservation: AnyCancellable?
     private var queueObservation: AnyCancellable?
+    private var previewObservation: AnyCancellable?
     private let connectivityEvents = NativeConnectivityEvents()
     private let reusableAudioIndex = QobuzReusableAudioIndex()
 
@@ -94,6 +94,9 @@ final class NativeViewModel: ObservableObject {
             self?.objectWillChange.send()
             self?.scheduleSessionPersistence()
         }
+        previewObservation = previewController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         do {
             try diagnostics.activate()
             qobuzLog.info("lifecycle", "Native view model initialized")
@@ -105,6 +108,7 @@ final class NativeViewModel: ObservableObject {
     var queue: [NativeQueueItem] { queueController.items }
     var selectedQueueID: UUID? { queueController.selectedID }
     var selectedQueueItem: NativeQueueItem? { queueController.selectedItem }
+    var preview: NativePreviewState { previewController.state }
 
     func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
         guard let item = selectedQueueItem,
@@ -479,7 +483,7 @@ final class NativeViewModel: ObservableObject {
 
     func selectQueueItem(_ id: UUID?) {
         guard let item = queueController.select(id) else {
-            preview = .empty
+            previewController.clear()
             return
         }
         loadPreview(item)
@@ -493,7 +497,7 @@ final class NativeViewModel: ObservableObject {
         guard result.removedID != nil else { return }
         updateDownloadState { $0.removeQueue(id) }
         if let selectedItem = result.selectedItem { loadPreview(selectedItem) }
-        else { preview = .empty }
+        else { previewController.clear() }
     }
 
     func clearQueue() {
@@ -503,7 +507,7 @@ final class NativeViewModel: ObservableObject {
             for id in result.removedIDs { state.removeQueue(id) }
         }
         if let selectedItem = result.selectedItem { loadPreview(selectedItem) }
-        else { preview = .empty }
+        else { previewController.clear() }
     }
 
     func setQueueQuality(_ quality: QobuzQuality?, for id: UUID) {
@@ -1107,6 +1111,7 @@ final class NativeViewModel: ObservableObject {
         )
         sessionPersistenceTask?.cancel()
         linkInboxTask?.cancel()
+        previewController.cancel()
         connectivityMonitor.stop()
         markActiveDownloadsPaused(phase: "Paused after app closed")
         persistSessionNow(reportErrors: false)
@@ -1270,83 +1275,25 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func loadPreview(_ item: NativeQueueItem) {
-        previewTask?.cancel()
-        guard let client else {
-            qobuzLog.warning(
-                "queue.preview",
-                "Queue preview blocked because credentials are not configured",
-                metadata: ["queueID": item.id.uuidString]
-            )
-            preview = .error("Configure Qobuz credentials to load metadata.")
-            return
-        }
-        preview = .loading
-        let previewMetadata = [
-            "queueID": item.id.uuidString,
-            "requestKind": item.request.kindName,
-            "qobuzID": item.request.id.rawValue
-        ]
-        qobuzLog.info("queue.preview", "Queue preview loading started", metadata: previewMetadata)
-        previewTask = Task { [weak self] in
-            do {
+        previewController.load(
+            item,
+            client: client,
+            onResolved: { [weak self] resolution in
                 guard let self else { return }
-                try await QobuzLogScope.withValue(previewMetadata) {
-                  switch item.request {
-                case .album(let id):
-                    let value = try await client.album(id: id)
-                    guard !Task.isCancelled else { return }
-                    self.preview = .album(value)
-                    self.updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.albumArtistDisplayName, artworkURL: value.image?.bestURL)
-                    self.updateQueueTrackPlan(item.id, tracks: value.tracks)
-                case .track(let id):
-                    let value = try await client.track(id: id)
-                    guard !Task.isCancelled else { return }
-                    self.preview = .track(value)
-                    self.updateQueueMetadata(item.id, title: value.displayTitle, subtitle: value.performer?.name ?? "Track", artworkURL: value.album?.image?.bestURL)
-                    self.updateQueueTrackPlan(item.id, tracks: [value])
-                case .playlist(let id):
-                    let value = try await client.playlist(id: id)
-                    guard !Task.isCancelled else { return }
-                    self.preview = .playlist(value)
-                    self.updateQueueMetadata(
-                        item.id,
-                        title: value.name,
-                        subtitle: [value.owner?.name, "\(value.availableTracks.count) available tracks"]
-                            .compactMap { $0 }.joined(separator: " · "),
-                        artworkURL: value.artworkURL
-                    )
-                    self.updateQueueTrackPlan(item.id, tracks: value.tracks)
-                case .artist(let id):
-                    let value = try await client.artist(id: id)
-                    guard !Task.isCancelled else { return }
-                    self.preview = .artist(value)
-                    let releaseCount = value.officialAlbums.count
-                    self.updateQueueMetadata(
-                        item.id,
-                        title: value.name,
-                        subtitle: "\(releaseCount) official \(releaseCount == 1 ? "release" : "releases")",
-                        artworkURL: value.image?.bestURL
-                    )
-                case .label(let id):
-                    let value = try await client.label(id: id)
-                    guard !Task.isCancelled else { return }
-                    self.preview = .label(value)
-                    let albumCount = value.availableAlbums.count
-                    self.updateQueueMetadata(
-                        item.id,
-                        title: value.name,
-                        subtitle: "\(albumCount) available \(albumCount == 1 ? "album" : "albums")"
-                    )
+                updateQueueMetadata(
+                    resolution.queueID,
+                    title: resolution.title,
+                    subtitle: resolution.subtitle,
+                    artworkURL: resolution.artworkURL
+                )
+                if let tracks = resolution.tracks {
+                    updateQueueTrackPlan(resolution.queueID, tracks: tracks)
                 }
-                }
-                qobuzLog.info("queue.preview", "Queue preview loaded", metadata: previewMetadata)
-            } catch {
-                guard let self, !Task.isCancelled else { return }
-                qobuzLog.error("queue.preview", "Queue preview failed to load", metadata: previewMetadata, error: error)
-                preview = .error(error.localizedDescription)
-                transitionDownload(queueID: item.id, to: .failed(error.localizedDescription))
+            },
+            onFailure: { [weak self] message in
+                self?.transitionDownload(queueID: item.id, to: .failed(message))
             }
-        }
+        )
     }
 
     private func startDownloads(ids: [UUID]) {

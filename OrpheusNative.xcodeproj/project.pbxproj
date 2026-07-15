@@ -71,6 +71,7 @@
 		D1C4D0D769F132B8890219C0 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
 		D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */; };
 		D8B66A1C2A5B145AD8FA727F /* NativeDownloadStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA986A2A917D8F063500CCA0 /* NativeDownloadStateStoreTests.swift */; };
+		DBB4CB0D6FE8CAE424DD2793 /* NativePreviewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B23711D8D961E4DF7715B2 /* NativePreviewController.swift */; };
 		DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */; };
 		F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
@@ -125,6 +126,7 @@
 		83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueueModels.swift; sourceTree = "<group>"; };
 		83DF3A2701F8BA58A69F0948 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		8513EC42E41C3EAB595FAC39 /* NativeSystemServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemServices.swift; sourceTree = "<group>"; };
+		86B23711D8D961E4DF7715B2 /* NativePreviewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePreviewController.swift; sourceTree = "<group>"; };
 		883C8C758B664D44E168AD01 /* QualityBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityBadge.swift; sourceTree = "<group>"; };
 		8AF10861B2EA64C6B46BFDB4 /* NativeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsView.swift; sourceTree = "<group>"; };
 		8D922665BFDBFBF675DDD827 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -353,6 +355,7 @@
 		BEB5196E706823F7D1315025 /* Preview */ = {
 			isa = PBXGroup;
 			children = (
+				86B23711D8D961E4DF7715B2 /* NativePreviewController.swift */,
 				4DBFDEB0AA71E7BF694342F5 /* NativePreviewState.swift */,
 			);
 			path = Preview;
@@ -600,6 +603,7 @@
 				3C9615092FED111AB2786DE3 /* NativeLogView.swift in Sources */,
 				94D33900C2720E123A33733F /* NativeLogging.swift in Sources */,
 				586A981F30D8993655793031 /* NativePersistence.swift in Sources */,
+				DBB4CB0D6FE8CAE424DD2793 /* NativePreviewController.swift in Sources */,
 				3ABCA393158C6CC12E695212 /* NativePreviewState.swift in Sources */,
 				3603F64FA2F9BCA66AC0D517 /* NativePreviewView.swift in Sources */,
 				F61313853619C870D74019DE /* NativeQobuzServicing.swift in Sources */,
