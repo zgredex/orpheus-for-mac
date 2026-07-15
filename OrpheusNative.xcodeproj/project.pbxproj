@@ -37,6 +37,7 @@
 		4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */; };
 		5299B1EE55A439832966A4B2 /* NativeConnectivityEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F067C0E236755A25C308E0 /* NativeConnectivityEvents.swift */; };
 		561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BE67AA234B02DAC3353CD /* PaneHeader.swift */; };
+		5650A334BCCCD3E5DCBF1262 /* NativeLibraryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */; };
 		586A981F30D8993655793031 /* NativePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923659614A8B428EF4C2ADE2 /* NativePersistence.swift */; };
 		5C2AC8D7A317969465F84529 /* NativeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A65459F1F88915E30A939C /* NativeAdapterTests.swift */; };
 		6D6BA088B16709AD839A3764 /* TrackPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2704F594552DAF12733A3709 /* TrackPreview.swift */; };
@@ -148,6 +149,7 @@
 		C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumPreview.swift; sourceTree = "<group>"; };
 		CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseController.swift; sourceTree = "<group>"; };
 		CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkInboxSection.swift; sourceTree = "<group>"; };
+		CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryController.swift; sourceTree = "<group>"; };
 		D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSupplementalDiagnostics.swift; sourceTree = "<group>"; };
 		D51A5AB448A84780643E8102 /* LayoutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPolicyTests.swift; sourceTree = "<group>"; };
 		D57563958E39251BB8E57A83 /* AddToQueueButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToQueueButton.swift; sourceTree = "<group>"; };
@@ -229,6 +231,7 @@
 		72DD175F65440B5406620948 /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */,
 				E2590AB055407F6EB3B83B08 /* NativeLibraryModels.swift */,
 			);
 			path = Library;
@@ -600,6 +603,7 @@
 				2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */,
 				21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */,
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
+				5650A334BCCCD3E5DCBF1262 /* NativeLibraryController.swift in Sources */,
 				1F0B28405C408A7CA917E138 /* NativeLibraryModels.swift in Sources */,
 				0C611D9CE4F2A2FE1C00C53A /* NativeLibraryView.swift in Sources */,
 				A6CCC521F034B2AB6CD2695D /* NativeLinkInboxController.swift in Sources */,

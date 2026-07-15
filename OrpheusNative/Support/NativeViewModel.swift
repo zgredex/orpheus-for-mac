@@ -13,16 +13,10 @@ final class NativeViewModel: ObservableObject {
     @Published var showSettings = false
     @Published var showDiagnostics = false
 
-    @Published private(set) var isLibraryOpen = false
-    @Published private(set) var archiveSnapshot: QobuzArchiveSnapshot?
-    @Published private(set) var isArchiveScanning = false
     @Published private(set) var connectivityState: NativeConnectivityState = .unknown
 
-    private let archiveStore: any NativeArchiveIndexStoring
     private let sessionStore: any NativeSessionStoring
     private let diagnostics: NativeDiagnosticsController
-    private let archiveScanner: any QobuzArchiveScanning
-    private let libraryAdopter: any QobuzLibraryAdopting
     private let connectivityMonitor: any NativeConnectivityMonitoring
     private let powerActivityManager: any NativePowerActivityManaging
     private let account: NativeAccountController
@@ -30,8 +24,7 @@ final class NativeViewModel: ObservableObject {
     private let queueController = NativeQueueController()
     private let previewController = NativePreviewController()
     private let linkInboxController = NativeLinkInboxController()
-    private var archiveTask: Task<Void, Never>?
-    private var archiveRefreshID: UUID?
+    private let library: NativeLibraryController
     private var downloadTask: Task<Void, Never>?
     private var activeItemDownloadTask: Task<Void, Never>?
     private var activeItemQueueID: UUID?
@@ -47,6 +40,7 @@ final class NativeViewModel: ObservableObject {
     private var queueObservation: AnyCancellable?
     private var previewObservation: AnyCancellable?
     private var linkInboxObservation: AnyCancellable?
+    private var libraryObservation: AnyCancellable?
     private let connectivityEvents = NativeConnectivityEvents()
     private let reusableAudioIndex = QobuzReusableAudioIndex()
 
@@ -72,14 +66,16 @@ final class NativeViewModel: ObservableObject {
             credentialStore: credentialStore,
             clientFactory: clientFactory
         )
-        self.archiveStore = archiveStore ?? NativeArchiveIndexStore(paths: paths)
+        library = NativeLibraryController(
+            archiveStore: archiveStore ?? NativeArchiveIndexStore(paths: paths),
+            scanner: archiveScanner,
+            adopter: libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
+        )
         self.sessionStore = sessionStore ?? NativeSessionStore(paths: paths)
         diagnostics = NativeDiagnosticsController(
             logStore: logStore ?? NativeLogFileStore(paths: paths),
             supplementalCollector: supplementalDiagnosticsCollector ?? NativeSupplementalDiagnosticsCollector()
         )
-        self.archiveScanner = archiveScanner
-        self.libraryAdopter = libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
         self.connectivityMonitor = connectivityMonitor ?? NativeNetworkConnectivityMonitor()
         self.powerActivityManager = powerActivityManager ?? NativePowerActivityManager()
         accountObservation = account.objectWillChange.sink { [weak self] _ in
@@ -99,6 +95,9 @@ final class NativeViewModel: ObservableObject {
             self?.objectWillChange.send()
             self?.scheduleSessionPersistence()
         }
+        libraryObservation = library.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         do {
             try diagnostics.activate()
             qobuzLog.info("lifecycle", "Native view model initialized")
@@ -112,6 +111,12 @@ final class NativeViewModel: ObservableObject {
     var selectedQueueItem: NativeQueueItem? { queueController.selectedItem }
     var preview: NativePreviewState { previewController.state }
     var linkInbox: [NativeLinkInboxItem] { linkInboxController.items }
+    var isLibraryOpen: Bool { library.isOpen }
+    var archiveSnapshot: QobuzArchiveSnapshot? { library.snapshot }
+    var isArchiveScanning: Bool { library.isScanning }
+    private var libraryRoot: URL {
+        URL(fileURLWithPath: settings.downloadPath, isDirectory: true).standardizedFileURL
+    }
 
     func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
         guard let item = selectedQueueItem,
@@ -228,7 +233,7 @@ final class NativeViewModel: ObservableObject {
                     "quality": settings.quality.rawValue
                 ]
             )
-            loadArchiveCache()
+            library.loadCache(for: libraryRoot)
             do {
                 try restoreSession()
             } catch {
@@ -503,7 +508,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func search(_ query: String) {
-        isLibraryOpen = false
+        library.close()
         do {
             try browse.search(query)
         } catch {
@@ -537,7 +542,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func openRequest(_ request: QobuzRequest) {
-        isLibraryOpen = false
+        library.close()
         do {
             try browse.open(request)
         } catch {
@@ -560,7 +565,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func openBrowseDestination(_ destination: BrowseDestination) {
-        isLibraryOpen = false
+        library.close()
         do {
             try browse.open(destination)
         } catch {
@@ -604,172 +609,47 @@ final class NativeViewModel: ObservableObject {
 
     func openLibrary() {
         browse.close()
-        isLibraryOpen = true
-        qobuzLog.notice("library.ui", "Library opened", metadata: ["downloadRoot": settings.downloadPath])
-
-        if archiveSnapshot == nil {
-            do {
-                if let cached = try archiveStore.load(),
-                   cached.rootPath == URL(fileURLWithPath: settings.downloadPath).standardizedFileURL.path {
-                    archiveSnapshot = cached
-                    qobuzLog.debug(
-                        "library.ui",
-                        "Displayed cached library snapshot",
-                        metadata: ["trackCount": String(cached.tracks.count), "problemCount": String(cached.problemCount)]
-                    )
-                }
-            } catch {
-                qobuzLog.warning("library.ui", "Cached library snapshot could not be displayed", error: error)
-            }
-        }
-        refreshArchive()
+        library.open(root: libraryRoot) { [weak self] message in self?.notice = message }
     }
 
     func closeLibrary() {
-        archiveTask?.cancel()
-        archiveTask = nil
-        archiveRefreshID = nil
-        isArchiveScanning = false
-        isLibraryOpen = false
-        qobuzLog.debug("library.ui", "Library closed")
+        library.close()
     }
 
     func refreshArchive(fullVerification: Bool = false) {
-        archiveTask?.cancel()
-        let root = URL(fileURLWithPath: settings.downloadPath, isDirectory: true).standardizedFileURL
-        let refreshToken = UUID()
-        archiveRefreshID = refreshToken
-        let refreshID = refreshToken.uuidString
-        qobuzLog.notice(
-            "library.refresh",
-            "Library refresh requested",
-            metadata: ["libraryRefreshID": refreshID, "downloadRoot": root.path]
+        library.refresh(
+            root: libraryRoot,
+            fullVerification: fullVerification,
+            onFailure: { [weak self] message in self?.notice = message }
         )
-        isArchiveScanning = true
-        archiveTask = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                if archiveRefreshID == refreshToken {
-                    isArchiveScanning = false
-                    archiveTask = nil
-                    archiveRefreshID = nil
-                }
-            }
-            do {
-                let snapshot = try await QobuzLogScope.withValue(["libraryRefreshID": refreshID]) {
-                    try await self.archiveScanner.scan(
-                        root: root,
-                        reusing: fullVerification ? nil : self.archiveSnapshot
-                    )
-                }
-                try Task.checkCancellation()
-                let currentRoot = URL(
-                    fileURLWithPath: settings.downloadPath,
-                    isDirectory: true
-                ).standardizedFileURL.path
-                guard currentRoot == root.path else { return }
-                archiveSnapshot = snapshot
-                try archiveStore.save(snapshot)
-                qobuzLog.notice(
-                    "library.refresh",
-                    "Library refresh applied",
-                    metadata: [
-                        "libraryRefreshID": refreshID,
-                        "trackCount": String(snapshot.tracks.count),
-                        "problemCount": String(snapshot.problemCount)
-                    ]
-                )
-            } catch let error where error.isQobuzCancellation {
-                qobuzLog.notice(
-                    "library.refresh",
-                    "Library refresh cancelled",
-                    metadata: ["libraryRefreshID": refreshID]
-                )
-                return
-            } catch {
-                qobuzLog.error(
-                    "library.refresh",
-                    "Library refresh failed",
-                    metadata: ["libraryRefreshID": refreshID],
-                    error: error
-                )
-                notice = "Could not scan the library: \(error.localizedDescription)"
-            }
-        }
     }
 
     func inspectLibraryForAdoption(at root: URL) async throws -> QobuzLibraryAdoptionPlan {
-        guard !isDownloading else {
-            throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
-        }
-        let adoptionID = UUID().uuidString
-        qobuzLog.notice(
-            "library.adoption.ui",
-            "Library adoption inspection requested",
-            metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path]
-        )
-        do {
-            return try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
-                try await libraryAdopter.inspect(root: root)
-            }
-        } catch {
-            qobuzLog.error(
-                "library.adoption.ui",
-                "Library adoption inspection failed",
-                metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path],
-                error: error
-            )
-            throw error
-        }
+        try await library.inspectForAdoption(at: root, downloadIsActive: isDownloading)
     }
 
     func adoptLibrary(at root: URL, draft: SettingsDraft) async throws {
-        guard !isDownloading else {
-            throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
-        }
-        let adoptionID = UUID().uuidString
-        qobuzLog.notice(
-            "library.adoption.ui",
-            "Library adoption confirmed",
-            metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path]
-        )
+        let pending = try await library.prepareAdoption(at: root, downloadIsActive: isDownloading)
         do {
-            let result = try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
-                try await libraryAdopter.adopt(root: root)
-            }
             try saveConfiguration(
                 credentials: draft.credentials,
                 settings: NativeSettings(
-                    downloadPath: result.plan.root.path,
+                    downloadPath: pending.result.plan.root.path,
                     quality: draft.quality
                 )
             )
-            archiveSnapshot = result.snapshot
-            try archiveStore.save(result.snapshot)
-            isArchiveScanning = false
-            isLibraryOpen = true
+            try library.activate(pending)
             browse.close()
             showSettings = false
-            let repaired = result.plan.manifestAction != .none
+            let repaired = pending.result.plan.manifestAction != .none
             notice = repaired
                 ? "Existing Library adopted and its index was rebuilt."
                 : "Existing Library adopted and verified."
-            qobuzLog.notice(
-                "library.adoption.ui",
-                "Adopted Library became the active download root",
-                metadata: [
-                    "libraryAdoptionID": adoptionID,
-                    "downloadRoot": result.plan.root.path,
-                    "trackCount": String(result.snapshot.tracks.count),
-                    "problemCount": String(result.snapshot.problemCount),
-                    "manifestAction": result.plan.manifestAction.rawValue
-                ]
-            )
         } catch {
             qobuzLog.error(
                 "library.adoption.ui",
-                "Library adoption failed",
-                metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path],
+                "Adopted Library could not become the active download root",
+                metadata: ["libraryAdoptionID": pending.id, "candidateRoot": root.path],
                 error: error
             )
             throw error
@@ -777,81 +657,35 @@ final class NativeViewModel: ObservableObject {
     }
 
     func revealArchiveTrack(_ track: QobuzArchiveTrack) {
-        revealArchivePath(track.relativePath)
+        library.revealTrack(track)
     }
 
     func revealArchiveEntry(_ entry: QobuzArchiveEntry) {
-        revealArchivePath(entry.relativePath)
+        library.revealEntry(entry)
     }
 
     func revealArchiveIssue(_ issue: NativeLibraryIndexProblem) {
-        revealArchivePath(issue.relativePath, allowingRoot: true)
-    }
-
-    private func revealArchivePath(_ relativePath: String, allowingRoot: Bool = false) {
-        guard let snapshot = archiveSnapshot else { return }
-        let root = URL(fileURLWithPath: snapshot.rootPath, isDirectory: true).standardizedFileURL
-        guard let target = QobuzPathSafety.containedURL(
-            for: relativePath,
-            in: root,
-            allowingRoot: allowingRoot
-        ),
-              FileManager.default.fileExists(atPath: target.path) else {
-            NSWorkspace.shared.activateFileViewerSelecting([root])
-            return
-        }
-        NSWorkspace.shared.activateFileViewerSelecting([target])
+        library.revealIssue(issue)
     }
 
     func libraryStatus(for item: NativeQueueItem) -> NativeLibraryStatus? {
-        guard let snapshot = archiveSnapshot else { return nil }
-        let coverage: QobuzArchiveCoverage
-        switch item.request {
-        case .track(let id):
-            coverage = snapshot.coverage(trackID: id)
-        case .album(let id):
-            let trackIDs = item.selectedTrackIDs.map(Array.init) ?? item.expectedTrackIDs
-            if let trackIDs, !trackIDs.isEmpty {
-                coverage = snapshot.coverage(trackIDs: trackIDs, albumID: id)
-            } else if item.selectedTrackIDs != nil {
-                return nil
-            } else {
-                coverage = snapshot.coverage(albumID: id)
-            }
-        case .playlist:
-            let trackIDs = item.selectedTrackIDs.map(Array.init) ?? item.expectedTrackIDs
-            guard let trackIDs, !trackIDs.isEmpty else { return nil }
-            coverage = snapshot.coverage(trackIDs: trackIDs)
-        case .artist, .label:
-            return nil
-        }
-        return NativeLibraryStatus(coverage)
+        library.status(for: item)
     }
 
     func libraryStatus(for album: QobuzAlbumSummary) -> NativeLibraryStatus? {
-        guard let snapshot = archiveSnapshot else { return nil }
-        return NativeLibraryStatus(snapshot.coverage(albumID: album.id))
+        library.status(for: album)
     }
 
     func libraryStatus(for album: QobuzAlbum) -> NativeLibraryStatus? {
-        guard let snapshot = archiveSnapshot else { return nil }
-        let trackIDs = album.availableTracks.map(\.id)
-        let coverage = trackIDs.isEmpty
-            ? snapshot.coverage(albumID: album.id)
-            : snapshot.coverage(trackIDs: trackIDs, albumID: album.id)
-        return NativeLibraryStatus(coverage)
+        library.status(for: album)
     }
 
     func libraryStatus(for track: QobuzTrack) -> NativeLibraryStatus? {
-        guard let snapshot = archiveSnapshot else { return nil }
-        return NativeLibraryStatus(snapshot.coverage(trackID: track.id, albumID: track.album?.id))
+        library.status(for: track)
     }
 
     func libraryStatus(for tracks: [QobuzTrack]) -> NativeLibraryStatus? {
-        guard let snapshot = archiveSnapshot else { return nil }
-        let trackIDs = tracks.filter { $0.accountAvailabilityIssue == nil }.map(\.id)
-        guard !trackIDs.isEmpty else { return nil }
-        return NativeLibraryStatus(snapshot.coverage(trackIDs: trackIDs))
+        library.status(for: tracks)
     }
 
     func browseCount(for category: NativeBrowseCategory) -> Int {
@@ -1064,6 +898,7 @@ final class NativeViewModel: ObservableObject {
         sessionPersistenceTask?.cancel()
         linkInboxController.cancel()
         previewController.cancel()
+        library.cancelRefresh()
         connectivityMonitor.stop()
         markActiveDownloadsPaused(phase: "Paused after app closed")
         persistSessionNow(reportErrors: false)
@@ -1107,11 +942,7 @@ final class NativeViewModel: ObservableObject {
 
     private func applyConfigurationChange(_ change: NativeConfigurationChange) {
         if change.downloadRootChanged {
-            archiveTask?.cancel()
-            archiveTask = nil
-            archiveRefreshID = nil
-            archiveSnapshot = nil
-            isArchiveScanning = false
+            library.invalidate()
         }
         synchronizeBrowseAccount()
         showSettings = false
@@ -1151,29 +982,6 @@ final class NativeViewModel: ObservableObject {
         )
         try await connectivityEvents.waitForOnline(after: generation) { [weak self] in
             self?.connectivityState ?? .unknown
-        }
-    }
-
-    private func loadArchiveCache() {
-        let rootPath = URL(
-            fileURLWithPath: settings.downloadPath,
-            isDirectory: true
-        ).standardizedFileURL.path
-        do {
-            if let cached = try archiveStore.load(), cached.rootPath == rootPath {
-                archiveSnapshot = cached
-                qobuzLog.debug(
-                    "library.cache",
-                    "Archive cache restored",
-                    metadata: ["trackCount": String(cached.tracks.count), "problemCount": String(cached.problemCount)]
-                )
-            } else {
-                archiveSnapshot = nil
-                qobuzLog.debug("library.cache", "Archive cache did not match the current download root")
-            }
-        } catch {
-            archiveSnapshot = nil
-            qobuzLog.warning("library.cache", "Archive cache could not be restored", error: error)
         }
     }
 
