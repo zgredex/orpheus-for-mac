@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04D0999A0CC2E9DFB555DBC7 /* NativeLibrarySummaryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA34FDF881F4F29D2B540F /* NativeLibrarySummaryBar.swift */; };
 		05714791ED1614BDD4CF8E5F /* NativeDownloadItemRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299298E81FAB20EE3E90BDC5 /* NativeDownloadItemRunner.swift */; };
 		0689103947A8DDF533635DF0 /* NativeLinkInboxModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */; };
 		0753CB2D8E9F55A32A910074 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 83DF3A2701F8BA58A69F0948 /* README.md */; };
@@ -41,6 +42,7 @@
 		561AD573AF64ACD317904647 /* PaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645BE67AA234B02DAC3353CD /* PaneHeader.swift */; };
 		5650A334BCCCD3E5DCBF1262 /* NativeLibraryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */; };
 		586A981F30D8993655793031 /* NativePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923659614A8B428EF4C2ADE2 /* NativePersistence.swift */; };
+		5AC0704CF7A4650B3F76BF8B /* NativeLibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */; };
 		5C2AC8D7A317969465F84529 /* NativeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A65459F1F88915E30A939C /* NativeAdapterTests.swift */; };
 		6D6BA088B16709AD839A3764 /* TrackPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2704F594552DAF12733A3709 /* TrackPreview.swift */; };
 		6F47EECC1DAC3005D3A4F7FD /* NativeLoggingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99536D23BDAF3AD8F187C289 /* NativeLoggingTests.swift */; };
@@ -52,6 +54,7 @@
 		847F01E6E238197DD88FE236 /* ArtistPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624429738F2CC0D9F469EE1C /* ArtistPreview.swift */; };
 		84D98B4FB88CFEA871F33854 /* OrpheusNativeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226B2DEBEC48592C07F09899 /* OrpheusNativeApp.swift */; };
 		84FCF0785E15A8D987408AB3 /* NativePartialDownloadLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDA5A8D31B88CED18DDB9DD /* NativePartialDownloadLocator.swift */; };
+		8638F6D2DD73C12E99D15ABA /* NativeLibraryArchiveRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */; };
 		89C603BB7B24BD3E4E3223DC /* NativeDownloadActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */; };
 		8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */; };
 		910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */; };
@@ -63,6 +66,7 @@
 		A6CCC521F034B2AB6CD2695D /* NativeLinkInboxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DB5568FBA1DEE55549C644 /* NativeLinkInboxController.swift */; };
 		A779F1F644E153CE1F6F2E98 /* NativeConnectivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD347D5763C02114434DF383 /* NativeConnectivityController.swift */; };
 		A7A9183A28BA8F3ED4B0902C /* EditorialContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96C777437F88709C97FD469 /* EditorialContent.swift */; };
+		AA9AA89B629EAA5F24C694C9 /* NativeLibraryProblemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EE49B9A1C120E5F3C76AC3F /* NativeLibraryProblemsView.swift */; };
 		B30F89034197A12FEA98F0C0 /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF10861B2EA64C6B46BFDB4 /* NativeSettingsView.swift */; };
 		B51166C741F31E64F1523E03 /* NativeQueueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */; };
 		B61EEC96804CD8256ABCE78F /* EditorialTextFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81F3296DBFA84D9AEF4CC927 /* EditorialTextFormatterTests.swift */; };
@@ -77,6 +81,7 @@
 		C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */; };
 		D1C4D0D769F132B8890219C0 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
 		D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */; };
+		D6B10B98C315E5C80AEC24CE /* NativeLibraryCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8BDFAF3A22A5513784246C /* NativeLibraryCategoryView.swift */; };
 		D8B66A1C2A5B145AD8FA727F /* NativeDownloadStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA986A2A917D8F063500CCA0 /* NativeDownloadStateStoreTests.swift */; };
 		DBB4CB0D6FE8CAE424DD2793 /* NativePreviewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B23711D8D961E4DF7715B2 /* NativePreviewController.swift */; };
 		DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */; };
@@ -103,7 +108,9 @@
 		0705669E15A714623F9D53B4 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCatalogAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePreviewView.swift; sourceTree = "<group>"; };
+		15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryPresentation.swift; sourceTree = "<group>"; };
 		177F6887E92A0662B72B4E1A /* TrackListRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackListRow.swift; sourceTree = "<group>"; };
+		18CA34FDF881F4F29D2B540F /* NativeLibrarySummaryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibrarySummaryBar.swift; sourceTree = "<group>"; };
 		19A65459F1F88915E30A939C /* NativeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAdapterTests.swift; sourceTree = "<group>"; };
 		226B2DEBEC48592C07F09899 /* OrpheusNativeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrpheusNativeApp.swift; sourceTree = "<group>"; };
 		2704F594552DAF12733A3709 /* TrackPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPreview.swift; sourceTree = "<group>"; };
@@ -120,6 +127,7 @@
 		53DB5568FBA1DEE55549C644 /* NativeLinkInboxController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLinkInboxController.swift; sourceTree = "<group>"; };
 		54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseModels.swift; sourceTree = "<group>"; };
 		5BFB3B9A1FFD6D8D3008CBCD /* NativeSettingsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsModels.swift; sourceTree = "<group>"; };
+		5EE49B9A1C120E5F3C76AC3F /* NativeLibraryProblemsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryProblemsView.swift; sourceTree = "<group>"; };
 		624429738F2CC0D9F469EE1C /* ArtistPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistPreview.swift; sourceTree = "<group>"; };
 		645BE67AA234B02DAC3353CD /* PaneHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneHeader.swift; sourceTree = "<group>"; };
 		677F6ED4075596CABC192F49 /* OrpheusNative.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrpheusNative.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -147,6 +155,7 @@
 		AA36D0E2EF3744F06EF0524A /* NativeActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeActivityView.swift; sourceTree = "<group>"; };
 		AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueuePane.swift; sourceTree = "<group>"; };
 		AB38BF8B7F13870BEF444120 /* NativeQobuzCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NativeQobuzCore; path = NativeQobuzCore; sourceTree = SOURCE_ROOT; };
+		AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryArchiveRows.swift; sourceTree = "<group>"; };
 		B3D453705AFB21557619B77B /* QueueRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueRow.swift; sourceTree = "<group>"; };
 		B642C18087F0EF6F7230A62E /* EditorialHeroPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialHeroPanel.swift; sourceTree = "<group>"; };
 		B6EB097B50DA94628D894D48 /* LabelPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelPreview.swift; sourceTree = "<group>"; };
@@ -177,6 +186,7 @@
 		F4687A6AFD49B7DEC9242E85 /* NativeSessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSessionPersistence.swift; sourceTree = "<group>"; };
 		F5C98826DBF67A0674794E05 /* CollectionPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionPreview.swift; sourceTree = "<group>"; };
 		FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionBadge.swift; sourceTree = "<group>"; };
+		FA8BDFAF3A22A5513784246C /* NativeLibraryCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryCategoryView.swift; sourceTree = "<group>"; };
 		FDA88442A935015C025CE423 /* SearchResultsList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsList.swift; sourceTree = "<group>"; };
 		FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStatusLabel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -324,6 +334,11 @@
 		AA8C724EE06E62E96890E2A9 /* Library */ = {
 			isa = PBXGroup;
 			children = (
+				AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */,
+				FA8BDFAF3A22A5513784246C /* NativeLibraryCategoryView.swift */,
+				15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */,
+				5EE49B9A1C120E5F3C76AC3F /* NativeLibraryProblemsView.swift */,
+				18CA34FDF881F4F29D2B540F /* NativeLibrarySummaryBar.swift */,
 				3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */,
 			);
 			path = Library;
@@ -622,8 +637,13 @@
 				2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */,
 				21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */,
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
+				8638F6D2DD73C12E99D15ABA /* NativeLibraryArchiveRows.swift in Sources */,
+				D6B10B98C315E5C80AEC24CE /* NativeLibraryCategoryView.swift in Sources */,
 				5650A334BCCCD3E5DCBF1262 /* NativeLibraryController.swift in Sources */,
 				1F0B28405C408A7CA917E138 /* NativeLibraryModels.swift in Sources */,
+				5AC0704CF7A4650B3F76BF8B /* NativeLibraryPresentation.swift in Sources */,
+				AA9AA89B629EAA5F24C694C9 /* NativeLibraryProblemsView.swift in Sources */,
+				04D0999A0CC2E9DFB555DBC7 /* NativeLibrarySummaryBar.swift in Sources */,
 				0C611D9CE4F2A2FE1C00C53A /* NativeLibraryView.swift in Sources */,
 				A6CCC521F034B2AB6CD2695D /* NativeLinkInboxController.swift in Sources */,
 				0689103947A8DDF533635DF0 /* NativeLinkInboxModels.swift in Sources */,
