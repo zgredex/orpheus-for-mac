@@ -117,6 +117,51 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertTrue(warnings.isEmpty)
     }
 
+    func testMaximumPolicyDownloadsEverySupportedDeliveredFormat() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let trackID = try XCTUnwrap(album.tracks.first?.id)
+
+        for format in QobuzAudioFormat.allCases {
+            let root = temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fileInfo = QobuzFileInfo(
+                url: URL(string: "https://media.example/one.\(format.fileExtension)")!,
+                format: format
+            )
+            let service = FakeQobuzService(
+                albums: [album.id: album],
+                fileInfos: [trackID: fileInfo]
+            )
+            let assetWriter = QobuzCollectionAssetWriter()
+            let engine = NativeQobuzDownloadEngine(
+                service: service,
+                transfer: FakeTransferClient(recorder: TransferRecorder()),
+                validator: AcceptingValidator(),
+                metadataWriter: RecordingMetadataWriter(),
+                assetWriter: assetWriter
+            )
+
+            for try await _ in engine.events(
+                for: .album(album.id),
+                quality: .hiRes,
+                downloadRoot: root
+            ) {}
+
+            let audioPaths = try FileManager.default.subpathsOfDirectory(atPath: root.path)
+                .filter { URL(fileURLWithPath: $0).pathExtension.lowercased() == format.fileExtension }
+            let relativePath = try XCTUnwrap(audioPaths.first)
+            let audioURL = root.appendingPathComponent(relativePath)
+            XCTAssertEqual(audioPaths.count, 1, "Delivered format \(format.formatID)")
+            XCTAssertEqual(
+                try assetWriter.provenance(for: audioURL)?.formatID,
+                format.formatID,
+                "Delivered format \(format.formatID)"
+            )
+            let requestedFormats = await service.fileInfoRequestedFormats
+            XCTAssertEqual(requestedFormats, [.hiRes])
+        }
+    }
+
     func testEngineDownloadsOnlySelectedTracksAndReindexesProgress() async throws {
         let album = makeAlbum(id: "album", trackIDs: ["one", "two", "three"])
         let recorder = TransferRecorder()
@@ -450,7 +495,7 @@ final class DownloadEngineTests: XCTestCase {
         let recorder = TransferRecorder()
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let relativePath = "Legacy Folder/Unexpected Name.flac"
+        let relativePath = "Repair Target/Unexpected Name.flac"
         let destination = root.appendingPathComponent(relativePath)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("damaged".utf8).write(to: destination)
@@ -523,7 +568,8 @@ final class DownloadEngineTests: XCTestCase {
             qobuzAlbumID: "album",
             formatID: QobuzQuality.hiRes.maximumFormat.formatID,
             expectedSHA256: String(repeating: "0", count: 64),
-            integrity: .missing
+            integrity: .missing,
+            archiveKind: .album
         )
         let engine = NativeQobuzDownloadEngine(
             service: service,
@@ -549,7 +595,8 @@ final class DownloadEngineTests: XCTestCase {
             qobuzAlbumID: "album",
             formatID: 999,
             expectedSHA256: String(repeating: "0", count: 64),
-            integrity: .missing
+            integrity: .missing,
+            archiveKind: .album
         )
         let engine = NativeQobuzDownloadEngine(
             service: FakeQobuzService(),

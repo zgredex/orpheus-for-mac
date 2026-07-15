@@ -21,8 +21,6 @@ The app bundle is immutable. Mutable state is stored in:
 - Application Support: `~/Library/Application Support/Orpheus for Mac`
 - Default downloads: `~/Music/Orpheus for Mac`
 
-Version 1.0 safely migrates the former native Preview data from `~/Library/Application Support/OrpheusNativePreview`. Migration copies data, preserves an existing custom download path, never overwrites newer release data, and leaves the Preview directory intact for rollback.
-
 Credentials are stored in an owner-only `credentials.json` file. It contains the Qobuz App ID, App Secret, and auth token. A Qobuz account user ID is neither stored nor sent as an App ID.
 
 ## Diagnostics
@@ -80,7 +78,7 @@ The live matrix covers album, track, playlist, artist, label, all search categor
 ```text
 NativeQobuzCore/                 Qobuz API, download, media, integrity, and Library core
 OrpheusNative/                   SwiftUI application
-OrpheusNativeTests/              App adapter, persistence, migration, and workflow tests
+OrpheusNativeTests/              App adapter, persistence, and workflow tests
 orpheus-native.yml               XcodeGen project and release identity
 scripts/build_native_release.sh  App/DMG signing and notarization pipeline
 scripts/run_native_release_qualification.sh
@@ -88,7 +86,7 @@ scripts/run_native_release_qualification.sh
 
 ## Browser Handoff
 
-The release registers `orpheus-for-mac://open?url=...`. The former `orpheus-native://` scheme remains registered for compatibility. Both routes open account-verified Browse detail and never bypass availability checks or add directly to the queue.
+The release registers `orpheus-for-mac://open?url=...` and retains `orpheus-native://` as an equivalent deep-link alias. Both routes open account-verified Browse detail and never bypass availability checks or add directly to the queue.
 
 ## Attribution
 

@@ -23,10 +23,15 @@ struct NativeCommandBar: View {
     }
 
     private var selectedTitle: String {
-        vm.selectedQueueItem?.status == .paused ? "Resume Selected" : "Download Selected"
+        selectedIsPaused ? "Resume Selected" : "Download Selected"
     }
 
     private var selectedIcon: String {
-        vm.selectedQueueItem?.status == .paused ? "play.circle" : "arrow.down.circle"
+        selectedIsPaused ? "play.circle" : "arrow.down.circle"
+    }
+
+    private var selectedIsPaused: Bool {
+        guard let item = vm.selectedQueueItem else { return false }
+        return vm.status(for: item) == .paused
     }
 }

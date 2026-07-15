@@ -1,11 +1,8 @@
 import Foundation
 
-/// The one persisted lifecycle shared by a queue item and its activity row.
-/// Queue-only preparation uses `ready`/`loading`; transfer phases are mirrored
-/// through `NativeViewModel.transitionDownload` so the two projections cannot drift.
-enum NativeDownloadStatus: Codable, Equatable {
+/// Lifecycle value owned and persisted exclusively by `NativeDownloadOperation`.
+enum NativeDownloadStatus: Codable, Equatable, Sendable {
     case ready
-    case loading
     case queued
     case resolving
     case downloading
@@ -20,7 +17,7 @@ enum NativeDownloadStatus: Codable, Equatable {
     var canStart: Bool {
         switch self {
         case .ready, .paused, .failed, .cancelled: true
-        case .loading, .queued, .resolving, .downloading, .tagging, .validating,
+        case .queued, .resolving, .downloading, .tagging, .validating,
              .waitingForNetwork, .completed: false
         }
     }
@@ -63,14 +60,13 @@ enum NativeDownloadStatus: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case kind, message }
     private enum Kind: String, Codable {
-        case ready, loading, queued, resolving, downloading, tagging, validating
+        case ready, queued, resolving, downloading, tagging, validating
         case waitingForNetwork, paused, completed, failed, cancelled
     }
 
     private var kind: Kind {
         switch self {
         case .ready: .ready
-        case .loading: .loading
         case .queued: .queued
         case .resolving: .resolving
         case .downloading: .downloading
@@ -88,7 +84,6 @@ enum NativeDownloadStatus: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(Kind.self, forKey: .kind) {
         case .ready: self = .ready
-        case .loading: self = .loading
         case .queued: self = .queued
         case .resolving: self = .resolving
         case .downloading: self = .downloading

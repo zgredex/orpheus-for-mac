@@ -5,6 +5,7 @@ struct QueueRow: View {
     @EnvironmentObject private var vm: NativeViewModel
 
     let item: NativeQueueItem
+    let status: NativeDownloadStatus
     let targetQuality: QobuzQuality
     var libraryStatus: NativeLibraryStatus?
     var isExpanded = false
@@ -22,7 +23,7 @@ struct QueueRow: View {
                     .padding(.bottom, DS.Space.s)
             }
         }
-        .animation(.default, value: item.status)
+        .animation(.default, value: status)
         .animation(.easeInOut(duration: 0.16), value: isExpanded)
         .help(failureMessage ?? "Drag to reorder. Expand to inspect this download plan.")
     }
@@ -58,7 +59,7 @@ struct QueueRow: View {
             } else {
                 QualityBadge(kind: .target(targetQuality))
             }
-            if let style = item.status.queueStyle {
+            if let style = status.queueStyle {
                 StatusGlyph(style: style)
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -218,9 +219,9 @@ struct QueueRow: View {
     }
 
     private var failureMessage: String? {
-        if case .failed(let message) = item.status { return message }
-        if item.status == .waitingForNetwork { return "Waiting for the network. This item resumes automatically when connectivity returns." }
-        if item.status == .paused { return "Paused. Resume to continue the existing partial download." }
+        if case .failed(let message) = status { return message }
+        if status == .waitingForNetwork { return "Waiting for the network. This item resumes automatically when connectivity returns." }
+        if status == .paused { return "Paused. Resume to continue the existing partial download." }
         return nil
     }
 

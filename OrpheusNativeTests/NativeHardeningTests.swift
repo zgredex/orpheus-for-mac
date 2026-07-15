@@ -65,7 +65,8 @@ final class NativeHardeningTests: XCTestCase {
             formatID: 27,
             expectedSHA256: String(repeating: "a", count: 64),
             actualSHA256: String(repeating: "a", count: 64),
-            integrity: .verified
+            integrity: .verified,
+            archiveKind: .album
         )
         try store.save(QobuzArchiveSnapshot(rootPath: paths.defaultDownloadRoot.path, tracks: [unsafe]))
 

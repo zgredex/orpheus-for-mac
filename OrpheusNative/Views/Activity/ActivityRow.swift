@@ -3,12 +3,13 @@ import SwiftUI
 struct ActivityRow: View {
     @EnvironmentObject private var vm: NativeViewModel
     let activity: NativeDownloadActivity
+    let status: NativeDownloadStatus
     @State private var showsDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: DS.Space.m) {
-                StatusGlyph(style: activity.status.activityStyle)
+                StatusGlyph(style: status.activityStyle)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 20)
 
@@ -16,7 +17,7 @@ struct ActivityRow: View {
                     HStack(spacing: DS.Space.s) {
                         Text(activity.title)
                             .font(.rowTitle)
-                            .foregroundStyle(activity.status == .completed ? .secondary : .primary)
+                            .foregroundStyle(status == .completed ? .secondary : .primary)
                             .lineLimit(1)
                             .layoutPriority(1)
                         if hasDetails {
@@ -37,7 +38,7 @@ struct ActivityRow: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    if activity.status != .completed {
+                    if status != .completed {
                         ProgressView(value: activity.progress)
                             .tint(isFailed ? .red : .accentColor)
                             .animation(.linear(duration: 0.25), value: activity.progress)
@@ -103,24 +104,24 @@ struct ActivityRow: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .animation(.default, value: activity.status)
+        .animation(.default, value: status)
     }
 
     private var actionButtons: some View {
         HStack(spacing: DS.Space.s) {
-            if activity.status.isActive {
+            if status.isActive {
                 Button("Cancel", systemImage: "xmark.circle") { vm.cancel(activity) }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled(!vm.canCancel(activity))
                     .help("Cancel this item and continue the remaining batch")
-            } else if activity.status.canRetry {
+            } else if status.canRetry {
                 Button("Retry", systemImage: "arrow.clockwise") { vm.retry(activity) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(!vm.canRestart(activity))
                     .help(restartHelp(action: "Retry"))
-            } else if activity.status.canResume {
+            } else if status.canResume {
                 Button("Resume", systemImage: "play.fill") { vm.resume(activity) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -138,14 +139,14 @@ struct ActivityRow: View {
             Button("Remove", systemImage: "trash") { vm.removeActivity(activity) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .disabled(activity.status.isActive)
+                .disabled(status.isActive)
                 .help("Remove from Activity without deleting downloaded or partial files")
         }
     }
 
     private var detailContent: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            if let error = activity.detailError {
+            if let error = detailError {
                 detailSection(
                     title: "Error",
                     systemImage: "exclamationmark.circle.fill",
@@ -196,31 +197,31 @@ struct ActivityRow: View {
     }
 
     private var isFailed: Bool {
-        if case .failed = activity.status { return true }
+        if case .failed = status { return true }
         return false
     }
 
     private var hasDetails: Bool {
-        activity.detailError != nil
+        detailError != nil
             || !activity.warnings.isEmpty
             || !activity.informationalNotices.isEmpty
     }
 
     private var detailIcon: String {
-        if activity.detailError != nil { return "exclamationmark.circle.fill" }
+        if detailError != nil { return "exclamationmark.circle.fill" }
         if !activity.warnings.isEmpty { return "exclamationmark.triangle.fill" }
         return "info.circle.fill"
     }
 
     private var detailTint: Color {
-        if activity.detailError != nil { return .red }
+        if detailError != nil { return .red }
         if !activity.warnings.isEmpty { return .orange }
         return .blue
     }
 
     private var detailSummary: String {
         var values: [String] = []
-        if activity.detailError != nil { values.append("Error") }
+        if detailError != nil { values.append("Error") }
         if !activity.warnings.isEmpty {
             values.append("\(activity.warnings.count) warning\(activity.warnings.count == 1 ? "" : "s")")
         }
@@ -232,9 +233,9 @@ struct ActivityRow: View {
 
     private var phaseText: String {
         if isFailed { return "Failed · Expand for details" }
-        if activity.status == .waitingForNetwork { return activity.phase }
-        if activity.status == .paused, activity.detailError != nil { return "Paused · Ready to resume" }
-        if activity.status == .downloading, let current = activity.currentTrack {
+        if status == .waitingForNetwork { return activity.phase }
+        if status == .paused, detailError != nil { return "Paused · Ready to resume" }
+        if status == .downloading, let current = activity.currentTrack {
             return "\(activity.phase) · \(current)"
         }
         return activity.phase
@@ -257,7 +258,7 @@ struct ActivityRow: View {
     }
 
     private var hasLiveSpeed: Bool {
-        activity.status == .downloading && (activity.bytesPerSecond ?? 0) > 0
+        status == .downloading && (activity.bytesPerSecond ?? 0) > 0
     }
 
     private var transferPrimaryText: String {
@@ -275,8 +276,12 @@ struct ActivityRow: View {
             return "\(Format.bytes(transferredBytes)) transferred"
         }
         if transferredBytes != nil {
-            return activity.status == .completed ? "Downloaded" : "Transferred"
+            return status == .completed ? "Downloaded" : "Transferred"
         }
         return " "
+    }
+
+    private var detailError: String? {
+        vm.detailError(for: activity)
     }
 }

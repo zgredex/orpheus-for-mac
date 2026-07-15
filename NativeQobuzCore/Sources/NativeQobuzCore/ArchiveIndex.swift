@@ -474,7 +474,6 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                     in: folder,
                     filenames: Set(manifest.files.keys)
                 )
-
                 for filename in manifest.files.keys.sorted() {
                     try Task.checkCancellation()
                     guard QobuzPathSafety.isSafeLeafName(filename), let provenance = manifest.files[filename] else {
@@ -721,9 +720,8 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
     ) -> QobuzArchiveKind {
         guard recordedKind == .unclassified else { return recordedKind }
 
-        // Version-one provenance predates archiveKind. These are the exact
-        // layouts produced by StandardQobuzOutputPlanner, applied only as a
-        // compatibility migration for those older manifests.
+        // Unclassified records remain usable at the archive boundary. Infer the
+        // collection solely from layouts produced by StandardQobuzOutputPlanner.
         let components = relativePath.split(separator: "/")
         if components.count >= 3 { return .album }
         if components.count == 2 { return hasPlaylistManifest ? .playlist : .track }

@@ -31,13 +31,12 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
     var title: String
     var subtitle: String
     var artworkURL: URL?
-    var status: NativeDownloadStatus
     var expectedTrackIDs: [QobuzID]?
     var repairTarget: QobuzArchiveTrack?
     var downloadQuality: QobuzQuality?
     var downloadRootPath: String?
     /// Metadata used by the queue inspector. `nil` until the item has been
-    /// resolved for preview, which keeps older persisted sessions compatible.
+    /// resolved for preview.
     var trackPlan: [NativeQueueTrack]?
     /// `nil` means every available track. An explicit empty set intentionally
     /// prevents the item from starting until the user selects something.
@@ -69,7 +68,6 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
         self.request = request
         self.title = title ?? "\(request.kindName) \(request.id.rawValue)"
         subtitle = request.kindName
-        status = .ready
         repairTarget = nil
         if case .track(let id) = request {
             expectedTrackIDs = [id]
@@ -81,7 +79,6 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
         request = .track(QobuzID(repairTarget.qobuzTrackID))
         title = URL(fileURLWithPath: repairTarget.relativePath).lastPathComponent
         subtitle = "Repair · \(repairTarget.audioFormat?.displayName ?? "Format \(repairTarget.formatID)")"
-        status = .ready
         expectedTrackIDs = [QobuzID(repairTarget.qobuzTrackID)]
         self.repairTarget = repairTarget
         // Repairs use the archive's exact format, not the user's maximum policy.
@@ -357,7 +354,6 @@ struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     var quality: QobuzQuality? = nil
     /// Exact archived format requested by a repair.
     var audioFormat: QobuzAudioFormat? = nil
-    var status: NativeDownloadStatus = .queued
     var phase = "Queued"
     var currentTrack: String?
     var progress = 0.0
@@ -375,7 +371,6 @@ struct NativeDownloadActivity: Codable, Identifiable, Equatable {
     var errorMessage: String?
     var outputURL: URL?
 
-    var detailError: String? { errorMessage ?? status.failureMessage }
     var informationalNotices: [String] { notices ?? [] }
 }
 

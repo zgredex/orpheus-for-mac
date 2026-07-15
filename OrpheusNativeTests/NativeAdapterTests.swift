@@ -67,15 +67,19 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testWaitingForNetworkStatusesRoundTripThroughSessionCoding() throws {
-        var item = NativeQueueItem(request: .album(QobuzID("album")))
-        item.status = .waitingForNetwork
+        let item = NativeQueueItem(request: .album(QobuzID("album")))
         var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: "Album")
-        activity.status = .waitingForNetwork
         activity.phase = "Waiting for network · partial file preserved"
         let value = NativeSessionSnapshot(
             queue: [item],
             activities: [activity],
-            selectedQueueID: item.id
+            operations: [NativeDownloadOperation(
+                queueID: item.id,
+                activityID: activity.id,
+                status: .waitingForNetwork
+            )],
+            selectedQueueID: item.id,
+            linkInbox: []
         )
 
         let decoded = try JSONDecoder().decode(
@@ -83,8 +87,15 @@ final class NativeAdapterTests: XCTestCase {
             from: JSONEncoder().encode(value)
         )
 
-        XCTAssertEqual(decoded.queue.first?.status, .waitingForNetwork)
-        XCTAssertEqual(decoded.activities.first?.status, .waitingForNetwork)
+        XCTAssertEqual(decoded.operations.first?.status, .waitingForNetwork)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any]
+        )
+        let queue = try XCTUnwrap((object["queue"] as? [[String: Any]])?.first)
+        let activities = try XCTUnwrap((object["activities"] as? [[String: Any]])?.first)
+        XCTAssertNil(queue["status"])
+        XCTAssertNil(activities["status"])
     }
 
     func testBrowseResultsOwnEveryCategoryWithoutCrossCategoryMutation() {
@@ -245,7 +256,6 @@ final class NativeAdapterTests: XCTestCase {
         )
         let store = NativeSessionStore(paths: paths)
         var item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
-        item.status = .paused
         item.downloadQuality = .hiRes
         item.downloadRootPath = paths.defaultDownloadRoot.path
         item.trackPlan = [
@@ -271,7 +281,6 @@ final class NativeAdapterTests: XCTestCase {
         item.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
         item.selectedTrackIDs = [QobuzID("two")]
         var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: item.title)
-        activity.status = .paused
         activity.phase = "Paused after interruption"
         activity.progress = 0.42
         activity.bytesWritten = 42
@@ -287,6 +296,11 @@ final class NativeAdapterTests: XCTestCase {
         let snapshot = NativeSessionSnapshot(
             queue: [item],
             activities: [activity],
+            operations: [NativeDownloadOperation(
+                queueID: item.id,
+                activityID: activity.id,
+                status: .paused
+            )],
             selectedQueueID: item.id,
             linkInbox: [inboxItem]
         )
@@ -300,34 +314,11 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertTrue(paths.sessionURL.path.hasPrefix(paths.applicationSupportRoot.path))
     }
 
-    func testLegacyQueueItemWithoutTrackPlanDefaultsToAllTracks() throws {
-        var item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
-        item.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
-        let snapshot = NativeSessionSnapshot(
-            version: 1,
-            queue: [item],
-            activities: [],
-            selectedQueueID: item.id
-        )
-
-        let decoded = try JSONDecoder().decode(
-            NativeSessionSnapshot.self,
-            from: JSONEncoder().encode(snapshot)
-        )
-        let restored = try XCTUnwrap(decoded.queue.first)
-
-        XCTAssertNil(restored.trackPlan)
-        XCTAssertNil(restored.selectedTrackIDs)
-        XCTAssertEqual(restored.effectiveSelectedTrackIDs, [QobuzID("one"), QobuzID("two")])
-        XCTAssertTrue(restored.hasSelectedTracks)
-    }
-
     func testQueuePlanControlsUpdateSelectionQualityOrderAndPersistence() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         var first = NativeQueueItem(request: .album(QobuzID("album-one")), title: "First")
-        first.status = .completed
         first.trackPlan = [
             NativeQueueTrack(
                 id: "one#0",
@@ -353,7 +344,12 @@ final class NativeAdapterTests: XCTestCase {
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
             queue: [first, second],
             activities: [],
-            selectedQueueID: first.id
+            operations: [
+                NativeDownloadOperation(queueID: first.id, status: .completed),
+                NativeDownloadOperation(queueID: second.id)
+            ],
+            selectedQueueID: first.id,
+            linkInbox: []
         ))
         let viewModel = NativeViewModel(
             paths: paths,
@@ -373,7 +369,7 @@ final class NativeAdapterTests: XCTestCase {
         viewModel.setQueueQuality(.lossless, for: first.id)
         XCTAssertNil(viewModel.queue.first?.selectedTrackIDs)
         XCTAssertEqual(viewModel.queue.first?.downloadQuality, .lossless)
-        XCTAssertEqual(viewModel.queue.first?.status, .ready)
+        XCTAssertEqual(viewModel.status(for: try XCTUnwrap(viewModel.queue.first)), .ready)
 
         viewModel.moveQueueItem(second.id, before: first.id)
         XCTAssertEqual(viewModel.queue.map(\.id), [second.id, first.id])
@@ -404,15 +400,28 @@ final class NativeAdapterTests: XCTestCase {
         )
         try Data(repeating: 7, count: 4_096).write(to: partial)
 
-        var activity = NativeDownloadActivity(id: UUID(), queueID: UUID(), title: "Album")
-        activity.status = .paused
+        let item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
+        var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: "Album")
         activity.quality = .hiRes
         activity.outputURL = output
+        let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
+            queue: [item],
+            activities: [activity],
+            operations: [NativeDownloadOperation(
+                queueID: item.id,
+                activityID: activity.id,
+                status: .paused
+            )],
+            selectedQueueID: item.id,
+            linkInbox: []
+        ))
         let viewModel = NativeViewModel(
             paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore()
+            credentialStore: MemoryCredentialStore(),
+            sessionStore: sessionStore
         )
+        viewModel.start()
 
         XCTAssertEqual(
             viewModel.resumablePartial(for: activity),
@@ -430,25 +439,32 @@ final class NativeAdapterTests: XCTestCase {
             NativePartialDownload(url: format7Partial, bytes: 2_048)
         )
 
-        activity.status = .completed
-        XCTAssertNil(viewModel.resumablePartial(for: activity))
+        let completedViewModel = restoredViewModel(
+            status: .completed,
+            item: item,
+            activity: activity,
+            paths: paths
+        )
+        XCTAssertNil(completedViewModel.resumablePartial(for: activity))
 
-        activity.status = .failed("Network unavailable")
-        XCTAssertEqual(viewModel.resumablePartial(for: activity)?.bytes, 2_048)
+        let failedViewModel = restoredViewModel(
+            status: .failed("Network unavailable"),
+            item: item,
+            activity: activity,
+            paths: paths
+        )
+        XCTAssertEqual(failedViewModel.resumablePartial(for: activity)?.bytes, 2_048)
 
         try Data().write(to: format7Partial)
-        XCTAssertNil(viewModel.resumablePartial(for: activity))
+        XCTAssertNil(failedViewModel.resumablePartial(for: activity))
     }
 
-    func testVersionOneSessionDefaultsToAnEmptyLinkInbox() throws {
+    func testSessionCodingRejectsAnyPreviousSchema() throws {
         let data = Data(
             #"{"version":1,"queue":[],"activities":[],"selectedQueueID":null}"#.utf8
         )
 
-        let snapshot = try JSONDecoder().decode(NativeSessionSnapshot.self, from: data)
-
-        XCTAssertEqual(snapshot.version, 1)
-        XCTAssertTrue(snapshot.linkInbox.isEmpty)
+        XCTAssertThrowsError(try JSONDecoder().decode(NativeSessionSnapshot.self, from: data))
     }
 
     func testViewModelRestoresInterruptedDownloadAsPaused() {
@@ -456,18 +472,22 @@ final class NativeAdapterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         var item = NativeQueueItem(request: .album(QobuzID("album")), title: "Interrupted Album")
-        item.status = .downloading
         item.downloadQuality = .lossless
         item.downloadRootPath = paths.defaultDownloadRoot.path
         var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: item.title)
-        activity.status = .downloading
         activity.phase = "Downloading"
         activity.progress = 0.35
         activity.bytesPerSecond = 1_000
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
             queue: [item],
             activities: [activity],
-            selectedQueueID: item.id
+            operations: [NativeDownloadOperation(
+                queueID: item.id,
+                activityID: activity.id,
+                status: .downloading
+            )],
+            selectedQueueID: item.id,
+            linkInbox: []
         ))
         let viewModel = NativeViewModel(
             paths: paths,
@@ -478,15 +498,16 @@ final class NativeAdapterTests: XCTestCase {
 
         viewModel.start()
 
-        XCTAssertEqual(viewModel.queue.first?.status, .paused)
+        XCTAssertEqual(viewModel.queue.first.map(viewModel.status(for:)), .paused)
         XCTAssertEqual(viewModel.queue.first?.downloadQuality, .lossless)
         XCTAssertEqual(viewModel.queue.first?.downloadRootPath, paths.defaultDownloadRoot.path)
-        XCTAssertEqual(viewModel.activities.first?.status, .paused)
+        XCTAssertEqual(viewModel.activities.first.map(viewModel.status(for:)), .paused)
         XCTAssertEqual(viewModel.activities.first?.phase, "Paused after interruption")
         XCTAssertNil(viewModel.activities.first?.bytesPerSecond)
         XCTAssertEqual(viewModel.selectedQueueID, item.id)
         XCTAssertFalse(viewModel.canClearActivity)
-        XCTAssertEqual(sessionStore.snapshot?.queue.first?.status, .paused)
+        viewModel.prepareForTermination()
+        XCTAssertEqual(sessionStore.snapshot?.operations.first?.status, .paused)
     }
 
     func testArchiveIndexStoreUsesApplicationSupportAndRoundTrips() throws {
@@ -978,6 +999,33 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertNil(viewModel.queue[0].downloadQuality)
     }
 
+    private func restoredViewModel(
+        status: NativeDownloadStatus,
+        item: NativeQueueItem,
+        activity: NativeDownloadActivity,
+        paths: NativePaths
+    ) -> NativeViewModel {
+        let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
+            queue: [item],
+            activities: [activity],
+            operations: [NativeDownloadOperation(
+                queueID: item.id,
+                activityID: activity.id,
+                status: status
+            )],
+            selectedQueueID: item.id,
+            linkInbox: []
+        ))
+        let viewModel = NativeViewModel(
+            paths: paths,
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(),
+            sessionStore: sessionStore
+        )
+        viewModel.start()
+        return viewModel
+    }
+
     private static func archiveTrack(
         relativePath: String,
         trackID: String = "track-id",
@@ -995,7 +1043,8 @@ final class NativeAdapterTests: XCTestCase {
             expectedSHA256: String(repeating: "a", count: 64),
             actualSHA256: String(repeating: "a", count: 64),
             byteCount: 1_024,
-            integrity: integrity
+            integrity: integrity,
+            archiveKind: .album
         )
     }
 

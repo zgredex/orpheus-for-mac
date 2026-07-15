@@ -2,7 +2,7 @@
 
 An isolated, Python-free Qobuz download engine for Orpheus for Mac.
 
-This package intentionally does not import or invoke the existing OrpheusDL runtime. During the migration, the Python-backed app remains on `main`, while this package is developed on the `native-qobuz` branch and validated against sanitized parity fixtures.
+This package intentionally does not import or invoke the OrpheusDL runtime. The native implementation is developed on the `native-qobuz` branch and validated against sanitized parity fixtures.
 
 ## Boundary
 

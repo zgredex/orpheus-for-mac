@@ -245,7 +245,7 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertTrue(library.entries.allSatisfy { $0.tracks.map(\.relativePath) == [sharedPath] })
     }
 
-    func testProvenanceRoundTripPersistsArchiveKindAndLegacyDataRemainsReadable() throws {
+    func testProvenanceRoundTripPersistsArchiveKindAndUnclassifiedDataRemainsReadable() throws {
         let value = provenance(
             trackID: "single",
             albumID: "album",
@@ -258,10 +258,10 @@ final class ArchiveIndexTests: XCTestCase {
         )
         XCTAssertEqual(decoded.archiveKind, .track)
 
-        let legacy = Data("""
+        let unclassified = Data("""
         {
-          "qobuzTrackID": "legacy-track",
-          "qobuzAlbumID": "legacy-album",
+          "qobuzTrackID": "unclassified-track",
+          "qobuzAlbumID": "unclassified-album",
           "formatID": 27,
           "bitDepth": 24,
           "samplingRate": 96,
@@ -269,13 +269,13 @@ final class ArchiveIndexTests: XCTestCase {
         }
         """.utf8)
         XCTAssertEqual(
-            try JSONDecoder().decode(QobuzFileProvenance.self, from: legacy).archiveKind,
+            try JSONDecoder().decode(QobuzFileProvenance.self, from: unclassified).archiveKind,
             .unclassified
         )
     }
 
-    func testPreviousArchiveCacheDecodesWithoutArchiveKind() throws {
-        let legacy = Data("""
+    func testArchiveCacheDecodesAnUnclassifiedTrack() throws {
+        let unclassified = Data("""
         {
           "relativePath": "Artist/Album/01. Track.flac",
           "qobuzTrackID": "track",
@@ -290,13 +290,13 @@ final class ArchiveIndexTests: XCTestCase {
         }
         """.utf8)
 
-        let track = try JSONDecoder().decode(QobuzArchiveTrack.self, from: legacy)
+        let track = try JSONDecoder().decode(QobuzArchiveTrack.self, from: unclassified)
 
         XCTAssertEqual(track.archiveKind, .unclassified)
         XCTAssertEqual(track.qobuzTrackID, "track")
     }
 
-    func testScannerMigratesVersionOneOutputLayoutsIntoSeparateSections() async throws {
+    func testScannerClassifiesUnclassifiedOutputLayoutsIntoSeparateSections() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -306,19 +306,19 @@ final class ArchiveIndexTests: XCTestCase {
         try FileManager.default.createDirectory(at: albumFolder, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: playlistFolder, withIntermediateDirectories: true)
 
-        try writeLegacyManifest(
+        try writeUnclassifiedManifest(
             folder: albumFolder,
             filename: "01. Daydreamer.flac",
             trackID: "album-track",
             albumID: "19"
         )
-        try writeLegacyManifest(
+        try writeUnclassifiedManifest(
             folder: trackFolder,
             filename: "Hello.flac",
             trackID: "single-track",
             albumID: "25"
         )
-        try writeLegacyManifest(
+        try writeUnclassifiedManifest(
             folder: playlistFolder,
             filename: "01. Adele - Easy on Me.flac",
             trackID: "playlist-track",
@@ -540,7 +540,7 @@ final class ArchiveIndexTests: XCTestCase {
         trackID: String,
         albumID: String,
         integrity: QobuzArchiveIntegrity,
-        archiveKind: QobuzArchiveKind = .unclassified
+        archiveKind: QobuzArchiveKind = .album
     ) -> QobuzArchiveTrack {
         QobuzArchiveTrack(
             relativePath: relativePath,
@@ -554,7 +554,7 @@ final class ArchiveIndexTests: XCTestCase {
         )
     }
 
-    private func writeLegacyManifest(
+    private func writeUnclassifiedManifest(
         folder: URL,
         filename: String,
         trackID: String,

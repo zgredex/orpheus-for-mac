@@ -19,10 +19,7 @@ struct OrpheusNativeApp: App {
             )
         }
         let paths = NativePaths()
-        _viewModel = StateObject(wrappedValue: NativeViewModel(
-            paths: paths,
-            dataMigrator: NativePreviewDataMigrator()
-        ))
+        _viewModel = StateObject(wrappedValue: NativeViewModel(paths: paths))
         qobuzLog.notice(
             "lifecycle",
             "App process initialized",

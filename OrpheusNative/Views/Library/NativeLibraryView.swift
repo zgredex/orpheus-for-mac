@@ -533,7 +533,7 @@ struct NativeLibraryView: View {
         case .album: "Downloaded albums and artist releases appear here."
         case .track: "Individually downloaded tracks appear here."
         case .playlist: "Downloaded playlists appear here."
-        case .unclassified: "Downloads created before Library classification appear here."
+        case .unclassified: "Downloads without Library classification appear here."
         }
     }
 

@@ -26,7 +26,10 @@ struct NativeActivityView: View {
                 .padding(.horizontal, DS.Space.l)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
-                List(vm.activities) { activity in ActivityRow(activity: activity) }.listStyle(.inset)
+                List(vm.activities) { activity in
+                    ActivityRow(activity: activity, status: vm.status(for: activity))
+                }
+                .listStyle(.inset)
             }
         }
     }

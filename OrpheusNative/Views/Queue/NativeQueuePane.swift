@@ -29,6 +29,7 @@ struct NativeQueuePane: View {
                     ForEach(vm.queue) { item in
                         QueueRow(
                             item: item,
+                            status: vm.status(for: item),
                             targetQuality: item.downloadQuality ?? vm.settings.quality,
                             libraryStatus: vm.libraryStatus(for: item),
                             isExpanded: expandedIDs.contains(item.id),
@@ -55,7 +56,7 @@ struct NativeQueuePane: View {
                                     .disabled(vm.isDownloading || vm.queue.last?.id == item.id)
                                 Divider()
                                 Button("Remove", systemImage: "trash") { vm.removeQueueItem(item.id) }
-                                    .disabled(item.status == .downloading)
+                                    .disabled(vm.status(for: item).isActive)
                             }
                     }
                     .onMove(perform: vm.moveQueueItems)

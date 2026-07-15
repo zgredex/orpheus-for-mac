@@ -8,9 +8,7 @@ This directory contains the SwiftUI adapter for `NativeQobuzCore`.
 - Version: `1.0.0` (`1`)
 - Application Support: `~/Library/Application Support/Orpheus for Mac`
 - Default downloads: `~/Music/Orpheus for Mac`
-- URL schemes: `orpheus-for-mac` and legacy `orpheus-native`
-
-On first release launch, `NativePreviewDataMigrator` copies data from `OrpheusNativePreview` before stores load. It never deletes Preview data or overwrites existing release files. Existing settings retain their selected download path.
+- URL schemes: `orpheus-for-mac` and `orpheus-native`
 
 ## Architecture
 

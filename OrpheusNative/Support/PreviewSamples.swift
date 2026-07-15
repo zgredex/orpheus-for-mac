@@ -28,10 +28,8 @@ enum PreviewSamples {
         ready.subtitle = "The Nocturnes"
         var downloading = NativeQueueItem(request: .track(QobuzID("t9")), title: "Carrier Wave")
         downloading.subtitle = "Track"
-        downloading.status = .downloading
         var failed = NativeQueueItem(request: .playlist(QobuzID("p7")), title: "Late Night Mix")
         failed.subtitle = "Playlist"
-        failed.status = .failed("The Qobuz account region does not allow this release.")
         return [ready, downloading, failed]
     }()
 
@@ -39,7 +37,6 @@ enum PreviewSamples {
         id: UUID(),
         queueID: UUID(),
         title: "Midnight Frequencies",
-        status: .downloading,
         phase: "Downloading",
         currentTrack: "Carrier Wave",
         progress: 0.62,
@@ -58,13 +55,24 @@ enum PreviewSamples {
 }
 
 #Preview("Queue rows") {
-    List(PreviewSamples.queueItems) { QueueRow(item: $0, targetQuality: .hiRes) }
+    List(Array(PreviewSamples.queueItems.enumerated()), id: \.element.id) { offset, item in
+        QueueRow(
+            item: item,
+            status: [
+                .ready,
+                .downloading,
+                .failed("The Qobuz account region does not allow this release.")
+            ][offset],
+            targetQuality: .hiRes
+        )
+    }
         .listStyle(.sidebar)
         .frame(width: 300, height: 200)
+        .environmentObject(NativeViewModel(paths: NativePaths()))
 }
 
 #Preview("Activity row") {
-    List { ActivityRow(activity: PreviewSamples.activity) }
+    List { ActivityRow(activity: PreviewSamples.activity, status: .downloading) }
         .environmentObject(NativeViewModel(paths: NativePaths()))
         .frame(width: 520, height: 120)
 }

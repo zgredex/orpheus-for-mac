@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import NativeQobuzCore
 
@@ -43,7 +44,6 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var connectivityState: NativeConnectivityState = .unknown
 
     private let settingsStore: any NativeSettingsStoring
-    private let dataMigrator: any NativeDataMigrating
     private let credentialStore: any NativeCredentialStoring
     private let archiveStore: any NativeArchiveIndexStoring
     private let sessionStore: any NativeSessionStoring
@@ -66,6 +66,7 @@ final class NativeViewModel: ObservableObject {
     private var activeItemQueueID: UUID?
     private var sessionPersistenceTask: Task<Void, Never>?
     private var lastProgressUpdate: [UUID: Date] = [:]
+    private var downloadState = NativeDownloadStateStore()
     private var started = false
     private var restoringSession = false
     private var isTerminating = false
@@ -75,7 +76,6 @@ final class NativeViewModel: ObservableObject {
 
     init(
         paths: NativePaths,
-        dataMigrator: any NativeDataMigrating = NoOpNativeDataMigrator(),
         settingsStore: (any NativeSettingsStoring)? = nil,
         credentialStore: (any NativeCredentialStoring)? = nil,
         archiveStore: (any NativeArchiveIndexStoring)? = nil,
@@ -90,7 +90,6 @@ final class NativeViewModel: ObservableObject {
             QobuzAPIClient(credentials: $0)
         }
     ) {
-        self.dataMigrator = dataMigrator
         self.settingsStore = settingsStore ?? NativeSettingsStore(paths: paths)
         self.credentialStore = credentialStore ?? FileCredentialStore(paths: paths)
         self.archiveStore = archiveStore ?? NativeArchiveIndexStore(paths: paths)
@@ -153,7 +152,7 @@ final class NativeViewModel: ObservableObject {
 
     var isDownloading: Bool { downloadTask != nil }
     var canCancel: Bool { downloadTask != nil }
-    var canClearActivity: Bool { activities.contains { $0.status.isClearable } }
+    var canClearActivity: Bool { activities.contains { status(for: $0).isClearable } }
     var isBrowseLoading: Bool {
         !loadingBrowseCategories.isEmpty || !loadingMoreBrowseCategories.isEmpty
     }
@@ -185,6 +184,18 @@ final class NativeViewModel: ObservableObject {
 
     var diagnosticsDirectoryPath: String { diagnostics.directoryURL.path }
 
+    func status(for item: NativeQueueItem) -> NativeDownloadStatus {
+        downloadState.status(forQueueID: item.id)
+    }
+
+    func status(for activity: NativeDownloadActivity) -> NativeDownloadStatus {
+        downloadState.status(forActivityID: activity.id) ?? .ready
+    }
+
+    func detailError(for activity: NativeDownloadActivity) -> String? {
+        activity.errorMessage ?? status(for: activity).failureMessage
+    }
+
     func diagnosticEntries(limit: Int = 5_000) throws -> [QobuzLogEntry] {
         try diagnostics.entries(limit: limit)
     }
@@ -214,7 +225,6 @@ final class NativeViewModel: ObservableObject {
         let startedAt = Date()
         qobuzLog.notice("lifecycle", "Native app startup started")
         do {
-            try dataMigrator.migrateIfNeeded()
             settings = try settingsStore.load()
             credentials = try credentialStore.load() ?? CredentialDraft()
             qobuzLog.info(
@@ -531,6 +541,7 @@ final class NativeViewModel: ObservableObject {
         if let subtitle { item.subtitle = subtitle }
         item.artworkURL = artworkURL
         queue.append(item)
+        updateDownloadState { $0.registerQueue(item.id) }
         qobuzLog.notice(
             "queue",
             "Qobuz request added to queue",
@@ -566,6 +577,7 @@ final class NativeViewModel: ObservableObject {
             return
         }
         queue.append(contentsOf: added)
+        updateDownloadState { $0.registerQueues(added.map(\.id)) }
         qobuzLog.notice(
             "queue",
             "Album editions added to queue",
@@ -600,11 +612,12 @@ final class NativeViewModel: ObservableObject {
     }
 
     func removeQueueItem(_ id: UUID) {
-        guard queue.first(where: { $0.id == id })?.status != .downloading else {
+        guard !downloadState.status(forQueueID: id).isActive else {
             qobuzLog.warning("queue", "Active download could not be removed", metadata: ["queueID": id.uuidString])
             return
         }
         queue.removeAll { $0.id == id }
+        updateDownloadState { $0.removeQueue(id) }
         qobuzLog.notice(
             "queue",
             "Queue item removed",
@@ -615,8 +628,12 @@ final class NativeViewModel: ObservableObject {
 
     func clearQueue() {
         let before = queue.count
-        let activeIDs = Set(queue.filter { $0.status == .downloading }.map(\.id))
+        let activeIDs = Set(queue.filter { status(for: $0).isActive }.map(\.id))
+        let removedIDs = Set(queue.map(\.id)).subtracting(activeIDs)
         queue.removeAll { !activeIDs.contains($0.id) }
+        updateDownloadState { state in
+            for id in removedIDs { state.removeQueue(id) }
+        }
         qobuzLog.notice(
             "queue",
             "Inactive queue items cleared",
@@ -626,12 +643,12 @@ final class NativeViewModel: ObservableObject {
     }
 
     func setQueueQuality(_ quality: QobuzQuality?, for id: UUID) {
-        guard !isDownloading else { return }
+        guard !isDownloading,
+              queue.first(where: { $0.id == id })?.repairTarget == nil else { return }
         updateQueue(id) { item in
-            guard item.repairTarget == nil else { return }
             item.downloadQuality = quality
-            resetQueueStatusAfterPlanChange(&item)
         }
+        resetQueueStatusAfterPlanChange(id)
         qobuzLog.info(
             "queue.plan",
             "Queue quality override changed",
@@ -640,15 +657,15 @@ final class NativeViewModel: ObservableObject {
     }
 
     func toggleQueueTrack(_ trackID: QobuzID, in id: UUID) {
-        guard !isDownloading else { return }
+        guard !isDownloading,
+              queue.first(where: { $0.id == id })?.trackPlan != nil else { return }
         updateQueue(id) { item in
-            guard item.trackPlan != nil else { return }
             var selected = item.effectiveSelectedTrackIDs
             if selected.contains(trackID) { selected.remove(trackID) }
             else if item.availableTrackIDs.contains(trackID) { selected.insert(trackID) }
             item.selectedTrackIDs = selected
-            resetQueueStatusAfterPlanChange(&item)
         }
+        resetQueueStatusAfterPlanChange(id)
         if let item = queue.first(where: { $0.id == id }) {
             qobuzLog.info(
                 "queue.plan",
@@ -663,22 +680,22 @@ final class NativeViewModel: ObservableObject {
     }
 
     func selectAllQueueTracks(in id: UUID) {
-        guard !isDownloading else { return }
+        guard !isDownloading,
+              queue.first(where: { $0.id == id })?.trackPlan != nil else { return }
         updateQueue(id) { item in
-            guard item.trackPlan != nil else { return }
             item.selectedTrackIDs = nil
-            resetQueueStatusAfterPlanChange(&item)
         }
+        resetQueueStatusAfterPlanChange(id)
         qobuzLog.info("queue.plan", "All available queue tracks selected", metadata: ["queueID": id.uuidString])
     }
 
     func clearQueueTrackSelection(in id: UUID) {
-        guard !isDownloading else { return }
+        guard !isDownloading,
+              queue.first(where: { $0.id == id })?.trackPlan != nil else { return }
         updateQueue(id) { item in
-            guard item.trackPlan != nil else { return }
             item.selectedTrackIDs = []
-            resetQueueStatusAfterPlanChange(&item)
         }
+        resetQueueStatusAfterPlanChange(id)
         qobuzLog.info("queue.plan", "Queue track selection cleared", metadata: ["queueID": id.uuidString])
     }
 
@@ -1433,7 +1450,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func resume(_ activity: NativeDownloadActivity) {
-        guard activity.status.canResume else { return }
+        guard status(for: activity).canResume else { return }
         qobuzLog.notice(
             "activity.recovery",
             "User requested download resume",
@@ -1443,7 +1460,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func retry(_ activity: NativeDownloadActivity) {
-        guard activity.status.canRetry else { return }
+        guard status(for: activity).canRetry else { return }
         qobuzLog.notice(
             "activity.recovery",
             "User requested download retry",
@@ -1454,11 +1471,11 @@ final class NativeViewModel: ObservableObject {
 
     func canRestart(_ activity: NativeDownloadActivity) -> Bool {
         guard !isDownloading else { return false }
-        return queue.first(where: { $0.id == activity.queueID })?.status.canStart == true
+        return queue.first(where: { $0.id == activity.queueID }).map(isQueueItemStartable) == true
     }
 
     func canCancel(_ activity: NativeDownloadActivity) -> Bool {
-        activity.status.isActive && activeItemQueueID == activity.queueID
+        status(for: activity).isActive && activeItemQueueID == activity.queueID
     }
 
     func cancel(_ activity: NativeDownloadActivity) {
@@ -1472,8 +1489,12 @@ final class NativeViewModel: ObservableObject {
     }
 
     func removeActivity(_ activity: NativeDownloadActivity) {
-        guard !activity.status.isActive else { return }
+        guard !status(for: activity).isActive else { return }
         activities.removeAll { $0.id == activity.id }
+        let queueStillExists = queue.contains { $0.id == activity.queueID }
+        updateDownloadState {
+            $0.removeActivity(activity.id, queueStillExists: queueStillExists)
+        }
         lastProgressUpdate.removeValue(forKey: activity.id)
         qobuzLog.info(
             "activity",
@@ -1483,7 +1504,8 @@ final class NativeViewModel: ObservableObject {
     }
 
     func resumablePartial(for activity: NativeDownloadActivity) -> NativePartialDownload? {
-        guard activity.status.canResume || activity.status.canRetry else { return nil }
+        let status = status(for: activity)
+        guard status.canResume || status.canRetry else { return nil }
         return partialArtifact(for: activity)
     }
 
@@ -1543,15 +1565,16 @@ final class NativeViewModel: ObservableObject {
                 $0.repairTarget?.relativePath == target.relativePath
                     || ($0.repairTarget == nil && $0.canonicalURL == request.canonicalURL)
             }) {
-                guard !queue[index].status.isActive else { continue }
+                guard !downloadState.status(forQueueID: queue[index].id).isActive else { continue }
                 queue[index].repairTarget = target
                 queue[index].title = URL(fileURLWithPath: target.relativePath).lastPathComponent
                 queue[index].subtitle = "Repair · \(target.audioFormat?.displayName ?? "Format \(target.formatID)")"
-                queue[index].status = .ready
+                transitionDownload(queueID: queue[index].id, to: .ready)
                 ids.append(queue[index].id)
             } else {
                 let item = NativeQueueItem(repairTarget: target)
                 queue.append(item)
+                updateDownloadState { $0.registerQueue(item.id) }
                 ids.append(item.id)
             }
         }
@@ -1565,8 +1588,18 @@ final class NativeViewModel: ObservableObject {
     }
 
     func clearFinishedActivities() {
-        let removedIDs = Set(activities.filter(\.status.isClearable).map(\.id))
-        activities.removeAll { $0.status.isClearable }
+        let removed = activities.filter { status(for: $0).isClearable }
+        let removedIDs = Set(removed.map(\.id))
+        activities.removeAll { removedIDs.contains($0.id) }
+        let queueIDs = Set(queue.map(\.id))
+        updateDownloadState { state in
+            for activity in removed {
+                state.removeActivity(
+                    activity.id,
+                    queueStillExists: queueIDs.contains(activity.queueID)
+                )
+            }
+        }
         lastProgressUpdate = lastProgressUpdate.filter { !removedIDs.contains($0.key) }
         qobuzLog.info(
             "activity",
@@ -1695,23 +1728,16 @@ final class NativeViewModel: ObservableObject {
 
     private func restoreSession() throws {
         guard var snapshot = try sessionStore.load() else { return }
+        try snapshot.validate()
         restoringSession = true
         defer { restoringSession = false }
 
-        for index in snapshot.activities.indices where snapshot.activities[index].status.isActive {
-            snapshot.activities[index].status = .paused
+        downloadState = NativeDownloadStateStore(operations: snapshot.operations)
+        let interruptedActivityIDs = downloadState.normalizeAfterInterruption()
+        for index in snapshot.activities.indices
+        where interruptedActivityIDs.contains(snapshot.activities[index].id) {
             snapshot.activities[index].phase = "Paused after interruption"
             snapshot.activities[index].bytesPerSecond = nil
-        }
-        for index in snapshot.queue.indices {
-            switch snapshot.queue[index].status {
-            case .loading:
-                snapshot.queue[index].status = .ready
-            case let status where status.isActive:
-                snapshot.queue[index].status = .paused
-            default:
-                break
-            }
         }
         queue = snapshot.queue
         activities = snapshot.activities
@@ -1743,6 +1769,7 @@ final class NativeViewModel: ObservableObject {
                 NativeSessionSnapshot(
                     queue: queue,
                     activities: activities,
+                    operations: downloadState.operations,
                     selectedQueueID: selectedQueueID,
                     linkInbox: linkInbox
                 )
@@ -1830,7 +1857,7 @@ final class NativeViewModel: ObservableObject {
                 guard let self, !Task.isCancelled else { return }
                 qobuzLog.error("queue.preview", "Queue preview failed to load", metadata: previewMetadata, error: error)
                 preview = .error(error.localizedDescription)
-                updateQueue(item.id) { $0.status = .failed(error.localizedDescription) }
+                transitionDownload(queueID: item.id, to: .failed(error.localizedDescription))
             }
         }
     }
@@ -1958,11 +1985,13 @@ final class NativeViewModel: ObservableObject {
         }
         let activityID: UUID
         if let index = activities.firstIndex(where: {
-            $0.queueID == queueID && ($0.status.canResume || $0.status.canRetry)
+            guard $0.queueID == queueID else { return false }
+            let status = status(for: $0)
+            return status.canResume || status.canRetry
         }) {
             activityID = activities[index].id
             let partial = resumablePartial(for: activities[index])
-            let isRetry = activities[index].status.canRetry
+            let isRetry = status(for: activities[index]).canRetry
             activities[index].phase = partial == nil
                 ? (isRetry ? "Retrying" : "Resuming")
                 : "Resuming existing partial file"
@@ -2350,7 +2379,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func markActiveDownloadsCancelled() {
-        let active = activities.filter(\.status.isActive).map { ($0.queueID, $0.id) }
+        let active = activities.filter { status(for: $0).isActive }.map { ($0.queueID, $0.id) }
         for (queueID, activityID) in active {
             transitionDownload(queueID: queueID, activityID: activityID, to: .cancelled)
             guard let index = activities.firstIndex(where: { $0.id == activityID }) else { continue }
@@ -2359,7 +2388,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func markActiveDownloadsPaused(phase: String) {
-        let active = activities.filter(\.status.isActive).map { ($0.queueID, $0.id) }
+        let active = activities.filter { status(for: $0).isActive }.map { ($0.queueID, $0.id) }
         for (queueID, activityID) in active {
             transitionDownload(queueID: queueID, activityID: activityID, to: .paused)
             guard let index = activities.firstIndex(where: { $0.id == activityID }) else { continue }
@@ -2368,16 +2397,39 @@ final class NativeViewModel: ObservableObject {
         }
     }
 
-    /// The sole mutation path for the lifecycle duplicated in the queue and
-    /// activity projections. Keeping this transition atomic prevents persisted
-    /// sessions and visible rows from disagreeing after recovery.
     private func transitionDownload(
         queueID: UUID,
-        activityID: UUID,
+        activityID: UUID? = nil,
         to status: NativeDownloadStatus
     ) {
-        updateQueue(queueID) { $0.status = status }
-        updateActivity(activityID) { $0.status = status }
+        let previous = downloadState.operation(forQueueID: queueID)
+        updateDownloadState {
+            $0.transition(queueID: queueID, activityID: activityID, to: status)
+        }
+        guard previous?.status != status || (activityID != nil && previous?.activityID != activityID) else {
+            return
+        }
+        qobuzLog.debug(
+            "download.lifecycle",
+            "Download operation transitioned",
+            metadata: [
+                "queueID": queueID.uuidString,
+                "activityID": activityID?.uuidString ?? previous?.activityID?.uuidString ?? "none",
+                "from": previous?.status.diagnosticDescription ?? "unregistered",
+                "to": status.diagnosticDescription
+            ]
+        )
+    }
+
+    private func updateDownloadState(
+        _ mutate: (inout NativeDownloadStateStore) -> Void
+    ) {
+        var updated = downloadState
+        mutate(&updated)
+        guard updated != downloadState else { return }
+        objectWillChange.send()
+        downloadState = updated
+        scheduleSessionPersistence()
     }
 
     private func updateQueue(_ id: UUID, mutate: (inout NativeQueueItem) -> Void) {
@@ -2386,17 +2438,17 @@ final class NativeViewModel: ObservableObject {
     }
 
     private func isQueueItemStartable(_ item: NativeQueueItem) -> Bool {
-        item.status.canStart && item.hasSelectedTracks
+        status(for: item).canStart && item.hasSelectedTracks
     }
 
-    private func resetQueueStatusAfterPlanChange(_ item: inout NativeQueueItem) {
-        switch item.status {
-        case .loading, .queued, .resolving, .downloading, .tagging, .validating, .waitingForNetwork:
+    private func resetQueueStatusAfterPlanChange(_ queueID: UUID) {
+        switch downloadState.status(forQueueID: queueID) {
+        case .queued, .resolving, .downloading, .tagging, .validating, .waitingForNetwork:
             break
         case .ready:
             break
         case .paused, .completed, .failed, .cancelled:
-            item.status = .ready
+            transitionDownload(queueID: queueID, to: .ready)
         }
     }
 
@@ -2462,7 +2514,7 @@ final class NativeViewModel: ObservableObject {
                     id: item.id,
                     request: "\(item.request.kindName):\(item.request.id.rawValue)",
                     title: item.title,
-                    status: item.status.diagnosticDescription,
+                    status: status(for: item).diagnosticDescription,
                     selectedTracks: queuePreflight(for: item).selected,
                     quality: item.downloadQuality?.displayName
                 )
@@ -2472,7 +2524,7 @@ final class NativeViewModel: ObservableObject {
                     id: activity.id,
                     queueID: activity.queueID,
                     title: activity.title,
-                    status: activity.status.diagnosticDescription,
+                    status: status(for: activity).diagnosticDescription,
                     phase: activity.phase,
                     progress: activity.progress,
                     outputPath: activity.outputURL?.path,
