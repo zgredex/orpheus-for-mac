@@ -1,6 +1,6 @@
 import NativeQobuzCore
 
-struct NativeBrowseAvailabilityPolicy {
+struct NativeCatalogAvailabilityPolicy {
     var accountRegion: String?
 
     func availability(for album: QobuzAlbum) -> NativeBrowseAvailability {

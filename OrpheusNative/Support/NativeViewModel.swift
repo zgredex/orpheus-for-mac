@@ -9,9 +9,6 @@ final class NativeViewModel: ObservableObject {
     @Published private(set) var activities: [NativeDownloadActivity] = [] {
         didSet { scheduleSessionPersistence() }
     }
-    @Published private(set) var linkInbox: [NativeLinkInboxItem] = [] {
-        didSet { scheduleSessionPersistence() }
-    }
     @Published var notice: String?
     @Published var showSettings = false
     @Published var showDiagnostics = false
@@ -32,7 +29,7 @@ final class NativeViewModel: ObservableObject {
     private let browse = NativeBrowseController()
     private let queueController = NativeQueueController()
     private let previewController = NativePreviewController()
-    private var linkInboxTask: Task<Void, Never>?
+    private let linkInboxController = NativeLinkInboxController()
     private var archiveTask: Task<Void, Never>?
     private var archiveRefreshID: UUID?
     private var downloadTask: Task<Void, Never>?
@@ -49,6 +46,7 @@ final class NativeViewModel: ObservableObject {
     private var browseObservation: AnyCancellable?
     private var queueObservation: AnyCancellable?
     private var previewObservation: AnyCancellable?
+    private var linkInboxObservation: AnyCancellable?
     private let connectivityEvents = NativeConnectivityEvents()
     private let reusableAudioIndex = QobuzReusableAudioIndex()
 
@@ -97,6 +95,10 @@ final class NativeViewModel: ObservableObject {
         previewObservation = previewController.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        linkInboxObservation = linkInboxController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+            self?.scheduleSessionPersistence()
+        }
         do {
             try diagnostics.activate()
             qobuzLog.info("lifecycle", "Native view model initialized")
@@ -109,6 +111,7 @@ final class NativeViewModel: ObservableObject {
     var selectedQueueID: UUID? { queueController.selectedID }
     var selectedQueueItem: NativeQueueItem? { queueController.selectedItem }
     var preview: NativePreviewState { previewController.state }
+    var linkInbox: [NativeLinkInboxItem] { linkInboxController.items }
 
     func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
         guard let item = selectedQueueItem,
@@ -367,83 +370,32 @@ final class NativeViewModel: ObservableObject {
     }
 
     func openInboxItem(_ id: UUID) {
-        guard let item = linkInbox.first(where: { $0.id == id }) else { return }
+        guard let item = linkInboxController.item(id) else { return }
         openRequest(item.request)
     }
 
     func removeInboxItem(_ id: UUID) {
-        linkInbox.removeAll { $0.id == id }
+        linkInboxController.remove(id)
     }
 
     func clearReviewedLinks() {
-        linkInbox.removeAll { $0.status.isReviewed }
+        linkInboxController.clearReviewed()
     }
 
     func clearLinkInbox() {
-        linkInboxTask?.cancel()
-        linkInbox.removeAll()
+        linkInboxController.clear()
     }
 
     func retryInboxItem(_ id: UUID) {
-        guard let item = linkInbox.first(where: { $0.id == id }) else { return }
-        reviewInboxItems([(item.id, item.request)])
+        if linkInboxController.retry(id) { showSettings = true }
     }
 
     private func reviewLinks(_ links: [ParsedQobuzLink]) {
-        let known = Set(linkInbox.map { $0.canonicalURL.absoluteString })
-        var seen = known
-        let newItems = links.compactMap { link -> NativeLinkInboxItem? in
-            guard seen.insert(link.canonicalURL.absoluteString).inserted else { return nil }
-            return NativeLinkInboxItem(link: link)
-        }
-        guard !newItems.isEmpty else {
+        let result = linkInboxController.add(links)
+        if result.duplicateOnly {
             notice = "Those links are already in the review inbox."
-            return
         }
-        linkInbox.append(contentsOf: newItems)
-        reviewInboxItems(newItems.map { ($0.id, $0.request) })
-    }
-
-    private func reviewInboxItems(_ items: [(UUID, QobuzRequest)]) {
-        guard let client else {
-            for (id, _) in items {
-                updateInbox(id) { $0.status = .failed("Configure Qobuz credentials to verify this link.") }
-            }
-            showSettings = true
-            return
-        }
-        linkInboxTask?.cancel()
-        var workByID = Dictionary(uniqueKeysWithValues: items.map { ($0.0, $0.1) })
-        for item in linkInbox {
-            switch item.status {
-            case .pending, .checking: workByID[item.id] = item.request
-            default: break
-            }
-        }
-        let work = linkInbox.compactMap { item in workByID[item.id].map { (item.id, $0) } }
-        for (id, _) in work { updateInbox(id) { $0.status = .checking } }
-        linkInboxTask = Task { [weak self] in
-            await withTaskGroup(of: NativeInboxReviewResult.self) { group in
-                var next = 0
-                let limit = min(3, work.count)
-                for _ in 0..<limit {
-                    let value = work[next]
-                    next += 1
-                    group.addTask { await Self.fetchInboxReview(id: value.0, request: value.1, client: client) }
-                }
-                while let result = await group.next() {
-                    guard let self, !Task.isCancelled else { return }
-                    self.applyInboxReview(result)
-                    if next < work.count {
-                        let value = work[next]
-                        next += 1
-                        group.addTask { await Self.fetchInboxReview(id: value.0, request: value.1, client: client) }
-                    }
-                }
-            }
-            guard let self, !Task.isCancelled else { return }
-            linkInboxTask = nil
-        }
+        if result.requiresConfiguration { showSettings = true }
     }
 
     func addRequest(
@@ -1110,7 +1062,7 @@ final class NativeViewModel: ObservableObject {
             ]
         )
         sessionPersistenceTask?.cancel()
-        linkInboxTask?.cancel()
+        linkInboxController.cancel()
         previewController.cancel()
         connectivityMonitor.stop()
         markActiveDownloadsPaused(phase: "Paused after app closed")
@@ -1168,6 +1120,7 @@ final class NativeViewModel: ObservableObject {
 
     private func synchronizeBrowseAccount() {
         browse.configure(client: account.client, accountRegion: account.accountRegion)
+        linkInboxController.configure(client: account.client, accountRegion: account.accountRegion)
     }
 
     private func applyConnectivityState(_ state: NativeConnectivityState) {
@@ -1238,7 +1191,7 @@ final class NativeViewModel: ObservableObject {
             snapshot.activities[index].bytesPerSecond = nil
         }
         activities = snapshot.activities
-        linkInbox = snapshot.linkInbox
+        linkInboxController.restore(snapshot.linkInbox)
         queueController.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
     }
 
@@ -1703,105 +1656,6 @@ final class NativeViewModel: ObservableObject {
         }
     }
 
-    private static func fetchInboxReview(
-        id: UUID,
-        request: QobuzRequest,
-        client: any NativeQobuzServicing
-    ) async -> NativeInboxReviewResult {
-        do {
-            let payload: NativeInboxReviewPayload
-            switch request {
-            case .album(let value): payload = .album(try await client.album(id: value))
-            case .artist(let value): payload = .artist(try await client.artist(id: value))
-            case .track(let value): payload = .track(try await client.track(id: value))
-            case .playlist(let value): payload = .playlist(try await client.playlist(id: value))
-            case .label(let value): payload = .label(try await client.label(id: value))
-            }
-            return NativeInboxReviewResult(id: id, payload: payload, failure: nil)
-        } catch let error as NativeQobuzError {
-            return NativeInboxReviewResult(id: id, payload: nil, failure: .qobuz(error))
-        } catch {
-            return NativeInboxReviewResult(id: id, payload: nil, failure: .other(error.localizedDescription))
-        }
-    }
-
-    private func applyInboxReview(_ result: NativeInboxReviewResult) {
-        guard let payload = result.payload else {
-            let status: NativeLinkReviewStatus
-            switch result.failure {
-            case .qobuz(let error):
-                let message = browse.errorMessage(error)
-                switch error {
-                case .unavailable, .emptyCollection:
-                    status = .unavailable(message)
-                default:
-                    status = .failed(message)
-                }
-            case .other(let message):
-                status = .failed(message)
-            case nil:
-                status = .failed("Could not verify this Qobuz link.")
-            }
-            updateInbox(result.id) { $0.status = status }
-            return
-        }
-        let values: (title: String, subtitle: String, artwork: URL?, availability: NativeBrowseAvailability)
-        switch payload {
-        case .album(let value):
-            values = (
-                value.displayTitle,
-                value.mainArtists.map(\.name).joined(separator: ", "),
-                value.image?.bestURL,
-                availability(for: value)
-            )
-        case .artist(let value):
-            values = (
-                value.name,
-                "\(value.officialAlbums.count) official releases",
-                value.image?.bestURL,
-                availability(for: value)
-            )
-        case .track(let value):
-            values = (
-                value.displayTitle,
-                value.performer?.name ?? value.album?.title ?? "Track",
-                value.album?.image?.bestURL,
-                availability(for: value)
-            )
-        case .playlist(let value):
-            values = (
-                value.name,
-                [value.owner?.name, "\(value.availableTracks.count) available tracks"]
-                    .compactMap { $0 }.joined(separator: " · "),
-                value.artworkURL,
-                availability(for: value)
-            )
-        case .label(let value):
-            values = (
-                value.name,
-                "\(value.availableAlbums.count) available albums",
-                nil,
-                availability(for: value)
-            )
-        }
-        let status = reviewStatus(for: values.availability)
-        updateInbox(result.id) { item in
-            item.title = values.title
-            item.subtitle = values.subtitle
-            item.artworkURL = values.artwork
-            item.status = status
-        }
-    }
-
-    private func reviewStatus(for availability: NativeBrowseAvailability) -> NativeLinkReviewStatus {
-        switch availability {
-        case .checking: .checking
-        case .available: .available
-        case .partial(let message): .partial(message)
-        case .unavailable(let message): .unavailable(message)
-        }
-    }
-
     private func markActiveDownloadsCancelled() {
         let active = activities.filter { status(for: $0).isActive }.map { ($0.queueID, $0.id) }
         for (queueID, activityID) in active {
@@ -1940,27 +1794,4 @@ final class NativeViewModel: ObservableObject {
         )
     }
 
-    private func updateInbox(_ id: UUID, mutate: (inout NativeLinkInboxItem) -> Void) {
-        guard let index = linkInbox.firstIndex(where: { $0.id == id }) else { return }
-        mutate(&linkInbox[index])
-    }
-}
-
-private enum NativeInboxReviewPayload: Sendable {
-    case album(QobuzAlbum)
-    case artist(QobuzArtistCatalog)
-    case track(QobuzTrack)
-    case playlist(QobuzPlaylist)
-    case label(QobuzLabelCatalog)
-}
-
-private struct NativeInboxReviewResult: Sendable {
-    let id: UUID
-    let payload: NativeInboxReviewPayload?
-    let failure: NativeInboxReviewFailure?
-}
-
-private enum NativeInboxReviewFailure: Sendable {
-    case qobuz(NativeQobuzError)
-    case other(String)
 }

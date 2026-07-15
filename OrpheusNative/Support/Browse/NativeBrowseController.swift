@@ -17,7 +17,7 @@ final class NativeBrowseController: ObservableObject {
     @Published private(set) var path: [BrowsePage] = []
 
     private var client: (any NativeQobuzServicing)?
-    private var availabilityPolicy = NativeBrowseAvailabilityPolicy(accountRegion: nil)
+    private var availabilityPolicy = NativeCatalogAvailabilityPolicy(accountRegion: nil)
     private var searchTasks: [Task<Void, Never>] = []
     private var searchRequestID: UUID?
     private var pageTask: Task<Void, Never>?

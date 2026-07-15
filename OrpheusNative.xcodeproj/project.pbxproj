@@ -20,7 +20,6 @@
 		20EF95BD35A9895BA249E85B /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */; };
 		21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD61966F61366548B91BD7B0 /* NativeDownloadStatus.swift */; };
 		263609391AFCC835C9B62A79 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0705669E15A714623F9D53B4 /* Formatters.swift */; };
-		2811C1CCF96A0A36CCCB14CA /* NativeBrowseAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43021B52EC3EC94DCB4E5538 /* NativeBrowseAvailabilityPolicy.swift */; };
 		2A16AD28B4384DB4FE0439F8 /* CatalogMarkers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E3F750975BD46AD55E04F2 /* CatalogMarkers.swift */; };
 		2D5464C124143F96581EFA64 /* LibraryStatusLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */; };
 		2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C549640E3C4CC5A7454731C /* NativeDownloadStateStore.swift */; };
@@ -51,11 +50,13 @@
 		84D98B4FB88CFEA871F33854 /* OrpheusNativeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226B2DEBEC48592C07F09899 /* OrpheusNativeApp.swift */; };
 		89C603BB7B24BD3E4E3223DC /* NativeDownloadActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */; };
 		8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */; };
+		910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */; };
 		932C95E5CF18DB912842BC40 /* LayoutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51A5AB448A84780643E8102 /* LayoutPolicyTests.swift */; };
 		94D33900C2720E123A33733F /* NativeLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FC20CA7C9EFAA04ABBD7D2 /* NativeLogging.swift */; };
 		9679A6FD8912977236A156E8 /* NativeSystemServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8513EC42E41C3EAB595FAC39 /* NativeSystemServices.swift */; };
 		9DB2B42D6B414D7616C099B3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8D922665BFDBFBF675DDD827 /* Assets.xcassets */; };
 		A4878903A901B19C53D0CFA9 /* NativeQobuzCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9F583487EE4EA482BBDAC390 /* NativeQobuzCore */; };
+		A6CCC521F034B2AB6CD2695D /* NativeLinkInboxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DB5568FBA1DEE55549C644 /* NativeLinkInboxController.swift */; };
 		A7A9183A28BA8F3ED4B0902C /* EditorialContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96C777437F88709C97FD469 /* EditorialContent.swift */; };
 		B30F89034197A12FEA98F0C0 /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF10861B2EA64C6B46BFDB4 /* NativeSettingsView.swift */; };
 		B51166C741F31E64F1523E03 /* NativeQueueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */; };
@@ -94,6 +95,7 @@
 		003989D257DBD4DDB426B074 /* FileDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDialogs.swift; sourceTree = "<group>"; };
 		02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLinkInboxModels.swift; sourceTree = "<group>"; };
 		0705669E15A714623F9D53B4 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
+		0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCatalogAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePreviewView.swift; sourceTree = "<group>"; };
 		177F6887E92A0662B72B4E1A /* TrackListRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackListRow.swift; sourceTree = "<group>"; };
 		19A65459F1F88915E30A939C /* NativeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAdapterTests.swift; sourceTree = "<group>"; };
@@ -105,10 +107,10 @@
 		360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadActivity.swift; sourceTree = "<group>"; };
 		3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryView.swift; sourceTree = "<group>"; };
 		3FCC9E16DCFF8327CED91BB3 /* EditorialOverview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialOverview.swift; sourceTree = "<group>"; };
-		43021B52EC3EC94DCB4E5538 /* NativeBrowseAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		4570C0A0151AD8DF56A006DB /* NativeQobuzServicing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQobuzServicing.swift; sourceTree = "<group>"; };
 		4DBFDEB0AA71E7BF694342F5 /* NativePreviewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePreviewState.swift; sourceTree = "<group>"; };
 		5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeViewModel.swift; sourceTree = "<group>"; };
+		53DB5568FBA1DEE55549C644 /* NativeLinkInboxController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLinkInboxController.swift; sourceTree = "<group>"; };
 		54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseModels.swift; sourceTree = "<group>"; };
 		5BFB3B9A1FFD6D8D3008CBCD /* NativeSettingsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsModels.swift; sourceTree = "<group>"; };
 		624429738F2CC0D9F469EE1C /* ArtistPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistPreview.swift; sourceTree = "<group>"; };
@@ -320,9 +322,9 @@
 		AFD0247A177304ED32DF6A7C /* Browse */ = {
 			isa = PBXGroup;
 			children = (
-				43021B52EC3EC94DCB4E5538 /* NativeBrowseAvailabilityPolicy.swift */,
 				CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */,
 				54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */,
+				0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */,
 			);
 			path = Browse;
 			sourceTree = "<group>";
@@ -345,6 +347,7 @@
 		B782758F8FCC6D8E9E8EDC8A /* Queue */ = {
 			isa = PBXGroup;
 			children = (
+				53DB5568FBA1DEE55549C644 /* NativeLinkInboxController.swift */,
 				02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */,
 				6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */,
 				83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */,
@@ -585,10 +588,10 @@
 				4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */,
 				FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */,
 				1D9BBAEC775BF03CBC2E70A4 /* NativeActivityView.swift in Sources */,
-				2811C1CCF96A0A36CCCB14CA /* NativeBrowseAvailabilityPolicy.swift in Sources */,
 				C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */,
 				F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */,
 				7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */,
+				910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */,
 				8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */,
 				5299B1EE55A439832966A4B2 /* NativeConnectivityEvents.swift in Sources */,
 				DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */,
@@ -599,6 +602,7 @@
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
 				1F0B28405C408A7CA917E138 /* NativeLibraryModels.swift in Sources */,
 				0C611D9CE4F2A2FE1C00C53A /* NativeLibraryView.swift in Sources */,
+				A6CCC521F034B2AB6CD2695D /* NativeLinkInboxController.swift in Sources */,
 				0689103947A8DDF533635DF0 /* NativeLinkInboxModels.swift in Sources */,
 				3C9615092FED111AB2786DE3 /* NativeLogView.swift in Sources */,
 				94D33900C2720E123A33733F /* NativeLogging.swift in Sources */,
