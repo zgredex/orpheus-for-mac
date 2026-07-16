@@ -18,9 +18,51 @@ final class MediaValidatorTests: XCTestCase {
             _ = try await validator.validate(invalid, fileSystem: fileSystem)
             XCTFail("Corrupt media must not pass validation")
         } catch let error as NativeQobuzError {
-            guard case .invalidResponse = error else {
+            guard case .invalidResponse(let message) = error else {
                 return XCTFail("Unexpected validation error: \(error)")
             }
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("bad file descriptor"))
+        }
+    }
+
+    func testValidatorReceivesSecureFileDescriptorThroughStandardInput() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("descriptor-validator")
+        let script = """
+        #!/bin/sh
+        if [ "$1" != "/dev/fd/0" ]; then
+            echo "unexpected-input-path:$1" >&2
+            exit 1
+        fi
+        payload=$(/bin/cat "$1") || {
+            echo "descriptor-unreadable" >&2
+            exit 1
+        }
+        if [ "$payload" != "descriptor payload" ]; then
+            echo "unexpected-payload:$payload" >&2
+            exit 1
+        fi
+        echo "descriptor-forwarded" >&2
+        exit 1
+        """
+        try Data(script.utf8).write(to: executable)
+        XCTAssertEqual(chmod(executable.path, 0o755), 0)
+        let input = root.appendingPathComponent("input.flac")
+        try Data("descriptor payload".utf8).write(to: input)
+        let validator = FFmpegMediaValidator(executableURL: executable)
+        let fileSystem = try LibraryFileSystem(rootURL: root)
+
+        do {
+            _ = try await validator.validate(input, fileSystem: fileSystem)
+            XCTFail("The test validator deliberately exits with an error")
+        } catch let error as NativeQobuzError {
+            guard case .invalidResponse(let message) = error else {
+                return XCTFail("Unexpected validation error: \(error)")
+            }
+            XCTAssertTrue(message.contains("descriptor-forwarded"), message)
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("bad file descriptor"), message)
         }
     }
 

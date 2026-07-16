@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public protocol MediaValidating: Sendable {
@@ -33,21 +34,21 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
         fileSystem: LibraryFileSystem
     ) async throws -> AudioStreamProperties {
         let path = try fileSystem.relativePath(for: fileURL)
-        return try await fileSystem.withInheritedReadableDescriptor(at: path) { descriptor in
-            try await validateOpenFile(
-                URL(fileURLWithPath: "/dev/fd/\(descriptor)"),
-                displayURL: fileURL
-            )
+        return try await fileSystem.withReadableDescriptor(at: path) { descriptor in
+            try await validateOpenFile(descriptor: descriptor, displayURL: fileURL)
         }
     }
 
-    private func validateOpenFile(_ openURL: URL, displayURL: URL) async throws -> AudioStreamProperties {
+    private func validateOpenFile(descriptor: Int32, displayURL: URL) async throws -> AudioStreamProperties {
         let validationID = UUID().uuidString
         let started = Date()
         let metadata = [
             "validationID": validationID,
             "filePath": displayURL.path,
-            "validatorPath": executableURL.path
+            "validatorPath": executableURL.path,
+            "validatorInputTransport": "standard-input-descriptor",
+            "validatorInputPath": "/dev/fd/0",
+            "inspectionInputTransport": "rewound-secure-descriptor"
         ]
         qobuzLog.info("validation.media", "Media validation started", metadata: metadata)
         guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
@@ -60,7 +61,8 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
         }
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = [openURL.path]
+        process.arguments = ["/dev/fd/0"]
+        process.standardInput = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         let errors = Pipe()
         let state = ValidatorProcessState()
         let output = ValidatorOutput()
@@ -115,7 +117,10 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
                 qobuzLog.notice("validation.media", "Media validation cancellation requested", metadata: metadata)
                 state.cancel()
             }
-            let properties = try AudioToolboxStreamInspector().inspect(openURL)
+            try rewind(descriptor, displayURL: displayURL)
+            let properties = try AudioToolboxStreamInspector().inspect(
+                URL(fileURLWithPath: "/dev/fd/\(descriptor)")
+            )
             qobuzLog.notice(
                 "validation.media",
                 "Media validation passed",
@@ -143,6 +148,16 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
                 )
             }
             throw error
+        }
+    }
+
+    private func rewind(_ descriptor: Int32, displayURL: URL) throws {
+        guard Darwin.lseek(descriptor, 0, SEEK_SET) == 0 else {
+            let code = errno
+            throw NativeQobuzError.fileSystem(
+                "Could not rewind \(displayURL.lastPathComponent) for stream inspection: "
+                    + String(cString: strerror(code))
+            )
         }
     }
 }

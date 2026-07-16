@@ -78,21 +78,13 @@ public final class LibraryFileSystem: @unchecked Sendable {
         return try body(handle)
     }
 
-    public func withInheritedReadableDescriptor<T>(
+    public func withReadableDescriptor<T>(
         at path: LibraryRelativePath,
         _ body: (Int32) async throws -> T
     ) async throws -> T {
         let handle = try readableHandle(at: path)
         defer { try? handle.close() }
-        let descriptor = fcntl(handle.fileDescriptor, F_DUPFD, 3)
-        guard descriptor >= 0 else {
-            throw mappedError(operation: "duplicate-readable-file", path: path.rawValue, code: errno)
-        }
-        defer { close(descriptor) }
-        guard fcntl(descriptor, F_SETFD, 0) == 0 else {
-            throw mappedError(operation: "inherit-readable-file", path: path.rawValue, code: errno)
-        }
-        return try await body(descriptor)
+        return try await body(handle.fileDescriptor)
     }
 
     public func writableHandle(
