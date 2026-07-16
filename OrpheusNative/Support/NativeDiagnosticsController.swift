@@ -34,6 +34,10 @@ final class NativeDiagnosticsController: @unchecked Sendable {
         try logStore.loadEntries(limit: limit)
     }
 
+    func entryStream() -> AsyncStream<QobuzLogEntry> {
+        logStore.entryStream()
+    }
+
     func clear() throws {
         try logStore.clear()
     }

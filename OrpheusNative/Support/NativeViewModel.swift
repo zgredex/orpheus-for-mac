@@ -10,7 +10,7 @@ final class NativeViewModel: ObservableObject {
     @Published var showSettings = false
     @Published var showDiagnostics = false
 
-    private let diagnostics: NativeDiagnosticsController
+    let diagnostics: NativeDiagnosticsController
     private let account: NativeAccountController
     let browse: NativeBrowseController
     private let queueController: NativeQueueController

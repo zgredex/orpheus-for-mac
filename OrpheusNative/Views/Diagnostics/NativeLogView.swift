@@ -1,7 +1,6 @@
 import AppKit
 import NativeQobuzCore
 import SwiftUI
-
 struct NativeLogView: View {
     @EnvironmentObject private var vm: NativeViewModel
     @Environment(\.dismiss) private var dismiss
@@ -79,12 +78,13 @@ struct NativeLogView: View {
             }
         }
         .task {
+            let stream = vm.diagnostics.entryStream()
             refresh()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if autoRefresh { refresh() }
+            for await entry in stream {
+                if autoRefresh { entries.appendDiagnostic(entry, limit: 5_000) }
             }
         }
+        .onChange(of: autoRefresh) { _, enabled in if enabled { refresh() } }
         .alert("Clear all diagnostic logs?", isPresented: $confirmClear) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) { clear() }

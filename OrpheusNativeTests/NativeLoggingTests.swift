@@ -5,6 +5,86 @@ import XCTest
 
 @MainActor
 final class NativeLoggingTests: XCTestCase {
+    func testLogStoreMulticastsToIndependentSubscribers() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        let store = NativeLogFileStore(paths: paths)
+        try store.activate()
+        let first = store.entryStream()
+        let second = store.entryStream()
+        let firstReceived = expectation(description: "first subscriber")
+        let secondReceived = expectation(description: "second subscriber")
+        let entry = logEntry(level: .info, message: "multicast")
+
+        Task {
+            for await value in first where value.id == entry.id {
+                firstReceived.fulfill()
+                break
+            }
+        }
+        Task {
+            for await value in second where value.id == entry.id {
+                secondReceived.fulfill()
+                break
+            }
+        }
+        store.append(entry)
+
+        await fulfillment(of: [firstReceived, secondReceived], timeout: 1)
+    }
+
+    func testErrorEntryFlushesImmediatelyWithoutAReadBarrier() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        let store = NativeLogFileStore(paths: paths)
+        try store.activate()
+        let entry = logEntry(level: .error, message: "durable immediately")
+        store.append(entry)
+        let current = paths.logsDirectory.appendingPathComponent("orpheus-current.jsonl")
+
+        var persisted = false
+        for _ in 0..<50 where !persisted {
+            try await Task.sleep(for: .milliseconds(10))
+            let data = (try? Data(contentsOf: current)) ?? Data()
+            persisted = String(decoding: data, as: UTF8.self).contains(entry.id.uuidString)
+        }
+        XCTAssertTrue(persisted)
+    }
+
+    func testTailReaderReturnsOnlyNewestRecordsAcrossArchives() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let codec = NativeLogCodec()
+        let archive = root.appendingPathComponent("orpheus-archive.jsonl")
+        let current = root.appendingPathComponent("orpheus-current.jsonl")
+        var olderData = Data()
+        for index in 0..<500 {
+            olderData.append(try codec.encodeLine(logEntry(level: .info, message: "old-\(index)")))
+        }
+        try olderData.write(to: archive)
+        var currentData = Data()
+        for index in 0..<10 {
+            currentData.append(try codec.encodeLine(logEntry(level: .info, message: "new-\(index)")))
+        }
+        try currentData.write(to: current)
+
+        let entries = try NativeLogTailReader(codec: codec).loadEntries(
+            files: [archive, current],
+            limit: 3
+        )
+
+        XCTAssertEqual(entries.map(\.message), ["new-7", "new-8", "new-9"])
+    }
+
     func testLogStorePersistsRotatesAndClearsStructuredEntries() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -182,6 +262,19 @@ final class NativeLoggingTests: XCTestCase {
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("OrpheusDiagnostics-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func logEntry(level: QobuzLogLevel, message: String) -> QobuzLogEntry {
+        QobuzLogEntry(
+            sessionID: QobuzDiagnostics.shared.sessionID,
+            level: level,
+            category: "test.storage",
+            message: message,
+            sourceFile: #fileID,
+            sourceFunction: #function,
+            sourceLine: #line,
+            thread: "test"
+        )
     }
 
     private func diagnosticBundleText(at root: URL) throws -> String {
