@@ -10,29 +10,34 @@ struct QobuzDownloadFinalizer: Sendable {
     func finalize(
         plan: QobuzDownloadPlan,
         configuration: QobuzDownloadConfiguration,
+        fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
     ) async throws {
-        try await writeBooklets(state: state, continuation: continuation)
+        try await writeBooklets(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
-        writeDescriptions(state: state, continuation: continuation)
+        writeDescriptions(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
-        writePlaylist(plan: plan, configuration: configuration, state: state, continuation: continuation)
+        writePlaylist(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
         try Task.checkCancellation()
-        writeChecksums(state: state, continuation: continuation)
+        writeChecksums(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
-        try await writePlaylistMetadata(plan: plan, configuration: configuration, continuation: continuation)
+        try await writePlaylistMetadata(plan: plan, fileSystem: fileSystem, continuation: continuation)
         guard configuration.repairTarget == nil else { return }
         try Task.checkCancellation()
-        updateLibrary(plan: plan, configuration: configuration, state: state, continuation: continuation)
+        updateLibrary(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
     }
 
     private func writeBooklets(
         state: QobuzDownloadOperationState,
+        fileSystem: LibraryFileSystem,
         continuation: QobuzDownloadContinuation
     ) async throws {
         do {
-            for booklet in try await assetWriter.downloadBooklets(for: state.outputTuples) {
+            for booklet in try await assetWriter.downloadBooklets(
+                for: state.outputTuples,
+                fileSystem: fileSystem
+            ) {
                 qobuzLog.info("download.asset", "Booklet downloaded", metadata: ["assetPath": booklet.path])
                 continuation.yield(.assetCreated(booklet))
             }
@@ -46,10 +51,14 @@ struct QobuzDownloadFinalizer: Sendable {
 
     private func writeDescriptions(
         state: QobuzDownloadOperationState,
+        fileSystem: LibraryFileSystem,
         continuation: QobuzDownloadContinuation
     ) {
         do {
-            for description in try assetWriter.writeAlbumDescriptions(for: state.outputTuples) {
+            for description in try assetWriter.writeAlbumDescriptions(
+                for: state.outputTuples,
+                fileSystem: fileSystem
+            ) {
                 qobuzLog.info(
                     "download.asset",
                     "Album description written",
@@ -65,7 +74,7 @@ struct QobuzDownloadFinalizer: Sendable {
 
     private func writePlaylist(
         plan: QobuzDownloadPlan,
-        configuration: QobuzDownloadConfiguration,
+        fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
     ) {
@@ -73,7 +82,7 @@ struct QobuzDownloadFinalizer: Sendable {
             if let playlist = try assetWriter.writePlaylist(
                 plan: plan,
                 outputs: state.outputTuples,
-                downloadRoot: configuration.downloadRoot
+                fileSystem: fileSystem
             ) {
                 qobuzLog.info("download.asset", "Playlist file written", metadata: ["assetPath": playlist.path])
                 continuation.yield(.assetCreated(playlist))
@@ -86,10 +95,14 @@ struct QobuzDownloadFinalizer: Sendable {
 
     private func writeChecksums(
         state: QobuzDownloadOperationState,
+        fileSystem: LibraryFileSystem,
         continuation: QobuzDownloadContinuation
     ) {
         do {
-            for manifest in try assetWriter.writeChecksumManifests(for: state.verifiedOutputTuples) {
+            for manifest in try assetWriter.writeChecksumManifests(
+                for: state.verifiedOutputTuples,
+                fileSystem: fileSystem
+            ) {
                 qobuzLog.info(
                     "download.asset",
                     "Checksum manifest written",
@@ -105,13 +118,13 @@ struct QobuzDownloadFinalizer: Sendable {
 
     private func writePlaylistMetadata(
         plan: QobuzDownloadPlan,
-        configuration: QobuzDownloadConfiguration,
+        fileSystem: LibraryFileSystem,
         continuation: QobuzDownloadContinuation
     ) async throws {
         do {
             for asset in try await assetWriter.writePlaylistMetadata(
                 plan: plan,
-                downloadRoot: configuration.downloadRoot
+                fileSystem: fileSystem
             ) {
                 qobuzLog.info(
                     "download.asset",
@@ -130,7 +143,7 @@ struct QobuzDownloadFinalizer: Sendable {
 
     private func updateLibrary(
         plan: QobuzDownloadPlan,
-        configuration: QobuzDownloadConfiguration,
+        fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
     ) {
@@ -138,9 +151,12 @@ struct QobuzDownloadFinalizer: Sendable {
             let manifest = try assetWriter.recordLibraryCollections(
                 plan: plan,
                 outputs: state.outputTuples,
-                downloadRoot: configuration.downloadRoot
+                fileSystem: fileSystem
             )
-            try assetWriter.markLibraryManaged(state.outputs.map(\.audioURL))
+            try assetWriter.markLibraryManaged(
+                state.outputs.map(\.audioURL),
+                fileSystem: fileSystem
+            )
             qobuzLog.notice(
                 "download.library",
                 "Library manifest updated",

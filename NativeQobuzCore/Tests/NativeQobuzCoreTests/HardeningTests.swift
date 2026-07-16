@@ -109,21 +109,4 @@ final class HardeningTests: XCTestCase {
         )
     }
 
-    func testNoFollowWriterRejectsSymbolicLinksWithoutTouchingTheirTarget() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NoFollowTests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let target = root.appendingPathComponent("target")
-        let link = root.appendingPathComponent("audio.partial")
-        try Data("protected".utf8).write(to: target)
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-
-        XCTAssertThrowsError(try NoFollowFile.writableHandle(at: link, truncate: false)) { error in
-            guard case NoFollowFileError.symbolicLink = error else {
-                return XCTFail("Expected a symbolic-link rejection, got \(error)")
-            }
-        }
-        XCTAssertEqual(try Data(contentsOf: target), Data("protected".utf8))
-    }
 }

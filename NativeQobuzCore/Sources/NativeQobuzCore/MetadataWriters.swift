@@ -1,8 +1,13 @@
 import Foundation
 
 struct ID3v23Writer: Sendable {
-    func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {
-        let input = try FileHandle(forReadingFrom: fileURL)
+    func write(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        to path: LibraryRelativePath,
+        fileSystem: LibraryFileSystem
+    ) throws {
+        let input = try fileSystem.readableHandle(at: path)
         defer { try? input.close() }
 
         let prefix = try input.read(upToCount: 10) ?? Data()
@@ -48,7 +53,7 @@ struct ID3v23Writer: Sendable {
         tag.append(contentsOf: encodeSynchsafe(frames.count))
         tag.append(frames)
 
-        try AtomicFileEditor.rewrite(fileURL) { output in
+        try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
             try output.write(contentsOf: tag)
             try input.seek(toOffset: audioOffset)
             try AtomicFileEditor.copy(input, to: output)
@@ -127,11 +132,16 @@ struct FLACMetadataWriter: Sendable {
         let data: Data
     }
 
-    func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {
-        let input = try FileHandle(forReadingFrom: fileURL)
+    func write(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        to path: LibraryRelativePath,
+        fileSystem: LibraryFileSystem
+    ) throws {
+        let input = try fileSystem.readableHandle(at: path)
         defer { try? input.close() }
         guard try input.read(upToCount: 4) == Data("fLaC".utf8) else {
-            throw NativeQobuzError.fileSystem("Invalid FLAC signature in \(fileURL.lastPathComponent)")
+            throw NativeQobuzError.fileSystem("Invalid FLAC signature in \(path.lastComponent ?? path.rawValue)")
         }
 
         var retained: [Block] = []
@@ -150,7 +160,7 @@ struct FLACMetadataWriter: Sendable {
         blocks.append(Block(type: 4, data: vorbisComment(metadata)))
         if let artwork { blocks.append(Block(type: 6, data: picture(artwork))) }
 
-        try AtomicFileEditor.rewrite(fileURL) { output in
+        try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
             try output.write(contentsOf: Data("fLaC".utf8))
             for (index, block) in blocks.enumerated() {
                 guard block.data.count <= 0xFF_FFFF else {
@@ -227,30 +237,30 @@ struct FLACMetadataWriter: Sendable {
 }
 
 private enum AtomicFileEditor {
-    static func rewrite(_ destination: URL, body: (FileHandle) throws -> Void) throws {
-        let fileManager = FileManager.default
+    static func rewrite(
+        _ destination: LibraryRelativePath,
+        fileSystem: LibraryFileSystem,
+        body: (FileHandle) throws -> Void
+    ) throws {
         let temporaryName = QobuzFilenameComponent.make(
             prefix: ".",
-            stem: destination.lastPathComponent,
+            stem: destination.lastComponent ?? "audio",
             suffix: ".metadata-\(UUID().uuidString)"
         )
-        let temporary = destination.deletingLastPathComponent().appendingPathComponent(temporaryName)
-        guard fileManager.createFile(atPath: temporary.path, contents: nil) else {
-            throw NativeQobuzError.fileSystem("Could not create metadata staging file")
-        }
+        let temporary = try destination.parent.appending(temporaryName)
         do {
-            let output = try FileHandle(forWritingTo: temporary)
+            let output = try fileSystem.writableHandle(at: temporary, truncate: true)
             do {
                 try body(output)
                 try output.synchronize()
                 try output.close()
-                _ = try fileManager.replaceItemAt(destination, withItemAt: temporary)
+                try fileSystem.replaceItem(at: destination, with: temporary)
             } catch {
                 try? output.close()
                 throw error
             }
         } catch {
-            try? fileManager.removeItem(at: temporary)
+            try? fileSystem.removeFile(temporary, ifPresent: true)
             throw error
         }
     }

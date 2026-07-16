@@ -151,7 +151,8 @@ final class FileTransferTests: XCTestCase {
         var events: [FileTransferEvent] = []
         for try await event in client.events(
             from: URL(string: "https://example.test/audio")!,
-            to: destination
+            to: destination,
+            fileSystem: try LibraryFileSystem(rootURL: destination.deletingLastPathComponent())
         ) {
             events.append(event)
         }

@@ -56,15 +56,6 @@ public struct EmbeddedArtwork: Equatable, Sendable {
         mimeType == "image/png" ? "cover.png" : "cover.jpg"
     }
 
-    public static func existingExternalFile(
-        in folder: URL,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        externalFilenames.lazy
-            .map(folder.appendingPathComponent)
-            .first { fileManager.fileExists(atPath: $0.path) }
-    }
-
     private static func detectMimeType(_ data: Data) -> String? {
         if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
@@ -188,7 +179,12 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
 }
 
 public protocol AudioMetadataWriting: Sendable {
-    func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws
+    func write(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        to fileURL: URL,
+        fileSystem: LibraryFileSystem
+    ) throws
 }
 
 public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
@@ -197,7 +193,12 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
 
     public init() {}
 
-    public func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {
+    public func write(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        to fileURL: URL,
+        fileSystem: LibraryFileSystem
+    ) throws {
         let started = Date()
         let embeddableArtwork = artwork.flatMap {
             $0.data.count <= EmbeddedArtwork.maximumEmbeddedBytes ? $0 : nil
@@ -219,9 +220,19 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
         do {
             switch fileURL.pathExtension.lowercased() {
             case "mp3":
-                try id3Writer.write(metadata: metadata, artwork: embeddableArtwork, to: fileURL)
+                try id3Writer.write(
+                    metadata: metadata,
+                    artwork: embeddableArtwork,
+                    to: fileSystem.relativePath(for: fileURL),
+                    fileSystem: fileSystem
+                )
             case "flac":
-                try flacWriter.write(metadata: metadata, artwork: embeddableArtwork, to: fileURL)
+                try flacWriter.write(
+                    metadata: metadata,
+                    artwork: embeddableArtwork,
+                    to: fileSystem.relativePath(for: fileURL),
+                    fileSystem: fileSystem
+                )
             default:
                 throw NativeQobuzError.fileSystem("Unsupported audio format: \(fileURL.pathExtension)")
             }

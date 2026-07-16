@@ -197,7 +197,10 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertEqual(sourceCount, 1)
         let finalAudio = root.appendingPathComponent("Artist/Album/01. One.flac")
         XCTAssertFalse(FileManager.default.fileExists(atPath: finalAudio.path))
-        XCTAssertNil(try QobuzCollectionAssetWriter().provenance(for: finalAudio))
+        XCTAssertNil(try QobuzCollectionAssetWriter().provenance(
+            for: finalAudio,
+            fileSystem: LibraryFileSystem(rootURL: root)
+        ))
     }
 
     func testMaximumPolicyDownloadsEverySupportedDeliveredFormat() async throws {
@@ -236,7 +239,10 @@ final class DownloadEngineTests: XCTestCase {
             let audioURL = root.appendingPathComponent(relativePath)
             XCTAssertEqual(audioPaths.count, 1, "Delivered format \(format.formatID)")
             XCTAssertEqual(
-                try assetWriter.provenance(for: audioURL)?.formatID,
+                try assetWriter.provenance(
+                    for: audioURL,
+                    fileSystem: LibraryFileSystem(rootURL: root)
+                )?.formatID,
                 format.formatID,
                 "Delivered format \(format.formatID)"
             )
@@ -405,7 +411,8 @@ final class DownloadEngineTests: XCTestCase {
                 delivery: try validatedTestDelivery(for: fileInfo),
                 sha256: String(repeating: "0", count: 64)
             ),
-            for: destination
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
         )
         let engine = NativeQobuzDownloadEngine(
             service: service,
@@ -449,7 +456,10 @@ final class DownloadEngineTests: XCTestCase {
         let downloaded = original.deletingLastPathComponent().appendingPathComponent("01. One [one].flac")
         XCTAssertEqual(try Data(contentsOf: original), userData)
         XCTAssertEqual(try Data(contentsOf: downloaded), Data([1, 2, 3]))
-        XCTAssertNotNil(try QobuzCollectionAssetWriter().provenance(for: downloaded))
+        XCTAssertNotNil(try QobuzCollectionAssetWriter().provenance(
+            for: downloaded,
+            fileSystem: LibraryFileSystem(rootURL: root)
+        ))
         let sourceCount = await recorder.sources.count
         XCTAssertEqual(sourceCount, 1)
     }
@@ -476,7 +486,8 @@ final class DownloadEngineTests: XCTestCase {
                 delivery: try validatedTestDelivery(for: fileInfo),
                 sha256: checksum
             ),
-            for: destination
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
         )
         let engine = NativeQobuzDownloadEngine(
             service: service,
@@ -517,7 +528,8 @@ final class DownloadEngineTests: XCTestCase {
                 delivery: try validatedTestDelivery(for: oldInfo),
                 sha256: try MusicFileIntegrity.sha256(of: destination)
             ),
-            for: destination
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
         )
         let engine = NativeQobuzDownloadEngine(
             service: service,
@@ -530,7 +542,10 @@ final class DownloadEngineTests: XCTestCase {
         for try await _ in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {}
 
         XCTAssertEqual(try Data(contentsOf: destination), Data([1, 2, 3]))
-        let provenance = try XCTUnwrap(assetWriter.provenance(for: destination))
+        let provenance = try XCTUnwrap(assetWriter.provenance(
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
+        ))
         XCTAssertEqual(provenance.formatID, QobuzQuality.hiRes.maximumFormat.formatID)
         let sourceCount = await recorder.sources.count
         XCTAssertEqual(sourceCount, 1)
@@ -603,7 +618,8 @@ final class DownloadEngineTests: XCTestCase {
                 ),
                 sha256: oldHash
             ),
-            for: destination
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
         )
         let target = QobuzArchiveTrack(
             relativePath: relativePath,
@@ -630,7 +646,10 @@ final class DownloadEngineTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: destination), Data([1, 2, 3]))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Artist/One.flac").path))
-        let repaired = try XCTUnwrap(assetWriter.provenance(for: destination))
+        let repaired = try XCTUnwrap(assetWriter.provenance(
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
+        ))
         let repairedHash = try MusicFileIntegrity.sha256(of: destination)
         XCTAssertEqual(repaired.sha256, repairedHash)
         XCTAssertEqual(repaired.formatID, QobuzAudioFormat.hiRes96.formatID)
@@ -727,7 +746,11 @@ actor DestinationRecorder {
 struct FailingTransferClient: FileTransferClient {
     let recorder: DestinationRecorder
 
-    func events(from source: URL, to destination: URL) -> AsyncThrowingStream<FileTransferEvent, Error> {
+    func events(
+        from source: URL,
+        to destination: URL,
+        fileSystem: LibraryFileSystem
+    ) -> AsyncThrowingStream<FileTransferEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 await recorder.record(destination)
@@ -740,15 +763,17 @@ struct FailingTransferClient: FileTransferClient {
 struct FakeTransferClient: FileTransferClient {
     let recorder: TransferRecorder
 
-    func events(from source: URL, to destination: URL) -> AsyncThrowingStream<FileTransferEvent, Error> {
+    func events(
+        from source: URL,
+        to destination: URL,
+        fileSystem: LibraryFileSystem
+    ) -> AsyncThrowingStream<FileTransferEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 await recorder.record(source)
-                try? FileManager.default.createDirectory(
-                    at: destination.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try? Data([1, 2, 3]).write(to: destination)
+                if let path = try? fileSystem.relativePath(for: destination) {
+                    try? fileSystem.writeAtomically(Data([1, 2, 3]), to: path)
+                }
                 continuation.yield(.started)
                 continuation.yield(
                     .progress(
@@ -777,13 +802,21 @@ struct AcceptingValidator: MediaValidating {
         self.properties = properties
     }
 
-    func validate(_ fileURL: URL) async throws -> AudioStreamProperties {
+    func validate(
+        _ fileURL: URL,
+        fileSystem: LibraryFileSystem
+    ) async throws -> AudioStreamProperties {
         properties
     }
 }
 
 struct RecordingMetadataWriter: AudioMetadataWriting {
-    func write(metadata: QobuzAudioMetadata, artwork: EmbeddedArtwork?, to fileURL: URL) throws {}
+    func write(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        to fileURL: URL,
+        fileSystem: LibraryFileSystem
+    ) throws {}
 }
 
 private struct FailingAssetFetcher: QobuzAssetFetching {

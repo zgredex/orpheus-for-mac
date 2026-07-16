@@ -1,53 +1,29 @@
 import Foundation
 
 struct QobuzArchiveManifestDiscovery {
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager) {
-        self.fileManager = fileManager
+    func manifestPaths(in fileSystem: LibraryFileSystem) throws -> (paths: [LibraryRelativePath], issues: [QobuzArchiveIssue]) {
+        let snapshot = try fileSystem.recursiveSnapshot()
+        let issues = snapshot.issues.map {
+            QobuzArchiveIssue(relativePath: $0.path.rawValue, message: $0.message)
+        }
+        let paths = snapshot.entries.compactMap { entry -> LibraryRelativePath? in
+            guard entry.path.lastComponent == QobuzProvenanceManifestIO.filename else { return nil }
+            guard entry.metadata.kind == .regularFile else { return nil }
+            return entry.path
+        }
+        return (paths, issues)
     }
 
-    func manifestURLs(in root: URL) throws -> (urls: [URL], issues: [QobuzArchiveIssue]) {
-        var issues: [QobuzArchiveIssue] = []
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey],
-            options: [.skipsPackageDescendants],
-            errorHandler: { url, error in
-                qobuzLog.warning(
-                    "library.scan.enumeration",
-                    "Download folder enumeration encountered an error",
-                    metadata: ["path": url.path],
-                    error: error
-                )
-                issues.append(QobuzArchiveIssue(
-                    relativePath: QobuzPathSafety.relativePathOrLastComponent(
-                        of: url,
-                        in: root,
-                        allowingRoot: true
-                    ),
-                    message: error.localizedDescription
-                ))
-                return true
-            }
-        ) else {
-            throw NativeQobuzError.fileSystem("Could not enumerate the download folder.")
-        }
-        var urls: [URL] = []
-        while let value = enumerator.nextObject() as? URL {
-            if value.lastPathComponent == QobuzProvenanceManifestIO.filename { urls.append(value) }
-        }
-        return (urls, issues)
-    }
-
-    func playlistManifestReferencesFiles(in folder: URL, filenames: Set<String>) -> Bool {
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return false }
-        for url in contents where ["m3u", "m3u8"].contains(url.pathExtension.lowercased()) {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+    func playlistManifestReferencesFiles(
+        in folder: LibraryRelativePath,
+        filenames: Set<String>,
+        fileSystem: LibraryFileSystem
+    ) -> Bool {
+        guard let contents = try? fileSystem.entries(in: folder) else { return false }
+        for entry in contents where entry.metadata.kind == .regularFile {
+            let ext = (entry.path.lastComponent! as NSString).pathExtension.lowercased()
+            guard ["m3u", "m3u8"].contains(ext),
+                  let text = try? fileSystem.readString(entry.path) else { continue }
             if QobuzM3UPlaylist.referencesAnyLeafName(in: text, names: filenames) { return true }
         }
         return false

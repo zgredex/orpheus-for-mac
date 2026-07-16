@@ -17,15 +17,15 @@ public enum QobuzProvenanceManifestIO {
     public static let filename = ".orpheus-provenance.json"
 
     public static func load(
-        from manifestURL: URL,
-        fileManager: FileManager = .default
+        from path: LibraryRelativePath,
+        in fileSystem: LibraryFileSystem
     ) throws -> QobuzProvenanceManifest {
-        guard fileManager.fileExists(atPath: manifestURL.path) else {
+        guard try fileSystem.metadata(at: path) != nil else {
             return QobuzProvenanceManifest()
         }
         let value = try JSONDecoder().decode(
             QobuzProvenanceManifest.self,
-            from: Data(contentsOf: manifestURL)
+            from: fileSystem.read(path)
         )
         guard value.version == QobuzProvenanceManifest.currentVersion else {
             throw NativeQobuzError.invalidResponse(
@@ -35,11 +35,16 @@ public enum QobuzProvenanceManifestIO {
         return value
     }
 
-    public static func load(
-        in folder: URL,
-        fileManager: FileManager = .default
-    ) throws -> QobuzProvenanceManifest {
-        try load(from: folder.appendingPathComponent(filename), fileManager: fileManager)
+    static func load(from manifestURL: URL) throws -> QobuzProvenanceManifest {
+        let fileSystem = try LibraryFileSystem(
+            rootURL: manifestURL.deletingLastPathComponent(),
+            createIfMissing: false
+        )
+        return try load(from: LibraryRelativePath(manifestURL.lastPathComponent), in: fileSystem)
+    }
+
+    public static func load(in folder: LibraryRelativePath, fileSystem: LibraryFileSystem) throws -> QobuzProvenanceManifest {
+        try load(from: folder.appending(filename), in: fileSystem)
     }
 
     public static func encode(_ manifest: QobuzProvenanceManifest) throws -> Data {

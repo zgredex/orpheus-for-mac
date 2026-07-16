@@ -40,6 +40,7 @@ final class QobuzDownloadOperation: @unchecked Sendable {
         let operationStarted = Date()
         qobuzLog.notice("download.lifecycle", "Download operation started")
         do {
+            let fileSystem = try LibraryFileSystem(rootURL: configuration.downloadRoot)
             continuation.yield(.resolving(configuration.request))
             let plan = try await resolver.resolve(configuration.request)
                 .selecting(trackIDs: configuration.includedTrackIDs)
@@ -53,12 +54,13 @@ final class QobuzDownloadOperation: @unchecked Sendable {
             continuation.yield(.planReady(title: plan.title, trackCount: plan.tracks.count))
 
             let state = QobuzDownloadOperationState(
-                reusableAudio: reuseRegistry.load(root: configuration.downloadRoot)
+                reusableAudio: reuseRegistry.load(fileSystem: fileSystem)
             )
             for item in plan.tracks {
                 try await trackDownloader.process(
                     item,
                     configuration: configuration,
+                    fileSystem: fileSystem,
                     state: state,
                     continuation: continuation
                 )
@@ -66,6 +68,7 @@ final class QobuzDownloadOperation: @unchecked Sendable {
             try await finalizer.finalize(
                 plan: plan,
                 configuration: configuration,
+                fileSystem: fileSystem,
                 state: state,
                 continuation: continuation
             )

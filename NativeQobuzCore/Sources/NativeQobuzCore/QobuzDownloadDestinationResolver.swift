@@ -3,16 +3,10 @@ import Foundation
 struct QobuzDownloadDestinationResolver: @unchecked Sendable {
     private let outputPlanner: any QobuzOutputPlanning
     private let assetWriter: QobuzCollectionAssetWriter
-    private let fileManager: FileManager
 
-    init(
-        outputPlanner: any QobuzOutputPlanning,
-        assetWriter: QobuzCollectionAssetWriter,
-        fileManager: FileManager
-    ) {
+    init(outputPlanner: any QobuzOutputPlanning, assetWriter: QobuzCollectionAssetWriter) {
         self.outputPlanner = outputPlanner
         self.assetWriter = assetWriter
-        self.fileManager = fileManager
     }
 
     func validate(plan: QobuzDownloadPlan, repairTarget: QobuzArchiveTrack?) throws {
@@ -31,6 +25,7 @@ struct QobuzDownloadDestinationResolver: @unchecked Sendable {
         for item: QobuzResolvedTrack,
         fileInfo: QobuzFileInfo,
         root: URL,
+        fileSystem: LibraryFileSystem,
         repairTarget: QobuzArchiveTrack?,
         reusableAudio: [String: URL],
         trackMetadata: [String: String]
@@ -41,8 +36,13 @@ struct QobuzDownloadDestinationResolver: @unchecked Sendable {
                     "Qobuz no longer offers this track in its archived format. No file was changed."
                 )
             }
-            let destination = try repairDestination(for: repairTarget, item: item, root: root)
-            try validateRepairProvenance(at: destination, target: repairTarget, item: item)
+            let destination = try repairDestination(for: repairTarget, item: item, fileSystem: fileSystem)
+            try validateRepairProvenance(
+                at: destination,
+                target: repairTarget,
+                item: item,
+                fileSystem: fileSystem
+            )
             return destination
         }
 
@@ -55,50 +55,42 @@ struct QobuzDownloadDestinationResolver: @unchecked Sendable {
             )
             return reusable
         }
-        return try resolvedDestination(for: item, fileInfo: fileInfo, root: root)
+        return try resolvedDestination(for: item, fileInfo: fileInfo, root: root, fileSystem: fileSystem)
     }
 
     private func repairDestination(
         for target: QobuzArchiveTrack,
         item: QobuzResolvedTrack,
-        root: URL
+        fileSystem: LibraryFileSystem
     ) throws -> URL {
         guard item.track.id.rawValue == target.qobuzTrackID,
               item.album.id.rawValue == target.qobuzAlbumID else {
             throw NativeQobuzError.unavailable("The repair target no longer matches Qobuz metadata.")
         }
-        let root = root.standardizedFileURL
-        guard let destination = QobuzPathSafety.containedURL(for: target.relativePath, in: root) else {
-            throw NativeQobuzError.fileSystem("The archived repair path is unsafe.")
-        }
+        let path = try LibraryRelativePath(target.relativePath)
         guard let archivedFormat = target.audioFormat else {
             throw NativeQobuzError.unavailable(
                 "The archived Qobuz format \(target.formatID) is not supported for automatic repair."
             )
         }
-        guard destination.pathExtension.lowercased() == archivedFormat.fileExtension else {
+        guard (path.lastComponent! as NSString).pathExtension.lowercased() == archivedFormat.fileExtension else {
             throw NativeQobuzError.fileSystem("The archived repair path has the wrong audio extension.")
         }
-        let resolvedRoot = root.resolvingSymlinksInPath()
-        let resolvedParent = destination.deletingLastPathComponent().resolvingSymlinksInPath()
-        guard QobuzPathSafety.isContained(resolvedParent, in: resolvedRoot) else {
-            throw NativeQobuzError.fileSystem("The archived repair path follows a link outside the download folder.")
-        }
-        if fileManager.fileExists(atPath: destination.path),
-           (try? destination.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+        if try fileSystem.metadata(at: path)?.kind == .symbolicLink {
             throw NativeQobuzError.fileSystem("Symbolic-link audio files cannot be repaired automatically.")
         }
-        return destination
+        return fileSystem.displayURL(for: path)
     }
 
     private func validateRepairProvenance(
         at destination: URL,
         target: QobuzArchiveTrack,
-        item: QobuzResolvedTrack
+        item: QobuzResolvedTrack,
+        fileSystem: LibraryFileSystem
     ) throws {
         let provenance: QobuzFileProvenance
         do {
-            guard let value = try assetWriter.provenance(for: destination) else {
+            guard let value = try assetWriter.provenance(for: destination, fileSystem: fileSystem) else {
                 throw NativeQobuzError.invalidResponse("The archive record changed after verification.")
             }
             provenance = value
@@ -120,11 +112,14 @@ struct QobuzDownloadDestinationResolver: @unchecked Sendable {
     private func resolvedDestination(
         for item: QobuzResolvedTrack,
         fileInfo: QobuzFileInfo,
-        root: URL
+        root: URL,
+        fileSystem: LibraryFileSystem
     ) throws -> URL {
         let planned = outputPlanner.destination(for: item, fileInfo: fileInfo, root: root)
-        guard fileManager.fileExists(atPath: planned.path) else { return planned }
-        if let provenance = try? assetWriter.provenance(for: planned), provenance.belongs(to: item) {
+        let plannedPath = try fileSystem.relativePath(for: planned)
+        guard try fileSystem.metadata(at: plannedPath) != nil else { return planned }
+        if let provenance = try? assetWriter.provenance(for: planned, fileSystem: fileSystem),
+           provenance.belongs(to: item) {
             return planned
         }
 
@@ -140,8 +135,10 @@ struct QobuzDownloadDestinationResolver: @unchecked Sendable {
             let candidate = folder.appendingPathComponent(
                 QobuzFilenameComponent.make(stem: stem, suffix: suffix, pathExtension: ext)
             )
-            guard fileManager.fileExists(atPath: candidate.path) else { return candidate }
-            if let provenance = try? assetWriter.provenance(for: candidate), provenance.belongs(to: item) {
+            let candidatePath = try fileSystem.relativePath(for: candidate)
+            guard try fileSystem.metadata(at: candidatePath) != nil else { return candidate }
+            if let provenance = try? assetWriter.provenance(for: candidate, fileSystem: fileSystem),
+               provenance.belongs(to: item) {
                 return candidate
             }
         }

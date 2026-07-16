@@ -12,31 +12,27 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         validator: any MediaValidating,
         metadataWriter: any AudioMetadataWriting = NativeAudioMetadataWriter(),
         assetWriter: QobuzCollectionAssetWriter? = nil,
-        reusableAudioIndex: QobuzReusableAudioIndex = QobuzReusableAudioIndex(),
-        fileManager: FileManager = .default
+        reusableAudioIndex: QobuzReusableAudioIndex = QobuzReusableAudioIndex()
     ) {
         let assetWriter = assetWriter ?? QobuzCollectionAssetWriter(outputPlanner: outputPlanner)
         let reuseRegistry = QobuzAudioReuseRegistry(assetWriter: assetWriter, index: reusableAudioIndex)
         let deliveryPolicy = QobuzDeliveryPolicy()
         let destinationResolver = QobuzDownloadDestinationResolver(
             outputPlanner: outputPlanner,
-            assetWriter: assetWriter,
-            fileManager: fileManager
+            assetWriter: assetWriter
         )
         let existingVerifier = QobuzExistingAudioVerifier(
             validator: validator,
             assetWriter: assetWriter,
             reuseRegistry: reuseRegistry,
-            deliveryPolicy: deliveryPolicy,
-            fileManager: fileManager
+            deliveryPolicy: deliveryPolicy
         )
         let transferPipeline = QobuzTrackTransferPipeline(
             transfer: transfer,
             validator: validator,
             metadataWriter: metadataWriter,
             assetWriter: assetWriter,
-            deliveryPolicy: deliveryPolicy,
-            fileManager: fileManager
+            deliveryPolicy: deliveryPolicy
         )
         let trackDownloader = QobuzTrackDownloader(
             service: service,

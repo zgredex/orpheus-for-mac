@@ -132,7 +132,11 @@ final class LiveQobuzIntegrationTests: XCTestCase {
 
         var sawProgress = false
         var completedURL: URL?
-        for try await event in URLSessionFileTransferClient().events(from: fileInfo.url, to: destination) {
+        for try await event in URLSessionFileTransferClient().events(
+            from: fileInfo.url,
+            to: destination,
+            fileSystem: try LibraryFileSystem(rootURL: destination.deletingLastPathComponent())
+        ) {
             switch event {
             case .progress(let progress):
                 sawProgress = sawProgress || progress.bytesWritten > 0
@@ -149,7 +153,10 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertGreaterThan((attributes[.size] as? NSNumber)?.int64Value ?? 0, 128 * 1024)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.appendingPathExtension("partial").path))
         let validator = try FFmpegMediaValidator.bundled()
-        _ = try await validator.validate(destination)
+        _ = try await validator.validate(
+            destination,
+            fileSystem: LibraryFileSystem(rootURL: destination.deletingLastPathComponent())
+        )
         let checksum = try MusicFileIntegrity.sha256(of: destination)
         XCTAssertEqual(checksum.count, 64)
         XCTAssertTrue(try MusicFileIntegrity.verify(destination, expectedSHA256: checksum))

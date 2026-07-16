@@ -1,7 +1,7 @@
 import Foundation
 
 public protocol MediaValidating: Sendable {
-    func validate(_ fileURL: URL) async throws -> AudioStreamProperties
+    func validate(_ fileURL: URL, fileSystem: LibraryFileSystem) async throws -> AudioStreamProperties
 }
 
 public struct FFmpegMediaValidator: MediaValidating, Sendable {
@@ -28,12 +28,25 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
         return FFmpegMediaValidator(executableURL: executable)
     }
 
-    public func validate(_ fileURL: URL) async throws -> AudioStreamProperties {
+    public func validate(
+        _ fileURL: URL,
+        fileSystem: LibraryFileSystem
+    ) async throws -> AudioStreamProperties {
+        let path = try fileSystem.relativePath(for: fileURL)
+        return try await fileSystem.withInheritedReadableDescriptor(at: path) { descriptor in
+            try await validateOpenFile(
+                URL(fileURLWithPath: "/dev/fd/\(descriptor)"),
+                displayURL: fileURL
+            )
+        }
+    }
+
+    private func validateOpenFile(_ openURL: URL, displayURL: URL) async throws -> AudioStreamProperties {
         let validationID = UUID().uuidString
         let started = Date()
         let metadata = [
             "validationID": validationID,
-            "filePath": fileURL.path,
+            "filePath": displayURL.path,
             "validatorPath": executableURL.path
         ]
         qobuzLog.info("validation.media", "Media validation started", metadata: metadata)
@@ -47,7 +60,7 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
         }
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = [fileURL.path]
+        process.arguments = [openURL.path]
         let errors = Pipe()
         let state = ValidatorProcessState()
         let output = ValidatorOutput()
@@ -102,7 +115,7 @@ public struct FFmpegMediaValidator: MediaValidating, Sendable {
                 qobuzLog.notice("validation.media", "Media validation cancellation requested", metadata: metadata)
                 state.cancel()
             }
-            let properties = try AudioToolboxStreamInspector().inspect(fileURL)
+            let properties = try AudioToolboxStreamInspector().inspect(openURL)
             qobuzLog.notice(
                 "validation.media",
                 "Media validation passed",

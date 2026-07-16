@@ -22,6 +22,7 @@ struct NativeQobuzAudit {
         }
 
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let fileSystem = try LibraryFileSystem(rootURL: output)
         print("Auditing \(album.displayTitle) / \(track.displayTitle)")
         let resolved = QobuzResolvedTrack(
             track: track,
@@ -36,22 +37,27 @@ struct NativeQobuzAudit {
         for quality in [QobuzQuality.mp3, .hiRes] {
             let info = try await client.fileInfo(trackID: track.id, format: quality.maximumFormat)
             let destination = output.appendingPathComponent("raw-qobuz.\(info.fileExtension)")
-            for try await event in URLSessionFileTransferClient().events(from: info.url, to: destination) {
+            for try await event in URLSessionFileTransferClient().events(
+                from: info.url,
+                to: destination,
+                fileSystem: fileSystem
+            ) {
                 if case .completed(let url) = event {
                     let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
                     print("Saved \(url.path) (\(size?.int64Value ?? 0) bytes)")
                 }
             }
-            let media = try await validator.validate(destination)
+            let media = try await validator.validate(destination, fileSystem: fileSystem)
             try QobuzDeliveryPolicy().validateCeiling(requestedMaximum: quality, delivered: info)
             _ = try QobuzDeliveryPolicy().validate(fileInfo: info, media: media)
             if shouldTag {
                 try NativeAudioMetadataWriter().write(
                     metadata: QobuzAudioMetadata(item: resolved),
                     artwork: artwork,
-                    to: destination
+                    to: destination,
+                    fileSystem: fileSystem
                 )
-                let taggedMedia = try await validator.validate(destination)
+                let taggedMedia = try await validator.validate(destination, fileSystem: fileSystem)
                 _ = try QobuzDeliveryPolicy().validate(fileInfo: info, media: taggedMedia)
                 print("Validated and tagged \(destination.path)")
             }

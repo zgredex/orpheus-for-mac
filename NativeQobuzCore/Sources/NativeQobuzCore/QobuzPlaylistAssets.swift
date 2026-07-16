@@ -24,76 +24,87 @@ struct QobuzPlaylistAssets: @unchecked Sendable {
     private let fetcher: any QobuzAssetFetching
     private let outputPlanner: any QobuzOutputPlanning
     private let folderPlanner: QobuzPlaylistFolderPlanner
-    private let fileManager: FileManager
-    private let atomicWriter: QobuzAtomicFileWriter
 
     init(
         fetcher: any QobuzAssetFetching,
         outputPlanner: any QobuzOutputPlanning,
-        folderPlanner: QobuzPlaylistFolderPlanner,
-        fileManager: FileManager,
-        atomicWriter: QobuzAtomicFileWriter
+        folderPlanner: QobuzPlaylistFolderPlanner
     ) {
         self.fetcher = fetcher
         self.outputPlanner = outputPlanner
         self.folderPlanner = folderPlanner
-        self.fileManager = fileManager
-        self.atomicWriter = atomicWriter
     }
 
     func writePlaylist(
         plan: QobuzDownloadPlan,
         outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
-        downloadRoot: URL
+        fileSystem: LibraryFileSystem
     ) throws -> URL? {
         guard case .playlist(let id) = plan.request, !outputs.isEmpty else { return nil }
-        let folder = folderPlanner.folder(title: plan.title, id: id, root: downloadRoot)
-        let destination = folder.appendingPathComponent("\(outputPlanner.sanitize(plan.title)).m3u")
+        let folder = folderPlanner.folder(title: plan.title, id: id, root: fileSystem.rootURL)
+        let folderPath = try fileSystem.relativePath(for: folder)
+        let destination = try folderPath.appending("\(outputPlanner.sanitize(plan.title)).m3u")
         var lines = ["#EXTM3U"]
         for output in outputs {
             let duration = output.item.track.duration ?? -1
             let artist = output.item.track.performer?.name ?? output.item.album.artist.name
             lines.append("#EXTINF:\(duration), \(artist) - \(output.item.track.displayTitle)")
-            lines.append(try portableRelativePath(from: folder, to: output.audioURL, root: downloadRoot))
+            lines.append(try portableRelativePath(from: folderPath, to: output.audioURL, fileSystem: fileSystem))
             lines.append("")
         }
-        try atomicWriter.write(Data(lines.joined(separator: "\n").utf8), to: destination)
-        return destination
+        try fileSystem.writeAtomically(Data(lines.joined(separator: "\n").utf8), to: destination)
+        return fileSystem.displayURL(for: destination)
     }
 
-    func writeMetadata(plan: QobuzDownloadPlan, downloadRoot: URL) async throws -> [URL] {
+    func writeMetadata(plan: QobuzDownloadPlan, fileSystem: LibraryFileSystem) async throws -> [URL] {
         guard case .playlist(let id) = plan.request,
               case .playlist(let playlist)? = plan.source else { return [] }
-        let folder = folderPlanner.folder(title: plan.title, id: id, root: downloadRoot)
+        let folder = folderPlanner.folder(title: plan.title, id: id, root: fileSystem.rootURL)
+        let folderPath = try fileSystem.relativePath(for: folder)
         var created: [URL] = []
         if let description = playlist.playlistDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
            !description.isEmpty {
-            let destination = folder.appendingPathComponent("description.txt")
-            try atomicWriter.write(Data(description.utf8), to: destination)
-            created.append(destination)
+            let destination = try folderPath.appending("description.txt")
+            try fileSystem.writeAtomically(Data(description.utf8), to: destination)
+            created.append(fileSystem.displayURL(for: destination))
         }
         if let source = playlist.artworkURL {
-            if let existing = EmbeddedArtwork.existingExternalFile(in: folder, fileManager: fileManager) {
-                created.append(existing)
+            if let existing = try existingArtwork(in: folderPath, fileSystem: fileSystem) {
+                created.append(fileSystem.displayURL(for: existing))
             } else {
                 let response = try await fetcher.fetch(source)
                 let artwork = try EmbeddedArtwork.validated(data: response.data, mimeType: response.mimeType)
-                let destination = folder.appendingPathComponent(artwork.externalFilename)
-                try atomicWriter.write(artwork.data, to: destination)
-                created.append(destination)
+                let destination = try folderPath.appending(artwork.externalFilename)
+                try fileSystem.writeAtomically(artwork.data, to: destination)
+                created.append(fileSystem.displayURL(for: destination))
             }
         }
         return created
     }
 
-    private func portableRelativePath(from folder: URL, to target: URL, root: URL) throws -> String {
-        let folderParts = try QobuzLibraryManifestIO.relativePath(of: folder, root: root).split(separator: "/")
-        let targetParts = try QobuzLibraryManifestIO.relativePath(of: target, root: root).split(separator: "/")
+    private func portableRelativePath(
+        from folder: LibraryRelativePath,
+        to target: URL,
+        fileSystem: LibraryFileSystem
+    ) throws -> String {
+        let folderParts = folder.components
+        let targetParts = try fileSystem.relativePath(for: target).components
         var shared = 0
         while shared < folderParts.count,
               shared < targetParts.count,
               folderParts[shared] == targetParts[shared] { shared += 1 }
         let parents = Array(repeating: "..", count: folderParts.count - shared)
-        return (parents + targetParts.dropFirst(shared).map(String.init)).joined(separator: "/")
+        return (parents + Array(targetParts.dropFirst(shared))).joined(separator: "/")
+    }
+
+    private func existingArtwork(
+        in folder: LibraryRelativePath,
+        fileSystem: LibraryFileSystem
+    ) throws -> LibraryRelativePath? {
+        for filename in EmbeddedArtwork.externalFilenames {
+            let path = try folder.appending(filename)
+            if try fileSystem.metadata(at: path)?.kind == .regularFile { return path }
+        }
+        return nil
     }
 }

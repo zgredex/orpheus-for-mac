@@ -37,8 +37,9 @@ final class MetadataWriterTests: XCTestCase {
         let metadata = QobuzAudioMetadata(item: fixtureItem())
         let artwork = EmbeddedArtwork(data: Data([0xFF, 0xD8, 0xFF, 0xD9]), mimeType: "image/jpeg")
 
-        try writer.write(metadata: metadata, artwork: artwork, to: file)
-        try writer.write(metadata: metadata, artwork: artwork, to: file)
+        let fileSystem = try fileSystem(for: file)
+        try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
+        try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
 
         let data = try Data(contentsOf: file)
         XCTAssertEqual(data.prefix(6), Data([0x49, 0x44, 0x33, 3, 0, 0]))
@@ -57,7 +58,12 @@ final class MetadataWriterTests: XCTestCase {
             performers: "Primary, MainArtist - Guest, FeaturedArtist"
         ))
 
-        try NativeAudioMetadataWriter().write(metadata: metadata, artwork: nil, to: file)
+        try NativeAudioMetadataWriter().write(
+            metadata: metadata,
+            artwork: nil,
+            to: file,
+            fileSystem: fileSystem(for: file)
+        )
 
         let data = try Data(contentsOf: file)
         XCTAssertTrue(data.contains(utf16LE("Primary; Guest")))
@@ -79,7 +85,8 @@ final class MetadataWriterTests: XCTestCase {
         try NativeAudioMetadataWriter().write(
             metadata: QobuzAudioMetadata(item: fixtureItem()),
             artwork: oversized,
-            to: file
+            to: file,
+            fileSystem: fileSystem(for: file)
         )
 
         let data = try Data(contentsOf: file)
@@ -105,8 +112,9 @@ final class MetadataWriterTests: XCTestCase {
             depth: 24
         )
 
-        try writer.write(metadata: metadata, artwork: artwork, to: file)
-        try writer.write(metadata: metadata, artwork: artwork, to: file)
+        let fileSystem = try fileSystem(for: file)
+        try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
+        try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
 
         let result = try Data(contentsOf: file)
         let blocks = try parseFLACBlocks(result)
@@ -173,6 +181,10 @@ final class MetadataWriterTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension(fileExtension)
+    }
+
+    private func fileSystem(for file: URL) throws -> LibraryFileSystem {
+        try LibraryFileSystem(rootURL: file.deletingLastPathComponent())
     }
 
     private func parseFLACBlocks(_ data: Data) throws -> [(type: UInt8, payload: Data)] {

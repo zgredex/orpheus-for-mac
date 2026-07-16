@@ -1,25 +1,2 @@
-# Existing NativeQobuzCore production files that directly use FileManager.
-# New direct users are rejected. Stage 1 removes Library-root entries from this
-# list; non-Library resource/tool discovery may remain explicitly allowlisted.
-NativeQobuzCore/Sources/NativeQobuzCore/ArchiveIntegrityEvaluator.swift
-NativeQobuzCore/Sources/NativeQobuzCore/ArchiveManifestDiscovery.swift
-NativeQobuzCore/Sources/NativeQobuzCore/ArchiveScanner.swift
-NativeQobuzCore/Sources/NativeQobuzCore/AudioMetadata.swift
-NativeQobuzCore/Sources/NativeQobuzCore/ChecksumManifest.swift
-NativeQobuzCore/Sources/NativeQobuzCore/CollectionAssets.swift
-NativeQobuzCore/Sources/NativeQobuzCore/DownloadEngine.swift
-NativeQobuzCore/Sources/NativeQobuzCore/FileTransfer.swift
-NativeQobuzCore/Sources/NativeQobuzCore/LibraryAdoption.swift
-NativeQobuzCore/Sources/NativeQobuzCore/LibraryManifest.swift
+# Non-Library tool discovery. Library-root I/O must use LibraryFileSystem.
 NativeQobuzCore/Sources/NativeQobuzCore/MediaValidator.swift
-NativeQobuzCore/Sources/NativeQobuzCore/MetadataWriters.swift
-NativeQobuzCore/Sources/NativeQobuzCore/ProvenanceManifest.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzArtworkAssets.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzAtomicFileWriter.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzCollectionSidecarWriter.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzDownloadDestinationResolver.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzExistingAudioVerifier.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzLibraryCollectionWriter.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzPlaylistAssets.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzProvenanceStore.swift
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzTrackTransferPipeline.swift

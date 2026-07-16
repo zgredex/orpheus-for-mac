@@ -2,13 +2,9 @@ import Foundation
 
 struct QobuzArtworkAssets: @unchecked Sendable {
     private let fetcher: any QobuzAssetFetching
-    private let fileManager: FileManager
-    private let atomicWriter: QobuzAtomicFileWriter
 
-    init(fetcher: any QobuzAssetFetching, fileManager: FileManager, atomicWriter: QobuzAtomicFileWriter) {
+    init(fetcher: any QobuzAssetFetching) {
         self.fetcher = fetcher
-        self.fileManager = fileManager
-        self.atomicWriter = atomicWriter
     }
 
     func artwork(for album: QobuzAlbum) async throws -> EmbeddedArtwork? {
@@ -20,16 +16,19 @@ struct QobuzArtworkAssets: @unchecked Sendable {
     func saveExternalArtwork(
         _ artwork: EmbeddedArtwork,
         for item: QobuzResolvedTrack,
-        audioURL: URL
+        audioURL: URL,
+        fileSystem: LibraryFileSystem
     ) throws -> URL? {
         guard item.collection.usesAlbumFolders else { return nil }
-        let folder = audioURL.deletingLastPathComponent()
-        if let existing = EmbeddedArtwork.existingExternalFile(in: folder, fileManager: fileManager) {
-            return existing
+        let folder = try fileSystem.relativePath(for: audioURL).parent
+        for filename in EmbeddedArtwork.externalFilenames {
+            let candidate = try folder.appending(filename)
+            if try fileSystem.metadata(at: candidate)?.kind == .regularFile {
+                return fileSystem.displayURL(for: candidate)
+            }
         }
-        let destination = folder.appendingPathComponent(artwork.externalFilename)
-        if fileManager.fileExists(atPath: destination.path) { return destination }
-        try atomicWriter.write(artwork.data, to: destination)
-        return destination
+        let destination = try folder.appending(artwork.externalFilename)
+        try fileSystem.writeAtomically(artwork.data, to: destination)
+        return fileSystem.displayURL(for: destination)
     }
 }

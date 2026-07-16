@@ -11,10 +11,11 @@ final class MediaValidatorTests: XCTestCase {
         let invalid = root.appendingPathComponent("invalid.flac")
         try Data("not audio".utf8).write(to: invalid)
         let validator = try FFmpegMediaValidator.bundled()
+        let fileSystem = try LibraryFileSystem(rootURL: root)
 
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: validator.executableURL.path))
         do {
-            _ = try await validator.validate(invalid)
+            _ = try await validator.validate(invalid, fileSystem: fileSystem)
             XCTFail("Corrupt media must not pass validation")
         } catch let error as NativeQobuzError {
             guard case .invalidResponse = error else {
@@ -33,8 +34,9 @@ final class MediaValidatorTests: XCTestCase {
         let input = root.appendingPathComponent("input.flac")
         try Data("input".utf8).write(to: input)
         let validator = FFmpegMediaValidator(executableURL: executable)
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let started = Date()
-        let task = Task { try await validator.validate(input) }
+        let task = Task { try await validator.validate(input, fileSystem: fileSystem) }
 
         try await Task.sleep(for: .milliseconds(100))
         task.cancel()

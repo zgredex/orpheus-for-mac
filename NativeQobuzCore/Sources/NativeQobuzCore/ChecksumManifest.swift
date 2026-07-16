@@ -4,9 +4,20 @@ import Foundation
 public enum QobuzChecksumManifest {
     public static let filename = "checksums.sha256"
 
-    public static func load(at url: URL, fileManager: FileManager = .default) throws -> [String: String] {
-        guard fileManager.fileExists(atPath: url.path) else { return [:] }
-        return parse(try String(contentsOf: url, encoding: .utf8))
+    public static func load(
+        at path: LibraryRelativePath,
+        in fileSystem: LibraryFileSystem
+    ) throws -> [String: String] {
+        guard try fileSystem.metadata(at: path) != nil else { return [:] }
+        return parse(try fileSystem.readString(path))
+    }
+
+    static func load(at url: URL) throws -> [String: String] {
+        let fileSystem = try LibraryFileSystem(
+            rootURL: url.deletingLastPathComponent(),
+            createIfMissing: false
+        )
+        return try load(at: LibraryRelativePath(url.lastPathComponent), in: fileSystem)
     }
 
     public static func parse(_ contents: String) -> [String: String] {

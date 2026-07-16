@@ -224,7 +224,10 @@ struct NativeQobuzAcceptance {
                     try await transfer(source: info.url, destination: destination)
                 }
                 let validator = try FFmpegMediaValidator.bundled()
-                let media = try await validator.validate(destination)
+                let media = try await validator.validate(
+                    destination,
+                    fileSystem: LibraryFileSystem(rootURL: destination.deletingLastPathComponent())
+                )
                 _ = try QobuzDeliveryPolicy().validate(fileInfo: info, media: media)
                 let checksum = try MusicFileIntegrity.sha256(of: destination)
                 try require(checksum.count == 64, "SHA-256 output has an invalid length.")
@@ -349,8 +352,13 @@ struct NativeQobuzAcceptance {
     }
 
     private static func transfer(source: URL, destination: URL) async throws {
+        let fileSystem = try LibraryFileSystem(rootURL: destination.deletingLastPathComponent())
         var completed = false
-        for try await event in URLSessionFileTransferClient().events(from: source, to: destination) {
+        for try await event in URLSessionFileTransferClient().events(
+            from: source,
+            to: destination,
+            fileSystem: fileSystem
+        ) {
             if case .completed(let url) = event { completed = url == destination }
         }
         try require(completed, "Transfer ended without installing the destination file.")
@@ -386,7 +394,12 @@ struct NativeQobuzAcceptance {
     }
 
     private static func stopTransferAfterFirstProgress(source: URL, destination: URL) async throws {
-        for try await event in URLSessionFileTransferClient().events(from: source, to: destination) {
+        let fileSystem = try LibraryFileSystem(rootURL: destination.deletingLastPathComponent())
+        for try await event in URLSessionFileTransferClient().events(
+            from: source,
+            to: destination,
+            fileSystem: fileSystem
+        ) {
             if case .progress(let progress) = event, progress.bytesWritten >= 32 * 1_024 {
                 return
             }
@@ -409,26 +422,44 @@ struct NativeQobuzAcceptance {
             total: 1
         )
         let destination = StandardQobuzOutputPlanner().destination(for: item, fileInfo: fileInfo, root: root)
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: source, to: destination)
         let assets = QobuzCollectionAssetWriter()
         guard let artwork = try await assets.artwork(for: album) else {
             throw AcceptanceFailure(message: "Album did not provide downloadable artwork.")
         }
-        try NativeAudioMetadataWriter().write(metadata: QobuzAudioMetadata(item: item), artwork: artwork, to: destination)
-        let media = try await FFmpegMediaValidator.bundled().validate(destination)
+        try NativeAudioMetadataWriter().write(
+            metadata: QobuzAudioMetadata(item: item),
+            artwork: artwork,
+            to: destination,
+            fileSystem: fileSystem
+        )
+        let media = try await FFmpegMediaValidator.bundled().validate(
+            destination,
+            fileSystem: fileSystem
+        )
         let delivery = try QobuzDeliveryPolicy().validate(fileInfo: fileInfo, media: media)
         let checksum = try MusicFileIntegrity.sha256(of: destination)
         let verified = try MusicFileIntegrity.verify(destination, expectedSHA256: checksum)
         try require(verified, "Tagged file checksum failed.")
         try assets.recordProvenance(
             QobuzFileProvenance(item: item, delivery: delivery, sha256: checksum),
-            for: destination
+            for: destination,
+            fileSystem: fileSystem
         )
-        _ = try assets.writeChecksumManifests(for: [(item, destination, checksum)])
-        let cover = try assets.saveExternalArtwork(artwork, for: item, audioURL: destination)
+        _ = try assets.writeChecksumManifests(
+            for: [(item, destination, checksum)],
+            fileSystem: fileSystem
+        )
+        let cover = try assets.saveExternalArtwork(
+            artwork,
+            for: item,
+            audioURL: destination,
+            fileSystem: fileSystem
+        )
         try require(cover.map { FileManager.default.fileExists(atPath: $0.path) } == true, "External cover artwork was not written.")
-        let expectedChecksum = try assets.expectedChecksum(for: destination)
+        let expectedChecksum = try assets.expectedChecksum(for: destination, fileSystem: fileSystem)
         try require(expectedChecksum == checksum, "Checksum manifest does not match the tagged file.")
     }
 
@@ -462,22 +493,23 @@ struct NativeQobuzAcceptance {
         try require(FileManager.default.fileExists(atPath: audio.path), "Qualified audio file is missing.")
         let outputs = [(item: item, audioURL: audio)]
         let writer = QobuzCollectionAssetWriter()
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         _ = try writer.recordLibraryCollections(
             plan: QobuzDownloadPlan(request: .track(track.id), title: track.displayTitle, tracks: [item], source: .track(track)),
             outputs: outputs,
-            downloadRoot: root
+            fileSystem: fileSystem
         )
         _ = try writer.recordLibraryCollections(
             plan: QobuzDownloadPlan(request: .album(album.id), title: album.displayTitle, tracks: [item], source: .album(album)),
             outputs: outputs,
-            downloadRoot: root
+            fileSystem: fileSystem
         )
         _ = try writer.recordLibraryCollections(
             plan: QobuzDownloadPlan(request: .playlist(playlist.id), title: playlist.name, tracks: [item], source: .playlist(playlist)),
             outputs: outputs,
-            downloadRoot: root
+            fileSystem: fileSystem
         )
-        try writer.markLibraryManaged([audio])
+        try writer.markLibraryManaged([audio], fileSystem: fileSystem)
         let snapshot = try await QobuzArchiveScanner().scan(root: root)
         try require(snapshot.tracks.count == 1, "Library created duplicate physical track records.")
         try require(snapshot.albumCount == 1, "Album entry was not segregated.")

@@ -27,6 +27,7 @@ struct QobuzTrackDownloader: @unchecked Sendable {
     func process(
         _ item: QobuzResolvedTrack,
         configuration: QobuzDownloadConfiguration,
+        fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
     ) async throws {
@@ -66,6 +67,7 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             for: item,
             fileInfo: fileInfo,
             root: configuration.downloadRoot,
+            fileSystem: fileSystem,
             repairTarget: configuration.repairTarget,
             reusableAudio: state.reusableAudio,
             trackMetadata: trackMetadata
@@ -81,6 +83,7 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             destination: destination,
             repairTarget: configuration.repairTarget,
             root: configuration.downloadRoot,
+            fileSystem: fileSystem,
             state: state,
             trackMetadata: trackMetadata,
             trackStarted: trackStarted,
@@ -94,6 +97,7 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             fileInfo: fileInfo,
             destination: destination,
             repairTarget: configuration.repairTarget,
+            fileSystem: fileSystem,
             state: state,
             trackMetadata: trackMetadata,
             continuation: continuation

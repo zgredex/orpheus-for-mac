@@ -5,20 +5,17 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
     private let assetWriter: QobuzCollectionAssetWriter
     private let reuseRegistry: QobuzAudioReuseRegistry
     private let deliveryPolicy: QobuzDeliveryPolicy
-    private let fileManager: FileManager
 
     init(
         validator: any MediaValidating,
         assetWriter: QobuzCollectionAssetWriter,
         reuseRegistry: QobuzAudioReuseRegistry,
-        deliveryPolicy: QobuzDeliveryPolicy,
-        fileManager: FileManager
+        deliveryPolicy: QobuzDeliveryPolicy
     ) {
         self.validator = validator
         self.assetWriter = assetWriter
         self.reuseRegistry = reuseRegistry
         self.deliveryPolicy = deliveryPolicy
-        self.fileManager = fileManager
     }
 
     func verifyIfReusable(
@@ -27,17 +24,19 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
         destination: URL,
         repairTarget: QobuzArchiveTrack?,
         root: URL,
+        fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         trackMetadata: [String: String],
         trackStarted: Date,
         continuation: QobuzDownloadContinuation
     ) async throws -> Bool {
-        guard fileManager.fileExists(atPath: destination.path),
-              let provenance = try? assetWriter.provenance(for: destination),
+        let destinationPath = try fileSystem.relativePath(for: destination)
+        guard try fileSystem.metadata(at: destinationPath)?.kind == .regularFile,
+              let provenance = try? assetWriter.provenance(for: destination, fileSystem: fileSystem),
               provenance.matchesIdentityAndFormat(item: item, fileInfo: fileInfo) else { return false }
         do {
             continuation.yield(.validating(track: item))
-            let media = try await validator.validate(destination)
+            let media = try await validator.validate(destination, fileSystem: fileSystem)
             let delivery = try deliveryPolicy.validate(fileInfo: fileInfo, media: media)
             guard provenance.matches(item: item, delivery: delivery) else {
                 throw NativeQobuzError.invalidResponse(
@@ -45,7 +44,7 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
                 )
             }
             try Task.checkCancellation()
-            let checksum = try MusicFileIntegrity.sha256(of: destination)
+            let checksum = try MusicFileIntegrity.sha256(of: destinationPath, in: fileSystem)
             guard provenance.sha256.caseInsensitiveCompare(checksum) == .orderedSame else {
                 throw NativeQobuzError.invalidResponse("Existing file checksum does not match")
             }
@@ -57,14 +56,15 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
                     archiveKind: repairTarget?.archiveKind
                         ?? (provenance.archiveKind == .unclassified ? nil : provenance.archiveKind)
                 ),
-                for: destination
+                for: destination,
+                fileSystem: fileSystem
             )
-            let size = try fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber
+            let size = try fileSystem.metadata(at: destinationPath)?.byteCount ?? 0
             state.recordSkipped(
                 item: item,
                 destination: destination,
                 checksum: checksum,
-                bytes: size?.int64Value ?? 0,
+                bytes: size,
                 delivery: delivery,
                 reuseRegistry: reuseRegistry,
                 root: root

@@ -9,10 +9,10 @@ final class QobuzAudioReuseRegistry: @unchecked Sendable {
         self.index = index
     }
 
-    func load(root: URL) -> [String: URL] {
+    func load(fileSystem: LibraryFileSystem) -> [String: URL] {
         do {
-            let values = try index.values(for: root) {
-                try assetWriter.reusableAudioIndex(root: root)
+            let values = try index.values(for: fileSystem.rootURL) {
+                try assetWriter.reusableAudioIndex(fileSystem: fileSystem)
             }
             qobuzLog.debug(
                 "download.reuse",

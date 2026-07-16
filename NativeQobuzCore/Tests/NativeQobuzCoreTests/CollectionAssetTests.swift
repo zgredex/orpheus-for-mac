@@ -13,10 +13,16 @@ final class CollectionAssetTests: XCTestCase {
         )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Artist/Album/01. Song.flac")
 
         let artwork = try await writer.artwork(for: item.album)
-        let cover = try XCTUnwrap(writer.saveExternalArtwork(try XCTUnwrap(artwork), for: item, audioURL: audio))
+        let cover = try XCTUnwrap(writer.saveExternalArtwork(
+            try XCTUnwrap(artwork),
+            for: item,
+            audioURL: audio,
+            fileSystem: fileSystem
+        ))
 
         XCTAssertEqual(cover.lastPathComponent, "cover.png")
         XCTAssertEqual(try Data(contentsOf: cover), image)
@@ -34,10 +40,14 @@ final class CollectionAssetTests: XCTestCase {
         )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let first = root.appendingPathComponent("Artist/Album/01. Song.flac")
         let second = root.appendingPathComponent("Artist/Album/02. Song.flac")
 
-        let files = try await writer.downloadBooklets(for: [(item, first), (item, second)])
+        let files = try await writer.downloadBooklets(
+            for: [(item, first), (item, second)],
+            fileSystem: fileSystem
+        )
 
         XCTAssertEqual(files.count, 1)
         XCTAssertEqual(files[0].lastPathComponent, "Booklet.pdf")
@@ -51,9 +61,13 @@ final class CollectionAssetTests: XCTestCase {
         )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Primary/Album/01. Song.flac")
 
-        let files = try QobuzCollectionAssetWriter().writeAlbumDescriptions(for: [(item, audio)])
+        let files = try QobuzCollectionAssetWriter().writeAlbumDescriptions(
+            for: [(item, audio)],
+            fileSystem: fileSystem
+        )
 
         XCTAssertEqual(files, [audio.deletingLastPathComponent().appendingPathComponent("description.txt")])
         XCTAssertEqual(try String(contentsOf: files[0], encoding: .utf8), "Qobuz editorial notes.")
@@ -66,9 +80,13 @@ final class CollectionAssetTests: XCTestCase {
         )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Primary/Album/01. Song.flac")
 
-        XCTAssertTrue(try QobuzCollectionAssetWriter().writeAlbumDescriptions(for: [(item, audio)]).isEmpty)
+        XCTAssertTrue(try QobuzCollectionAssetWriter().writeAlbumDescriptions(
+            for: [(item, audio)],
+            fileSystem: fileSystem
+        ).isEmpty)
     }
 
     func testPlaylistWritesExtendedRelativeM3U() throws {
@@ -76,10 +94,15 @@ final class CollectionAssetTests: XCTestCase {
         let plan = QobuzDownloadPlan(request: .playlist(QobuzID("playlist")), title: "Road Trip", tracks: [item])
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Road Trip/01. Primary - Song.mp3")
 
         let playlist = try XCTUnwrap(
-            QobuzCollectionAssetWriter().writePlaylist(plan: plan, outputs: [(item, audio)], downloadRoot: root)
+            QobuzCollectionAssetWriter().writePlaylist(
+                plan: plan,
+                outputs: [(item, audio)],
+                fileSystem: fileSystem
+            )
         )
         let contents = try String(contentsOf: playlist, encoding: .utf8)
 
@@ -111,11 +134,20 @@ final class CollectionAssetTests: XCTestCase {
         )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Primary/Album/01. Song.mp3")
         let writer = QobuzCollectionAssetWriter()
 
-        let m3u = try XCTUnwrap(writer.writePlaylist(plan: plan, outputs: [(item, audio)], downloadRoot: root))
-        _ = try writer.recordLibraryCollections(plan: plan, outputs: [(item, audio)], downloadRoot: root)
+        let m3u = try XCTUnwrap(writer.writePlaylist(
+            plan: plan,
+            outputs: [(item, audio)],
+            fileSystem: fileSystem
+        ))
+        _ = try writer.recordLibraryCollections(
+            plan: plan,
+            outputs: [(item, audio)],
+            fileSystem: fileSystem
+        )
         let manifest = try QobuzLibraryManifestIO.load(at: root)
 
         let record = try XCTUnwrap(manifest.collections.first)
@@ -136,6 +168,7 @@ final class CollectionAssetTests: XCTestCase {
         let item = makeItem(collection: .album(id: QobuzID("album"), title: "Album"))
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Artist/Album/01. Song.flac")
         try FileManager.default.createDirectory(at: audio.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("abc".utf8).write(to: audio)
@@ -145,7 +178,8 @@ final class CollectionAssetTests: XCTestCase {
         try Data("\(oldHash)  older.flac\n".utf8).write(to: manifest)
 
         let manifests = try QobuzCollectionAssetWriter().writeChecksumManifests(
-            for: [(item, audio, checksum)]
+            for: [(item, audio, checksum)],
+            fileSystem: fileSystem
         )
 
         XCTAssertEqual(checksum, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -153,7 +187,10 @@ final class CollectionAssetTests: XCTestCase {
         let manifestContents = try String(contentsOf: manifests[0], encoding: .utf8)
         XCTAssertTrue(manifestContents.contains("\(checksum)  01. Song.flac\n"))
         XCTAssertTrue(manifestContents.contains("\(oldHash)  older.flac\n"))
-        XCTAssertEqual(try QobuzCollectionAssetWriter().expectedChecksum(for: audio), checksum)
+        XCTAssertEqual(
+            try QobuzCollectionAssetWriter().expectedChecksum(for: audio, fileSystem: fileSystem),
+            checksum
+        )
         try Data("changed".utf8).write(to: audio)
         XCTAssertFalse(try MusicFileIntegrity.verify(audio, expectedSHA256: checksum))
     }
@@ -162,6 +199,7 @@ final class CollectionAssetTests: XCTestCase {
         let item = makeItem(collection: .album(id: QobuzID("album"), title: "Album"))
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Artist/Album/01. Song.flac")
         try FileManager.default.createDirectory(at: audio.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("audio".utf8).write(to: audio)
@@ -178,9 +216,9 @@ final class CollectionAssetTests: XCTestCase {
         )
         let writer = QobuzCollectionAssetWriter()
 
-        try writer.recordProvenance(provenance, for: audio)
+        try writer.recordProvenance(provenance, for: audio, fileSystem: fileSystem)
 
-        XCTAssertEqual(try writer.provenance(for: audio), provenance)
+        XCTAssertEqual(try writer.provenance(for: audio, fileSystem: fileSystem), provenance)
         XCTAssertTrue(provenance.belongs(to: item))
         XCTAssertTrue(provenance.matches(item: item, delivery: try validatedTestDelivery(for: fileInfo)))
         let encoded = try JSONEncoder().encode(provenance)

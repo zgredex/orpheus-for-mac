@@ -10,15 +10,9 @@ struct QobuzArchiveIntegrityEvaluation {
 }
 
 struct QobuzArchiveIntegrityEvaluator {
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager) {
-        self.fileManager = fileManager
-    }
-
     func evaluate(
-        audioURL: URL,
-        relativePath: String,
+        audioPath: LibraryRelativePath,
+        fileSystem: LibraryFileSystem,
         provenance: QobuzFileProvenance,
         manifestChecksum: String?,
         previous: QobuzArchiveTrack?,
@@ -27,7 +21,8 @@ struct QobuzArchiveIntegrityEvaluator {
         let metadataConflict = manifestChecksum.map {
             $0.caseInsensitiveCompare(provenance.sha256) != .orderedSame
         } ?? false
-        guard fileManager.fileExists(atPath: audioURL.path) else {
+        let relativePath = audioPath.rawValue
+        guard let fileMetadata = try? fileSystem.metadata(at: audioPath) else {
             return QobuzArchiveIntegrityEvaluation(
                 actualChecksum: nil,
                 byteCount: nil,
@@ -39,9 +34,11 @@ struct QobuzArchiveIntegrityEvaluator {
         }
 
         do {
-            let attributes = try fileManager.attributesOfItem(atPath: audioURL.path)
-            let byteCount = (attributes[.size] as? NSNumber)?.int64Value
-            let modificationDate = attributes[.modificationDate] as? Date
+            guard fileMetadata.kind == .regularFile else {
+                throw LibraryFileSystemError.notRegularFile(relativePath)
+            }
+            let byteCount = fileMetadata.byteCount
+            let modificationDate = fileMetadata.modificationDate
             if !metadataConflict,
                let previous,
                canReuseIntegrity(
@@ -60,7 +57,7 @@ struct QobuzArchiveIntegrityEvaluator {
                 )
             }
 
-            let actualChecksum = try MusicFileIntegrity.sha256(of: audioURL)
+            let actualChecksum = try MusicFileIntegrity.sha256(of: audioPath, in: fileSystem)
             let integrity: QobuzArchiveIntegrity
             if metadataConflict {
                 integrity = .metadataConflict
