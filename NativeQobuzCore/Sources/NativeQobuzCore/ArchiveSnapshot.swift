@@ -36,6 +36,7 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
         tracks = try container.decode([QobuzArchiveTrack].self, forKey: .tracks)
         issues = try container.decodeIfPresent([QobuzArchiveIssue].self, forKey: .issues) ?? []
         collections = try container.decodeIfPresent([QobuzLibraryCollectionRecord].self, forKey: .collections) ?? []
+        try validate()
     }
 
     public var library: QobuzArchiveLibrary { QobuzArchiveLibrary(tracks: tracks, collections: collections) }

@@ -67,7 +67,15 @@ final class NativeAppLifecycleController {
                 fileURLWithPath: account.settings.downloadPath,
                 isDirectory: true
             ).standardizedFileURL
-            library.loadCache(for: libraryRoot)
+            if library.loadCache(for: libraryRoot) == .rejected {
+                qobuzLog.notice(
+                    "library.cache",
+                    "No valid archive cache is available; rebuilding from the Library"
+                )
+                library.refresh(root: libraryRoot) { message in
+                    onNotice(message)
+                }
+            }
             do {
                 try session.restore()
             } catch {

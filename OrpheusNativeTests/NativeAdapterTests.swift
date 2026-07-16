@@ -525,7 +525,7 @@ final class NativeAdapterTests: XCTestCase {
 
         try store.save(snapshot)
 
-        XCTAssertEqual(try store.load(), snapshot)
+        XCTAssertEqual(try store.load(), .restored(snapshot))
         XCTAssertTrue(paths.archiveIndexURL.path.hasPrefix(paths.applicationSupportRoot.path))
     }
 
@@ -1262,8 +1262,8 @@ private final class MemoryArchiveStore: NativeArchiveIndexStoring, @unchecked Se
         lock.withLock { stored }
     }
 
-    func load() throws -> QobuzArchiveSnapshot? {
-        lock.withLock { stored }
+    func load() throws -> NativeArchiveIndexLoadResult {
+        lock.withLock { stored.map(NativeArchiveIndexLoadResult.restored) ?? .missing }
     }
 
     func save(_ snapshot: QobuzArchiveSnapshot) throws {

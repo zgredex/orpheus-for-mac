@@ -7,6 +7,12 @@ struct NativePendingLibraryAdoption {
     let result: QobuzLibraryAdoptionResult
 }
 
+enum NativeLibraryCacheLoadStatus: Equatable {
+    case restored
+    case missing
+    case rejected
+}
+
 @MainActor
 final class NativeLibraryController: ObservableObject {
     @Published private(set) var isOpen = false
@@ -29,10 +35,12 @@ final class NativeLibraryController: ObservableObject {
         self.adopter = adopter
     }
 
-    func loadCache(for root: URL) {
+    @discardableResult
+    func loadCache(for root: URL) -> NativeLibraryCacheLoadStatus {
         let rootPath = root.standardizedFileURL.path
         do {
-            if let cached = try archiveStore.load(), cached.rootPath == rootPath {
+            switch try archiveStore.load() {
+            case .restored(let cached) where cached.rootPath == rootPath:
                 snapshot = cached
                 qobuzLog.debug(
                     "library.cache",
@@ -42,13 +50,22 @@ final class NativeLibraryController: ObservableObject {
                         "problemCount": String(cached.problemCount)
                     ]
                 )
-            } else {
+                return .restored
+            case .restored:
                 snapshot = nil
                 qobuzLog.debug("library.cache", "Archive cache did not match the current download root")
+                return .missing
+            case .missing:
+                snapshot = nil
+                return .missing
+            case .rejected:
+                snapshot = nil
+                return .rejected
             }
         } catch {
             snapshot = nil
             qobuzLog.warning("library.cache", "Archive cache could not be restored", error: error)
+            return .missing
         }
     }
 

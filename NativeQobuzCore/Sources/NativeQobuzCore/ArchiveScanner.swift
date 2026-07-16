@@ -89,7 +89,12 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         }
 
         tracks.sort { ($0.qobuzAlbumID, $0.relativePath) < ($1.qobuzAlbumID, $1.relativePath) }
-        let collections = loadCollections(fileSystem: fileSystem, issues: &issues, scanMetadata: scanMetadata)
+        let collections = loadCollections(
+            fileSystem: fileSystem,
+            physicalTrackPaths: Set(tracks.map(\.relativePath)),
+            issues: &issues,
+            scanMetadata: scanMetadata
+        )
         let snapshot = QobuzArchiveSnapshot(
             rootPath: root.path,
             tracks: tracks,
@@ -205,22 +210,17 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
 
     private func loadCollections(
         fileSystem: LibraryFileSystem,
+        physicalTrackPaths: Set<String>,
         issues: inout [QobuzArchiveIssue],
         scanMetadata: [String: String]
     ) -> [QobuzLibraryCollectionRecord] {
         do {
             let manifest = try QobuzLibraryManifestIO.load(in: fileSystem)
-            return manifest.collections.filter { record in
-                let paths = [record.relativePath] + record.trackPaths + [record.artworkRelativePath].compactMap { $0 }
-                let safe = paths.allSatisfy(QobuzPathSafety.isSafeRelativePath)
-                if !safe {
-                    issues.append(QobuzArchiveIssue(
-                        relativePath: QobuzLibraryManifestIO.filename,
-                        message: "Ignored a collection containing an unsafe relative path."
-                    ))
-                }
-                return safe
-            }
+            try QobuzArchiveSnapshotValidation.validateCollections(
+                manifest.collections,
+                physicalTrackPaths: physicalTrackPaths
+            )
+            return manifest.collections
         } catch {
             qobuzLog.error(
                 "library.scan.manifest",

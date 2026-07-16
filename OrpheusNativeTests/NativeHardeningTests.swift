@@ -50,7 +50,7 @@ final class NativeHardeningTests: XCTestCase {
         XCTAssertEqual(scanner.scanCount, 2)
     }
 
-    func testArchiveCacheRejectsUnsafeRelativeTrackPaths() throws {
+    func testArchiveCacheQuarantinesUnsafeRelativeTrackPaths() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(
@@ -68,16 +68,77 @@ final class NativeHardeningTests: XCTestCase {
             integrity: .verified,
             archiveKind: .album
         )
-        try store.save(QobuzArchiveSnapshot(rootPath: paths.defaultDownloadRoot.path, tracks: [unsafe]))
+        try FileManager.default.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(
+            QobuzArchiveSnapshot(rootPath: paths.defaultDownloadRoot.path, tracks: [unsafe])
+        ).write(to: paths.archiveIndexURL)
 
-        XCTAssertThrowsError(try store.load()) { error in
-            XCTAssertTrue(error.localizedDescription.contains("unsafe track path"))
+        XCTAssertEqual(try store.load(), .rejected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.archiveIndexURL.path))
+        let rejected = try FileManager.default.contentsOfDirectory(
+            at: paths.applicationSupportRoot,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("archive-index.rejected-") }
+        XCTAssertEqual(rejected.count, 1)
+    }
+
+    func testRejectedArchiveCacheRebuildsAutomaticallyAtStartup() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        let duplicate = QobuzArchiveTrack(
+            relativePath: "Artist/Album/01.flac",
+            qobuzTrackID: "track",
+            qobuzAlbumID: "album",
+            formatID: 27,
+            expectedSHA256: String(repeating: "a", count: 64),
+            actualSHA256: String(repeating: "a", count: 64),
+            integrity: .verified,
+            archiveKind: .album
+        )
+        let invalid = QobuzArchiveSnapshot(
+            rootPath: paths.defaultDownloadRoot.path,
+            tracks: [duplicate, duplicate]
+        )
+        try FileManager.default.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        try JSONEncoder().encode(invalid).write(to: paths.archiveIndexURL)
+        let rebuilt = QobuzArchiveSnapshot(rootPath: paths.defaultDownloadRoot.path, tracks: [])
+        let scanner = ImmediateArchiveScanner(snapshot: rebuilt)
+        let viewModel = NativeViewModel(paths: paths, archiveScanner: scanner)
+
+        viewModel.start()
+        for _ in 0..<100 where viewModel.archiveSnapshot == nil || viewModel.isArchiveScanning {
+            try await Task.sleep(for: .milliseconds(10))
         }
+
+        XCTAssertEqual(viewModel.archiveSnapshot, rebuilt)
+        XCTAssertEqual(scanner.scanCount, 1)
+        XCTAssertEqual(try NativeArchiveIndexStore(paths: paths).load(), .restored(rebuilt))
     }
 
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("NativeHardeningTests-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
+private final class ImmediateArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
+    private let snapshot: QobuzArchiveSnapshot
+    private let lock = NSLock()
+    private var scans = 0
+
+    init(snapshot: QobuzArchiveSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    var scanCount: Int { lock.withLock { scans } }
+
+    func scan(root: URL) async throws -> QobuzArchiveSnapshot {
+        lock.withLock { scans += 1 }
+        return snapshot
     }
 }
 

@@ -9,7 +9,14 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
         tracks: [QobuzArchiveTrack],
         collections: [QobuzLibraryCollectionRecord] = []
     ) {
-        let tracksByPath = Dictionary(uniqueKeysWithValues: tracks.map { ($0.relativePath, $0) })
+        // Decoded snapshots reject duplicate paths. Keep this projection total as
+        // well so a malformed value assembled by a caller can never crash the UI.
+        var tracksByPath: [String: QobuzArchiveTrack] = [:]
+        var uniqueTracks: [QobuzArchiveTrack] = []
+        for track in tracks where tracksByPath[track.relativePath] == nil {
+            tracksByPath[track.relativePath] = track
+            uniqueTracks.append(track)
+        }
         let logicalEntries = collections.compactMap { record -> QobuzArchiveEntry? in
             let values = record.trackPaths.compactMap { tracksByPath[$0] }
             guard !values.isEmpty else { return nil }
@@ -23,7 +30,7 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
             )
         }
         let referencedPaths = Set(collections.flatMap(\.trackPaths))
-        let fallbackTracks = tracks.filter {
+        let fallbackTracks = uniqueTracks.filter {
             !referencedPaths.contains($0.relativePath) && !$0.isLibraryManaged
         }
         let grouped = Dictionary(grouping: fallbackTracks, by: Self.groupKey)
