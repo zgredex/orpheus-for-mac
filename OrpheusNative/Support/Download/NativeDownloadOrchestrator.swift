@@ -44,18 +44,17 @@ final class NativeDownloadOrchestrator {
     }
 
     func resume(_ activity: NativeDownloadActivity) {
-        downloads.resume(
-            activity,
-            client: account.client,
-            credentialsConfigured: account.credentials.isComplete,
-            defaultQuality: account.settings.quality,
-            defaultRootPath: account.settings.downloadPath
-        )
+        recover(activity, action: .resume)
     }
 
     func retry(_ activity: NativeDownloadActivity) {
-        downloads.retry(
+        recover(activity, action: .retry)
+    }
+
+    private func recover(_ activity: NativeDownloadActivity, action: NativeDownloadRecoveryAction) {
+        downloads.recover(
             activity,
+            action: action,
             client: account.client,
             credentialsConfigured: account.credentials.isComplete,
             defaultQuality: account.settings.quality,

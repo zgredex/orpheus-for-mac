@@ -51,9 +51,7 @@ public final class LibraryFileSystem: @unchecked Sendable {
     }
 
     public func read(_ path: LibraryRelativePath) throws -> Data {
-        let handle = try readableHandle(at: path)
-        defer { try? handle.close() }
-        return try handle.readToEnd() ?? Data()
+        try withReadableHandle(at: path) { try $0.readToEnd() ?? Data() }
     }
 
     public func readString(_ path: LibraryRelativePath) throws -> String {
@@ -64,19 +62,20 @@ public final class LibraryFileSystem: @unchecked Sendable {
     }
 
     public func readableHandle(at path: LibraryRelativePath) throws -> FileHandle {
-        try root.withParent(of: path) { parent, leaf in
-            let descriptor = leaf.withCString { openat(parent, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) }
-            guard descriptor >= 0 else {
-                throw mappedError(operation: "openat-read", path: path.rawValue, code: errno)
-            }
-            do {
-                try Self.requireRegularFile(descriptor, path: path)
-                return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-            } catch {
-                close(descriptor)
-                throw error
-            }
-        }
+        try openHandle(
+            at: path,
+            flags: O_RDONLY | O_NOFOLLOW | O_CLOEXEC,
+            operation: "openat-read"
+        )
+    }
+
+    public func withReadableHandle<T>(
+        at path: LibraryRelativePath,
+        _ body: (FileHandle) throws -> T
+    ) throws -> T {
+        let handle = try readableHandle(at: path)
+        defer { try? handle.close() }
+        return try body(handle)
     }
 
     public func withInheritedReadableDescriptor<T>(
@@ -101,11 +100,29 @@ public final class LibraryFileSystem: @unchecked Sendable {
         truncate: Bool,
         createParents: Bool = true
     ) throws -> FileHandle {
+        try openHandle(
+            at: path,
+            flags: O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (truncate ? O_TRUNC : 0),
+            createParents: createParents,
+            creationMode: mode_t(0o600),
+            operation: "openat-write"
+        )
+    }
+
+    private func openHandle(
+        at path: LibraryRelativePath,
+        flags: Int32,
+        createParents: Bool = false,
+        creationMode: mode_t? = nil,
+        operation: String
+    ) throws -> FileHandle {
         try root.withParent(of: path, create: createParents) { parent, leaf in
-            let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (truncate ? O_TRUNC : 0)
-            let descriptor = leaf.withCString { openat(parent, $0, flags, mode_t(0o600)) }
+            let descriptor = leaf.withCString { name in
+                if let creationMode { openat(parent, name, flags, creationMode) }
+                else { openat(parent, name, flags) }
+            }
             guard descriptor >= 0 else {
-                throw mappedError(operation: "openat-write", path: path.rawValue, code: errno)
+                throw mappedError(operation: operation, path: path.rawValue, code: errno)
             }
             do {
                 try Self.requireRegularFile(descriptor, path: path)

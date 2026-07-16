@@ -71,4 +71,5 @@ if rg -n '^[[:space:]]+(var|let) status:' \
 fi
 
 if [ "$failed" -ne 0 ]; then exit 1; fi
+"$ROOT/scripts/ci/verify_duplication.py"
 printf 'Architecture guardrails passed.\n'

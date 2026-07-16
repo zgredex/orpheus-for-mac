@@ -20,8 +20,41 @@ public extension QobuzCatalogAvailability {
     }
 }
 
-public extension QobuzAlbumSummary {
-    var catalogMetadata: QobuzAlbumCatalogMetadata {
+private protocol QobuzCatalogAudioCapabilitySource {
+    var maximumBitDepth: Int? { get }
+    var maximumSamplingRate: Double? { get }
+    var maximumChannelCount: Int? { get }
+}
+
+private extension QobuzCatalogAudioCapabilitySource {
+    var projectedAudioCapabilities: QobuzCatalogAudioCapabilities {
+        QobuzCatalogAudioCapabilities(
+            maximumBitDepth: maximumBitDepth,
+            maximumSamplingRate: maximumSamplingRate,
+            maximumChannelCount: maximumChannelCount
+        )
+    }
+}
+
+private protocol QobuzAlbumCatalogMetadataSource: QobuzCatalogAudioCapabilitySource {
+    var releaseType: QobuzReleaseType? { get }
+    var releaseTags: [String] { get }
+    var genresList: [String] { get }
+    var genre: String? { get }
+    var isOfficial: Bool? { get }
+    var releaseDate: String? { get }
+    var subtitle: String? { get }
+    var awards: [QobuzEditorialAward] { get }
+    var streamable: Bool? { get }
+    var downloadable: Bool? { get }
+    var displayable: Bool? { get }
+    var purchasable: Bool? { get }
+    var projectedCatchline: String? { get }
+    var projectedEditorialDescription: String? { get }
+}
+
+private extension QobuzAlbumCatalogMetadataSource {
+    var projectedAlbumCatalogMetadata: QobuzAlbumCatalogMetadata {
         QobuzAlbumCatalogMetadata(
             releaseType: releaseType,
             releaseTags: releaseTags,
@@ -29,12 +62,10 @@ public extension QobuzAlbumSummary {
             isOfficial: isOfficial,
             releaseDate: releaseDate,
             subtitle: subtitle,
+            catchline: projectedCatchline,
+            editorialDescription: projectedEditorialDescription,
             awards: awards,
-            audioCapabilities: QobuzCatalogAudioCapabilities(
-                maximumBitDepth: maximumBitDepth,
-                maximumSamplingRate: maximumSamplingRate,
-                maximumChannelCount: maximumChannelCount
-            ),
+            audioCapabilities: projectedAudioCapabilities,
             availability: QobuzCatalogAvailability(
                 streamable: streamable,
                 downloadable: downloadable,
@@ -42,6 +73,24 @@ public extension QobuzAlbumSummary {
                 purchasable: purchasable
             )
         )
+    }
+}
+
+extension QobuzAlbumSummary: QobuzAlbumCatalogMetadataSource {
+    fileprivate var projectedCatchline: String? { nil }
+    fileprivate var projectedEditorialDescription: String? { nil }
+}
+
+extension QobuzAlbum: QobuzAlbumCatalogMetadataSource {
+    fileprivate var projectedCatchline: String? { catchline }
+    fileprivate var projectedEditorialDescription: String? { albumDescription }
+}
+
+extension QobuzTrack: QobuzCatalogAudioCapabilitySource {}
+
+public extension QobuzAlbumSummary {
+    var catalogMetadata: QobuzAlbumCatalogMetadata {
+        projectedAlbumCatalogMetadata
     }
 
     var albumArtistDisplayName: String {
@@ -61,11 +110,7 @@ public extension QobuzAlbumSummary {
 public extension QobuzTrack {
     var catalogMetadata: QobuzTrackCatalogMetadata {
         QobuzTrackCatalogMetadata(
-            audioCapabilities: QobuzCatalogAudioCapabilities(
-                maximumBitDepth: maximumBitDepth,
-                maximumSamplingRate: maximumSamplingRate,
-                maximumChannelCount: maximumChannelCount
-            ),
+            audioCapabilities: projectedAudioCapabilities,
             availability: QobuzCatalogAvailability(
                 streamable: streamable,
                 downloadable: downloadable,
@@ -87,28 +132,7 @@ public extension QobuzTrack {
 
 public extension QobuzAlbum {
     var catalogMetadata: QobuzAlbumCatalogMetadata {
-        QobuzAlbumCatalogMetadata(
-            releaseType: releaseType,
-            releaseTags: releaseTags,
-            genres: genresList.isEmpty ? [genre].compactMap { $0 } : genresList,
-            isOfficial: isOfficial,
-            releaseDate: releaseDate,
-            subtitle: subtitle,
-            catchline: catchline,
-            editorialDescription: albumDescription,
-            awards: awards,
-            audioCapabilities: QobuzCatalogAudioCapabilities(
-                maximumBitDepth: maximumBitDepth,
-                maximumSamplingRate: maximumSamplingRate,
-                maximumChannelCount: maximumChannelCount
-            ),
-            availability: QobuzCatalogAvailability(
-                streamable: streamable,
-                downloadable: downloadable,
-                displayable: displayable,
-                purchasable: purchasable
-            )
-        )
+        projectedAlbumCatalogMetadata
     }
 
     var albumArtistDisplayName: String {

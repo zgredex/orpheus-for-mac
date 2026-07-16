@@ -96,14 +96,23 @@ public struct QobuzPlaylistOwner: Codable, Equatable, Sendable {
     }
 }
 
+private struct QobuzAlbumPageState: Equatable, Sendable {
+    let albums: [QobuzAlbum]
+    let total: Int?
+    let offset: Int?
+    let limit: Int?
+}
+
 public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
     public let id: QobuzID
     public let name: String
     public let image: QobuzImage?
-    public let albums: [QobuzAlbum]
-    public let albumsTotal: Int?
-    public let albumsOffset: Int?
-    public let albumsLimit: Int?
+    private let albumPage: QobuzAlbumPageState
+
+    public var albums: [QobuzAlbum] { albumPage.albums }
+    public var albumsTotal: Int? { albumPage.total }
+    public var albumsOffset: Int? { albumPage.offset }
+    public var albumsLimit: Int? { albumPage.limit }
 
     enum CodingKeys: String, CodingKey { case id, name, image, albums }
     private typealias AlbumsContainer = QobuzStrictPage<QobuzAlbum>
@@ -120,10 +129,7 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
         self.id = id
         self.name = name
         self.image = image
-        self.albums = albums
-        self.albumsTotal = albumsTotal
-        self.albumsOffset = albumsOffset
-        self.albumsLimit = albumsLimit
+        albumPage = QobuzAlbumPageState(albums: albums, total: albumsTotal, offset: albumsOffset, limit: albumsLimit)
     }
 
     public init(from decoder: Decoder) throws {
@@ -131,11 +137,10 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
         id = try container.decode(QobuzID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         image = container.qobuzTolerant(QobuzImage.self, forKey: .image)
-        let albumPage = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
-        albums = albumPage?.items ?? []
-        albumsTotal = albumPage?.total
-        albumsOffset = albumPage?.offset
-        albumsLimit = albumPage?.limit
+        let decoded = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
+        albumPage = QobuzAlbumPageState(
+            albums: decoded?.items ?? [], total: decoded?.total, offset: decoded?.offset, limit: decoded?.limit
+        )
     }
 }
 
@@ -143,10 +148,12 @@ public struct QobuzLabelCatalog: Decodable, Equatable, Sendable {
     public let id: QobuzID
     public let name: String
     public let slug: String?
-    public let albums: [QobuzAlbum]
-    public let albumsTotal: Int?
-    public let albumsOffset: Int?
-    public let albumsLimit: Int?
+    private let albumPage: QobuzAlbumPageState
+
+    public var albums: [QobuzAlbum] { albumPage.albums }
+    public var albumsTotal: Int? { albumPage.total }
+    public var albumsOffset: Int? { albumPage.offset }
+    public var albumsLimit: Int? { albumPage.limit }
 
     enum CodingKeys: String, CodingKey { case id, name, slug, albums }
     private typealias AlbumsContainer = QobuzStrictPage<QobuzAlbum>
@@ -163,10 +170,7 @@ public struct QobuzLabelCatalog: Decodable, Equatable, Sendable {
         self.id = id
         self.name = name
         self.slug = slug
-        self.albums = albums
-        self.albumsTotal = albumsTotal
-        self.albumsOffset = albumsOffset
-        self.albumsLimit = albumsLimit
+        albumPage = QobuzAlbumPageState(albums: albums, total: albumsTotal, offset: albumsOffset, limit: albumsLimit)
     }
 
     public init(from decoder: Decoder) throws {
@@ -174,11 +178,10 @@ public struct QobuzLabelCatalog: Decodable, Equatable, Sendable {
         id = try container.decode(QobuzID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         slug = container.qobuzTolerant(String.self, forKey: .slug)
-        let page = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
-        albums = page?.items ?? []
-        albumsTotal = page?.total
-        albumsOffset = page?.offset
-        albumsLimit = page?.limit
+        let decoded = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
+        albumPage = QobuzAlbumPageState(
+            albums: decoded?.items ?? [], total: decoded?.total, offset: decoded?.offset, limit: decoded?.limit
+        )
     }
 
 }

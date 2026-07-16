@@ -11,14 +11,8 @@ struct CollectionPreview: View {
     var libraryStatus: NativeLibraryStatus?
     var trackLibraryStatus: ((QobuzTrack) -> NativeLibraryStatus?)?
     var trackAvailabilityMessage: ((QobuzTrack) -> String?)?
-    var selectedTrackIDs: Set<QobuzID>?
-    var onToggleTrackSelection: ((QobuzID) -> Void)?
-    var onSelectAllTracks: (() -> Void)?
-    var onClearTrackSelection: (() -> Void)?
-    var hasMore = false
-    var isLoadingMore = false
-    var loadMoreError: String?
-    var loadMore: (() -> Void)?
+    var selection: PlaylistTrackSelection?
+    var pagination: CatalogPagination?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
@@ -35,12 +29,7 @@ struct CollectionPreview: View {
                     editorialDescription: collectionDescription
                 )
                 if let libraryStatus {
-                    HStack {
-                        LibraryStatusLabel(status: libraryStatus)
-                        Spacer()
-                    }
-                    .padding(.horizontal, DS.Space.l)
-                    .padding(.vertical, DS.Space.s)
+                    PreviewLibraryStatusStrip(status: libraryStatus)
                     Divider()
                 }
                 selectionBar
@@ -54,16 +43,17 @@ struct CollectionPreview: View {
                             libraryStatus: trackLibraryStatus?(track),
                             quality: .catalog(track),
                             unavailableReason: trackAvailabilityMessage?(track),
-                            isSelected: selectedTrackIDs.map { $0.contains(track.id) },
-                            toggleSelection: onToggleTrackSelection.map { toggle in { toggle(track.id) } }
+                            isSelected: selection.map { $0.selectedTrackIDs.contains(track.id) },
+                            toggleSelection: selection.map { selection in { selection.toggle(track.id) } }
                         )
                     }
-                    if hasMore || isLoadingMore || loadMoreError != nil {
+                    if let pagination,
+                       pagination.hasMore || pagination.isLoading || pagination.errorMessage != nil {
                         CatalogPaginationRow(
                             subject: "tracks",
-                            isLoading: isLoadingMore,
-                            errorMessage: loadMoreError,
-                            loadMore: loadMore
+                            isLoading: pagination.isLoading,
+                            errorMessage: pagination.errorMessage,
+                            loadMore: pagination.loadMore
                         )
                     }
                 }
@@ -73,25 +63,13 @@ struct CollectionPreview: View {
     }
 
     @ViewBuilder private var selectionBar: some View {
-        if let selectedTrackIDs, onToggleTrackSelection != nil {
-            HStack(spacing: DS.Space.s) {
-                Label(
-                    "\(selectedTrackIDs.count) of \(availableTrackCount) selected",
-                    systemImage: "checklist"
-                )
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                Spacer()
-                Button("All", action: { onSelectAllTracks?() })
-                    .buttonStyle(.borderless)
-                    .disabled(selectedTrackIDs.count == availableTrackCount)
-                Button("None", action: { onClearTrackSelection?() })
-                    .buttonStyle(.borderless)
-                    .disabled(selectedTrackIDs.isEmpty)
-            }
-            .padding(.horizontal, DS.Space.l)
-            .padding(.vertical, DS.Space.s)
-            .background(Color.secondary.opacity(0.08))
+        if let selection {
+            TrackSelectionBar(
+                selectedCount: selection.selectedTrackIDs.count,
+                availableCount: availableTrackCount,
+                selectAll: selection.selectAll,
+                clear: selection.clear
+            )
             Divider()
         }
     }

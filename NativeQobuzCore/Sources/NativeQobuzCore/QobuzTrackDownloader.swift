@@ -102,12 +102,15 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             trackMetadata: trackMetadata,
             continuation: continuation
         )
-        state.recordDownloaded(
-            item: item,
-            destination: destination,
-            checksum: result.checksum,
-            bytes: result.installedBytes,
-            delivery: result.delivery,
+        state.record(
+            QobuzCompletedTrackRecord(
+                item: item,
+                destination: destination,
+                checksum: result.checksum,
+                bytes: result.installedBytes,
+                delivery: result.delivery
+            ),
+            disposition: .downloaded,
             reuseRegistry: reuseRegistry,
             root: configuration.downloadRoot
         )

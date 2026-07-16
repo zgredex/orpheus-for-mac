@@ -3,10 +3,7 @@ import SwiftUI
 
 struct ArtistPreview: View {
     let artist: QobuzArtistCatalog
-    var onOpenAlbum: ((QobuzAlbum) -> Void)?
-    var onAddAlbums: (([QobuzAlbum]) -> Void)?
-    var isAlbumQueued: ((QobuzAlbum) -> Bool)?
-    var albumLibraryStatus: ((QobuzAlbum) -> NativeLibraryStatus?)?
+    var actions: AlbumCatalogActions?
     var hasMore = false
     var isLoadingMore = false
     var loadMoreError: String?
@@ -55,36 +52,13 @@ struct ArtistPreview: View {
     }
 
     @ViewBuilder private var selectionBar: some View {
-        if onAddAlbums != nil {
-            HStack(spacing: DS.Space.m) {
-                Menu {
-                    Button("Select All", systemImage: "checklist") {
-                        selectedAlbumIDs = Set(visibleAlbums.map(\.id)).subtracting(queuedAlbumIDs)
-                    }
-                    Button("Clear Selection", systemImage: "xmark") {
-                        selectedAlbumIDs.removeAll()
-                    }
-                } label: {
-                    Label(selectionLabel, systemImage: "checklist")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Spacer()
-
-                Button {
-                    let albums = selectedAlbums
-                    onAddAlbums?(albums)
-                    selectedAlbumIDs.removeAll()
-                } label: {
-                    Label("Add Selected (\(selectedAlbums.count))", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(selectedAlbums.isEmpty)
-            }
-            .padding(.horizontal, DS.Space.l)
-            .padding(.vertical, DS.Space.s)
+        if let actions {
+            AlbumCatalogSelectionBar(
+                albums: visibleAlbums,
+                queuedIDs: queuedAlbumIDs,
+                selectedIDs: $selectedAlbumIDs,
+                add: actions.add
+            )
         }
     }
 
@@ -113,57 +87,14 @@ struct ArtistPreview: View {
     }
 
     private func albumRow(_ album: QobuzAlbum) -> some View {
-        let queued = isAlbumQueued?(album) ?? false
-        let selected = selectedAlbumIDs.contains(album.id) && !queued
-
-        return HStack(spacing: 10) {
-            Button {
-                if !selectedAlbumIDs.insert(album.id).inserted {
-                    selectedAlbumIDs.remove(album.id)
-                }
-            } label: {
-                Image(systemName: queued ? "checkmark.circle.fill" : selected ? "checkmark.square.fill" : "square")
-                    .font(.body)
-                    .foregroundStyle(queued ? .secondary : selected ? Color.accentColor : .secondary)
-                    .frame(width: 20, height: 24)
-            }
-            .buttonStyle(.plain)
-            .disabled(queued)
-            .help(queued ? "Already in queue" : selected ? "Deselect album" : "Select album")
-
-            Button {
-                onOpenAlbum?(album)
-            } label: {
-                HStack(spacing: 10) {
-                    ArtworkView(url: album.image?.bestURL, size: DS.Artwork.row)
-                    VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                        Text(album.displayTitle)
-                            .font(.rowTitle)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(rowMetadata(for: album))
-                            .font(.rowSubtitle)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: DS.Space.s)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Open \(album.displayTitle)")
-
-            QualityBadge(kind: .catalog(album))
-            if let status = albumLibraryStatus?(album) {
-                LibraryStatusLabel(status: status, compact: true)
-            }
-            if queued {
-                Text("Queued")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, DS.Space.xxs)
+        SelectableAlbumRow(
+            album: album,
+            metadata: rowMetadata(for: album),
+            queued: actions?.isQueued(album) ?? false,
+            libraryStatus: actions?.libraryStatus(album),
+            selectedIDs: $selectedAlbumIDs,
+            open: { actions?.open(album) }
+        )
     }
 
     private var visibleAlbums: [QobuzAlbum] {
@@ -174,15 +105,7 @@ struct ArtistPreview: View {
     }
 
     private var queuedAlbumIDs: Set<QobuzID> {
-        Set(visibleAlbums.filter { isAlbumQueued?($0) ?? false }.map(\.id))
-    }
-
-    private var selectedAlbums: [QobuzAlbum] {
-        visibleAlbums.filter { selectedAlbumIDs.contains($0.id) && !queuedAlbumIDs.contains($0.id) }
-    }
-
-    private var selectionLabel: String {
-        selectedAlbums.isEmpty ? "Select Albums" : "\(selectedAlbums.count) selected"
+        Set(visibleAlbums.filter { actions?.isQueued($0) ?? false }.map(\.id))
     }
 
     private func rowMetadata(for album: QobuzAlbum) -> String {

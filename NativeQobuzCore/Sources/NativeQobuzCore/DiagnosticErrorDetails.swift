@@ -17,25 +17,17 @@ struct QobuzDiagnosticErrorDetails: Sendable {
 
         switch decodingError {
         case .typeMismatch(let expectedType, let context):
-            let expectedTypeName = Self.typeName(expectedType)
-            let path = Self.path(context.codingPath)
-            description = "DecodingError.typeMismatch: expected \(expectedTypeName) at \(path). \(context.debugDescription)"
-            metadata = Self.metadata(
+            (description, metadata) = Self.expectedTypeFailure(
                 kind: "typeMismatch",
-                path: path,
-                context: context,
-                additional: ["expectedType": expectedTypeName]
+                expectedType: expectedType,
+                context: context
             )
 
         case .valueNotFound(let expectedType, let context):
-            let expectedTypeName = Self.typeName(expectedType)
-            let path = Self.path(context.codingPath)
-            description = "DecodingError.valueNotFound: expected \(expectedTypeName) at \(path). \(context.debugDescription)"
-            metadata = Self.metadata(
+            (description, metadata) = Self.expectedTypeFailure(
                 kind: "valueNotFound",
-                path: path,
-                context: context,
-                additional: ["expectedType": expectedTypeName]
+                expectedType: expectedType,
+                context: context
             )
 
         case .keyNotFound(let key, let context):
@@ -57,6 +49,24 @@ struct QobuzDiagnosticErrorDetails: Sendable {
             description = String(describing: decodingError)
             metadata = ["decodingKind": "unknown"]
         }
+    }
+
+    private static func expectedTypeFailure(
+        kind: String,
+        expectedType: Any.Type,
+        context: DecodingError.Context
+    ) -> (description: String, metadata: [String: String]) {
+        let expectedTypeName = typeName(expectedType)
+        let codingPath = path(context.codingPath)
+        return (
+            "DecodingError.\(kind): expected \(expectedTypeName) at \(codingPath). \(context.debugDescription)",
+            metadata(
+                kind: kind,
+                path: codingPath,
+                context: context,
+                additional: ["expectedType": expectedTypeName]
+            )
+        )
     }
 
     private static func metadata(

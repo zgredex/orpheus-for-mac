@@ -1,15 +1,36 @@
 import Foundation
 
-struct ID3v23Writer: Sendable {
+protocol AudioMetadataFileRewriter: Sendable {
+    func rewrite(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        path: LibraryRelativePath,
+        input: FileHandle,
+        fileSystem: LibraryFileSystem
+    ) throws
+}
+
+extension AudioMetadataFileRewriter {
     func write(
         metadata: QobuzAudioMetadata,
         artwork: EmbeddedArtwork?,
         to path: LibraryRelativePath,
         fileSystem: LibraryFileSystem
     ) throws {
-        let input = try fileSystem.readableHandle(at: path)
-        defer { try? input.close() }
+        try fileSystem.withReadableHandle(at: path) {
+            try rewrite(metadata: metadata, artwork: artwork, path: path, input: $0, fileSystem: fileSystem)
+        }
+    }
+}
 
+struct ID3v23Writer: AudioMetadataFileRewriter {
+    func rewrite(
+        metadata: QobuzAudioMetadata,
+        artwork: EmbeddedArtwork?,
+        path: LibraryRelativePath,
+        input: FileHandle,
+        fileSystem: LibraryFileSystem
+    ) throws {
         let prefix = try input.read(upToCount: 10) ?? Data()
         let audioOffset: UInt64
         if prefix.count == 10, prefix.starts(with: Data("ID3".utf8)) {
@@ -126,20 +147,19 @@ struct ID3v23Writer: Sendable {
     }
 }
 
-struct FLACMetadataWriter: Sendable {
+struct FLACMetadataWriter: AudioMetadataFileRewriter {
     private struct Block {
         let type: UInt8
         let data: Data
     }
 
-    func write(
+    func rewrite(
         metadata: QobuzAudioMetadata,
         artwork: EmbeddedArtwork?,
-        to path: LibraryRelativePath,
+        path: LibraryRelativePath,
+        input: FileHandle,
         fileSystem: LibraryFileSystem
     ) throws {
-        let input = try fileSystem.readableHandle(at: path)
-        defer { try? input.close() }
         guard try input.read(upToCount: 4) == Data("fLaC".utf8) else {
             throw NativeQobuzError.fileSystem("Invalid FLAC signature in \(path.lastComponent ?? path.rawValue)")
         }

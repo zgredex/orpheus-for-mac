@@ -182,49 +182,54 @@ final class NativeLibraryController: ObservableObject {
     }
 
     func inspectForAdoption(at root: URL, downloadIsActive: Bool) async throws -> QobuzLibraryAdoptionPlan {
-        guard !downloadIsActive else {
-            throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
+        let (_, plan) = try await performAdoptionOperation(
+            at: root,
+            downloadIsActive: downloadIsActive,
+            requestedMessage: "Library adoption inspection requested",
+            failureMessage: "Library adoption inspection failed"
+        ) {
+            try await adopter.inspect(root: root)
         }
-        let adoptionID = UUID().uuidString
-        qobuzLog.notice(
-            "library.adoption.ui",
-            "Library adoption inspection requested",
-            metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path]
-        )
-        do {
-            return try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
-                try await adopter.inspect(root: root)
-            }
-        } catch {
-            qobuzLog.error(
-                "library.adoption.ui",
-                "Library adoption inspection failed",
-                metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path],
-                error: error
-            )
-            throw error
-        }
+        return plan
     }
 
     func prepareAdoption(at root: URL, downloadIsActive: Bool) async throws -> NativePendingLibraryAdoption {
+        let (adoptionID, result) = try await performAdoptionOperation(
+            at: root,
+            downloadIsActive: downloadIsActive,
+            requestedMessage: "Library adoption confirmed",
+            failureMessage: "Library adoption failed"
+        ) {
+            try await adopter.adopt(root: root)
+        }
+        return NativePendingLibraryAdoption(id: adoptionID, result: result)
+    }
+
+    private func performAdoptionOperation<Value>(
+        at root: URL,
+        downloadIsActive: Bool,
+        requestedMessage: String,
+        failureMessage: String,
+        operation: () async throws -> Value
+    ) async throws -> (id: String, value: Value) {
         guard !downloadIsActive else {
             throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
         }
         let adoptionID = UUID().uuidString
         qobuzLog.notice(
             "library.adoption.ui",
-            "Library adoption confirmed",
+            requestedMessage,
             metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path]
         )
         do {
             let result = try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
-                try await adopter.adopt(root: root)
+                try await operation()
             }
-            return NativePendingLibraryAdoption(id: adoptionID, result: result)
+            return (adoptionID, result)
         } catch {
             qobuzLog.error(
                 "library.adoption.ui",
-                "Library adoption failed",
+                failureMessage,
                 metadata: ["libraryAdoptionID": adoptionID, "candidateRoot": root.path],
                 error: error
             )

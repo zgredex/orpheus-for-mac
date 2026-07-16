@@ -33,41 +33,29 @@ struct NativePreviewView: View {
                     libraryStatus: vm.library.status(for: track)
                 )
             case .playlist(let playlist):
-                let metadata = playlist.catalogMetadata
-                CollectionPreview(
-                    title: playlist.name,
-                    subtitle: playlist.owner.map { "Playlist by \($0.name)" } ?? "Playlist",
-                    tracks: playlist.tracks,
-                    artworkURL: metadata.artworkURL,
-                    metadata: CatalogFormat.playlistFacts(metadata),
-                    collectionDescription: metadata.editorialDescription,
+                PlaylistPreview(
+                    playlist: playlist,
                     libraryStatus: vm.library.status(for: playlist.tracks),
                     trackLibraryStatus: { vm.library.status(for: $0) },
                     trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) },
-                    selectedTrackIDs: vm.queueTrackSelection(for: .playlist(playlist.id)),
-                    onToggleTrackSelection: vm.toggleSelectedQueueTrack,
-                    onSelectAllTracks: vm.selectAllSelectedQueueTracks,
-                    onClearTrackSelection: vm.clearSelectedQueueTracks
+                    selection: vm.queueTrackSelection(for: .playlist(playlist.id)).map {
+                        PlaylistTrackSelection(
+                            selectedTrackIDs: $0,
+                            toggle: vm.toggleSelectedQueueTrack,
+                            selectAll: vm.selectAllSelectedQueueTracks,
+                            clear: vm.clearSelectedQueueTracks
+                        )
+                    }
                 )
             case .artist(let artist):
                 ArtistPreview(
                     artist: artist,
-                    onOpenAlbum: { album in vm.openAlbum(album.id) },
-                    onAddAlbums: vm.addAlbums,
-                    isAlbumQueued: { album in
-                        vm.queue.contains { $0.canonicalURL == QobuzRequest.album(album.id).canonicalURL }
-                    },
-                    albumLibraryStatus: { vm.library.status(for: $0) }
+                    actions: AlbumCatalogActions(viewModel: vm)
                 )
             case .label(let label):
                 LabelPreview(
                     label: label,
-                    onOpenAlbum: { album in vm.openAlbum(album.id) },
-                    onAddAlbums: vm.addAlbums,
-                    isAlbumQueued: { album in
-                        vm.queue.contains { $0.canonicalURL == QobuzRequest.album(album.id).canonicalURL }
-                    },
-                    albumLibraryStatus: { vm.library.status(for: $0) }
+                    actions: AlbumCatalogActions(viewModel: vm)
                 )
             case .error(let message):
                 ContentUnavailableView("Could not load metadata", systemImage: "exclamationmark.triangle", description: Text(message))

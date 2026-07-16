@@ -2,6 +2,14 @@ import Foundation
 import NativeQobuzCore
 @testable import OrpheusNative
 
+extension CredentialDraft {
+    static let complete = CredentialDraft(
+        appID: "app-id",
+        appSecret: "app-secret",
+        authToken: "token"
+    )
+}
+
 struct MemoryCredentialStore: NativeCredentialStoring {
     var credentials: CredentialDraft?
 

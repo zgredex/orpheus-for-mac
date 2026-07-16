@@ -60,12 +60,15 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
                 fileSystem: fileSystem
             )
             let size = try fileSystem.metadata(at: destinationPath)?.byteCount ?? 0
-            state.recordSkipped(
-                item: item,
-                destination: destination,
-                checksum: checksum,
-                bytes: size,
-                delivery: delivery,
+            state.record(
+                QobuzCompletedTrackRecord(
+                    item: item,
+                    destination: destination,
+                    checksum: checksum,
+                    bytes: size,
+                    delivery: delivery
+                ),
+                disposition: .reused,
                 reuseRegistry: reuseRegistry,
                 root: root
             )

@@ -25,9 +25,9 @@ public enum QobuzAvailabilityState: String, Equatable, Sendable {
 
     public init(advertised value: Bool?) {
         switch value {
-        case true: self = .available
-        case false: self = .unavailable
-        case nil: self = .unknown
+        case .some(true): self = .available
+        case .some(false): self = .unavailable
+        case .none: self = .unknown
         }
     }
 }

@@ -266,26 +266,7 @@ final class NativeAdapterTests: XCTestCase {
         var item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
         item.downloadQuality = .hiRes
         item.downloadRootPath = paths.defaultDownloadRoot.path
-        item.trackPlan = [
-            NativeQueueTrack(
-                id: "one#0",
-                qobuzID: QobuzID("one"),
-                title: "One",
-                subtitle: "Artist",
-                duration: 180,
-                position: 1,
-                unavailableReason: nil
-            ),
-            NativeQueueTrack(
-                id: "two#1",
-                qobuzID: QobuzID("two"),
-                title: "Two",
-                subtitle: "Artist",
-                duration: 200,
-                position: 2,
-                unavailableReason: nil
-            )
-        ]
+        item.trackPlan = twoTrackQueuePlan()
         item.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
         item.selectedTrackIDs = [QobuzID("two")]
         var operation = NativeDownloadOperation(
@@ -327,26 +308,7 @@ final class NativeAdapterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         var first = NativeQueueItem(request: .album(QobuzID("album-one")), title: "First")
-        first.trackPlan = [
-            NativeQueueTrack(
-                id: "one#0",
-                qobuzID: QobuzID("one"),
-                title: "One",
-                subtitle: "Artist",
-                duration: 180,
-                position: 1,
-                unavailableReason: nil
-            ),
-            NativeQueueTrack(
-                id: "two#1",
-                qobuzID: QobuzID("two"),
-                title: "Two",
-                subtitle: "Artist",
-                duration: 200,
-                position: 2,
-                unavailableReason: nil
-            )
-        ]
+        first.trackPlan = twoTrackQueuePlan()
         first.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
         let second = NativeQueueItem(request: .album(QobuzID("album-two")), title: "Second")
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
@@ -417,12 +379,7 @@ final class NativeAdapterTests: XCTestCase {
         operation.quality = .hiRes
         operation.recordOutput(output)
         let activity = NativeDownloadActivity(operation: operation)
-        let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
-            queue: [item],
-            operations: [operation],
-            selectedQueueID: item.id,
-            linkInbox: []
-        ))
+        let sessionStore = MemorySessionStore(snapshot: singleItemSession(item: item, operation: operation))
         let viewModel = NativeViewModel(
             paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
@@ -493,12 +450,7 @@ final class NativeAdapterTests: XCTestCase {
         operation.phase = "Downloading"
         operation.progress = 0.35
         operation.bytesPerSecond = 1_000
-        let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
-            queue: [item],
-            operations: [operation],
-            selectedQueueID: item.id,
-            linkInbox: []
-        ))
+        let sessionStore = MemorySessionStore(snapshot: singleItemSession(item: item, operation: operation))
         let viewModel = NativeViewModel(
             paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
@@ -540,16 +492,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testPastedAlbumLinkOpensVerifiedBrowsePageBeforeQueueing() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let service = FakeQobuzService()
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.addText("https://www.qobuz.com/fr-fr/album/30/30")
@@ -581,15 +525,8 @@ final class NativeAdapterTests: XCTestCase {
 
     func testBrowserHandoffOpensPercentEncodedQobuzURLInBrowse() throws {
         for scheme in ["orpheus-for-mac", "orpheus-native"] {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: root) }
-            let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-            let viewModel = NativeViewModel(
-                paths: paths,
-                settingsStore: NativeSettingsStore(paths: paths),
-                credentialStore: MemoryCredentialStore(credentials: .complete),
-                clientFactory: { _ in FakeQobuzService() }
-            )
+            let fixture = NativeViewModelTestFixture(credentials: .complete)
+            let viewModel = fixture.viewModel
             var components = URLComponents()
             components.scheme = scheme
             components.host = "open"
@@ -606,16 +543,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testSeveralPastedLinksEnterReviewedInboxAndNeverMutateQueue() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let service = FakeQobuzService()
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.addText("https://open.qobuz.com/album/a\nhttps://play.qobuz.com/album/b")
@@ -637,15 +566,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testInboxClassifiesAccountRegionMissAsUnavailable() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in FakeQobuzService() }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.addText(
@@ -668,15 +590,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testLabelLinkOpensAccountVerifiedLabelWithoutQueueing() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in FakeQobuzService() }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.addText("https://www.qobuz.com/us-en/label/example/download-streaming-albums/4587")
@@ -693,13 +608,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testMixedAlbumAvailabilityAllowsQueueAndExplainsSkippedTracks() {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore()
-        )
+        let fixture = NativeViewModelTestFixture()
+        let viewModel = fixture.viewModel
         let album = QobuzAlbum(
             id: QobuzID("mixed"),
             title: "Mixed",
@@ -722,16 +632,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testAdeleSearchPopulatesVisibleBrowseStateAndPreservesSelectedCategory() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let service = FakeQobuzService()
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.search("adele")
@@ -753,16 +655,9 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testSearchLoadsASecondCategoryPageAndUpdatesLoadedCounts() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService(paginatedSearch: true)
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete, service: service)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.search("Sting")
@@ -787,16 +682,9 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testArtistBrowseLoadsAdditionalReleasesWithoutReplacingVisiblePage() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let service = FakeQobuzService(paginatedCollections: true)
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete, service: service)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.openArtist(QobuzID("adele"))
@@ -825,13 +713,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testUnknownTrackAvailabilityRemainsQueueableAndExplainsVerification() {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore()
-        )
+        let fixture = NativeViewModelTestFixture()
+        let viewModel = fixture.viewModel
         let track = QobuzTrack(
             id: QobuzID("unknown"),
             title: "Unknown",
@@ -847,16 +730,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testBrowseDrillDownOpensAlbumPageAndBackReturnsToResults() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let service = FakeQobuzService()
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.search("adele")
@@ -884,16 +759,8 @@ final class NativeAdapterTests: XCTestCase {
     }
 
     func testArtistPreviewReportsOfficialReleaseCountInsteadOfCreditedCatalogTotal() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
-        let service = FakeQobuzService()
-        let viewModel = NativeViewModel(
-            paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: .complete),
-            clientFactory: { _ in service }
-        )
+        let fixture = NativeViewModelTestFixture(credentials: .complete)
+        let viewModel = fixture.viewModel
 
         viewModel.start()
         viewModel.addRequest(.artist(QobuzID("adele")), title: "Adele")
@@ -1080,12 +947,7 @@ final class NativeAdapterTests: XCTestCase {
     ) -> NativeViewModel {
         var operation = activity.operation
         operation.status = status
-        let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
-            queue: [item],
-            operations: [operation],
-            selectedQueueID: item.id,
-            linkInbox: []
-        ))
+        let sessionStore = MemorySessionStore(snapshot: singleItemSession(item: item, operation: operation))
         let viewModel = NativeViewModel(
             paths: paths,
             settingsStore: NativeSettingsStore(paths: paths),
@@ -1121,173 +983,5 @@ final class NativeAdapterTests: XCTestCase {
     private func permissions(at url: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777
-    }
-}
-
-private extension CredentialDraft {
-    static let complete = CredentialDraft(appID: "app-id", appSecret: "app-secret", authToken: "token")
-}
-
-private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable {
-    private let paginatedSearch: Bool
-    private let paginatedCollections: Bool
-
-    init(paginatedSearch: Bool = false, paginatedCollections: Bool = false) {
-        self.paginatedSearch = paginatedSearch
-        self.paginatedCollections = paginatedCollections
-    }
-
-    func validateAccount() async throws -> String? { "FR" }
-
-    func search(
-        _ query: String,
-        category: QobuzSearchCategory,
-        limit: Int,
-        offset: Int
-    ) async throws -> QobuzSearchResults {
-        try await Task.sleep(for: .milliseconds(30))
-        if paginatedSearch {
-            guard category == .tracks else {
-                return QobuzSearchResults(offset: offset, total: 0)
-            }
-            if offset == 0 {
-                return QobuzSearchResults(
-                    tracks: [
-                        QobuzTrack(id: .init("track-one"), title: "Track One"),
-                        QobuzTrack(id: .init("track-two"), title: "Track Two")
-                    ],
-                    nextOffset: 2,
-                    total: 3
-                )
-            }
-            return QobuzSearchResults(
-                tracks: [QobuzTrack(id: .init("track-three"), title: "Track Three")],
-                offset: offset,
-                total: 3
-            )
-        }
-        switch category {
-        case .albums:
-            return QobuzSearchResults(albums: [
-                QobuzAlbumSummary(id: .init("30"), title: "30", artist: .init(id: .init("adele"), name: "Adele")),
-                QobuzAlbumSummary(id: .init("19"), title: "19", artist: .init(id: .init("adele"), name: "Adele"))
-            ])
-        case .artists:
-            return QobuzSearchResults(artists: [.init(id: .init("adele"), name: "Adele")])
-        case .playlists:
-            return QobuzSearchResults(playlists: [
-                QobuzPlaylist(
-                    id: .init("adele-essentials"),
-                    name: "Adele Essentials",
-                    tracks: [],
-                    owner: .init(name: "Qobuz"),
-                    tracksCount: 20
-                )
-            ])
-        case .tracks:
-            return QobuzSearchResults(tracks: [
-                QobuzTrack(id: .init("hello"), title: "Hello", performer: .init(id: .init("adele"), name: "Adele"))
-            ])
-        }
-    }
-
-    func track(id: QobuzID) async throws -> QobuzTrack {
-        throw NativeQobuzError.unavailable("Unused by this test")
-    }
-
-    func album(id: QobuzID) async throws -> QobuzAlbum {
-        try await Task.sleep(for: .milliseconds(10))
-        if id == QobuzID("missing-region") {
-            throw NativeQobuzError.unavailable("Album is unavailable for this account region.")
-        }
-        return QobuzAlbum(
-            id: id,
-            title: "30",
-            artist: .init(id: .init("adele"), name: "Adele"),
-            image: QobuzImage(large: URL(string: "https://example.com/30.jpg")),
-            tracks: [QobuzTrack(id: .init("easy"), title: "Easy On Me", trackNumber: 1)],
-            maximumSamplingRate: 96,
-            maximumBitDepth: 24,
-            hiresStreamable: true
-        )
-    }
-
-    func playlist(id: QobuzID) async throws -> QobuzPlaylist {
-        throw NativeQobuzError.unavailable("Unused by this test")
-    }
-
-    func artist(id: QobuzID) async throws -> QobuzArtistCatalog {
-        let adele = QobuzArtist(id: id, name: "Adele")
-        let other = QobuzArtist(id: QobuzID("other"), name: "Tribute Artist")
-        return QobuzArtistCatalog(
-            id: id,
-            name: "Adele",
-            albums: [
-                QobuzAlbum(id: QobuzID("official"), title: "30", artist: adele, tracksCount: 12),
-                QobuzAlbum(id: QobuzID("appearance"), title: "Adele Covers", artist: other, tracksCount: 10),
-                QobuzAlbum(
-                    id: QobuzID("blocked"),
-                    title: "Blocked",
-                    artist: adele,
-                    tracksCount: 1,
-                    streamable: false
-                )
-            ]
-        )
-    }
-
-    func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
-        guard paginatedCollections else { return try await artist(id: id) }
-        let artist = QobuzArtist(id: id, name: "Adele")
-        let albums: [QobuzAlbum]
-        if offset == 0 {
-            albums = [
-                QobuzAlbum(id: QobuzID("first"), title: "First", artist: artist),
-                QobuzAlbum(id: QobuzID("second"), title: "Second", artist: artist)
-            ]
-        } else {
-            albums = [QobuzAlbum(id: QobuzID("third"), title: "Third", artist: artist)]
-        }
-        return QobuzArtistCatalog(
-            id: id,
-            name: artist.name,
-            albums: albums,
-            albumsTotal: 3,
-            albumsOffset: offset,
-            albumsLimit: limit
-        )
-    }
-
-    func label(id: QobuzID) async throws -> QobuzLabelCatalog {
-        let artist = QobuzArtist(id: QobuzID("artist"), name: "Artist")
-        return QobuzLabelCatalog(
-            id: id,
-            name: "Test Label",
-            albums: [QobuzAlbum(id: QobuzID("release"), title: "Release", artist: artist)]
-        )
-    }
-
-    func fileInfo(trackID: QobuzID, format: QobuzAudioFormat) async throws -> QobuzFileInfo {
-        throw NativeQobuzError.unavailable("Unused by this test")
-    }
-}
-
-private final class FakeArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
-    let snapshot: QobuzArchiveSnapshot
-    private let lock = NSLock()
-    private var scans = 0
-
-    init(snapshot: QobuzArchiveSnapshot) {
-        self.snapshot = snapshot
-    }
-
-    var scanCount: Int {
-        lock.withLock { scans }
-    }
-
-    func scan(root: URL) async throws -> QobuzArchiveSnapshot {
-        lock.withLock { scans += 1 }
-        try await Task.sleep(for: .milliseconds(10))
-        return snapshot
     }
 }

@@ -16,25 +16,14 @@ struct EditorialOverview: View {
     var body: some View {
         if !editorial.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.s) {
-                HStack(spacing: DS.Space.s) {
-                    Label(heading, systemImage: "quote.opening")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if canExpand {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
-                        } label: {
-                            Label(
-                                isExpanded ? "Show less" : "Read more",
-                                systemImage: isExpanded ? "chevron.up" : "chevron.down"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.tint)
+                EditorialSectionHeader(
+                    heading: heading,
+                    actionTitle: canExpand ? (isExpanded ? "Show less" : "Read more") : nil,
+                    actionSymbol: isExpanded ? "chevron.up" : "chevron.down",
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
                     }
-                }
+                )
                 .frame(maxWidth: 780)
 
                 if let summary = editorial.summary {

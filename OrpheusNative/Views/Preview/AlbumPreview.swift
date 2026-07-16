@@ -49,12 +49,7 @@ struct AlbumPreview: View {
                     Divider()
                 }
                 if let libraryStatus {
-                    HStack {
-                        LibraryStatusLabel(status: libraryStatus)
-                        Spacer()
-                    }
-                    .padding(.horizontal, DS.Space.l)
-                    .padding(.vertical, DS.Space.s)
+                    PreviewLibraryStatusStrip(status: libraryStatus)
                     Divider()
                 }
                 selectionBar
@@ -82,24 +77,12 @@ struct AlbumPreview: View {
 
     @ViewBuilder private var selectionBar: some View {
         if let selectedTrackIDs, onToggleTrackSelection != nil {
-            HStack(spacing: DS.Space.s) {
-                Label(
-                    "\(selectedTrackIDs.count) of \(album.availableTracks.count) selected",
-                    systemImage: "checklist"
-                )
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                Spacer()
-                Button("All", action: { onSelectAllTracks?() })
-                    .buttonStyle(.borderless)
-                    .disabled(selectedTrackIDs.count == album.availableTracks.count)
-                Button("None", action: { onClearTrackSelection?() })
-                    .buttonStyle(.borderless)
-                    .disabled(selectedTrackIDs.isEmpty)
-            }
-            .padding(.horizontal, DS.Space.l)
-            .padding(.vertical, DS.Space.s)
-            .background(Color.secondary.opacity(0.08))
+            TrackSelectionBar(
+                selectedCount: selectedTrackIDs.count,
+                availableCount: album.availableTracks.count,
+                selectAll: { onSelectAllTracks?() },
+                clear: { onClearTrackSelection?() }
+            )
             Divider()
         }
     }

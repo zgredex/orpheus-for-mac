@@ -97,12 +97,7 @@ struct NativeBrowseView: View {
             detailPage(page) {
                 ArtistPreview(
                     artist: catalog,
-                    onOpenAlbum: { album in vm.openAlbum(album.id) },
-                    onAddAlbums: vm.addAlbums,
-                    isAlbumQueued: { album in
-                        queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
-                    },
-                    albumLibraryStatus: { vm.library.status(for: $0) },
+                    actions: AlbumCatalogActions(viewModel: vm),
                     hasMore: page.hasMore,
                     isLoadingMore: page.isLoadingMore,
                     loadMoreError: page.pagination?.errorMessage,
@@ -119,33 +114,24 @@ struct NativeBrowseView: View {
             }
         case .playlist(let playlist):
             detailPage(page) {
-                let metadata = playlist.catalogMetadata
-                CollectionPreview(
-                    title: playlist.name,
-                    subtitle: playlist.owner.map { "Playlist by \($0.name)" } ?? "Playlist",
-                    tracks: playlist.tracks,
-                    artworkURL: metadata.artworkURL,
-                    metadata: CatalogFormat.playlistFacts(metadata),
-                    collectionDescription: metadata.editorialDescription,
+                PlaylistPreview(
+                    playlist: playlist,
                     libraryStatus: vm.library.status(for: playlist.tracks),
                     trackLibraryStatus: { vm.library.status(for: $0) },
                     trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) },
-                    hasMore: page.hasMore,
-                    isLoadingMore: page.isLoadingMore,
-                    loadMoreError: page.pagination?.errorMessage,
-                    loadMore: { vm.browse.loadMoreCurrentPage() }
+                    pagination: CatalogPagination(
+                        hasMore: page.hasMore,
+                        isLoading: page.isLoadingMore,
+                        errorMessage: page.pagination?.errorMessage,
+                        loadMore: { vm.browse.loadMoreCurrentPage() }
+                    )
                 )
             }
         case .label(let label):
             detailPage(page) {
                 LabelPreview(
                     label: label,
-                    onOpenAlbum: { album in vm.openAlbum(album.id) },
-                    onAddAlbums: vm.addAlbums,
-                    isAlbumQueued: { album in
-                        queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
-                    },
-                    albumLibraryStatus: { vm.library.status(for: $0) },
+                    actions: AlbumCatalogActions(viewModel: vm),
                     hasMore: page.hasMore,
                     isLoadingMore: page.isLoadingMore,
                     loadMoreError: page.pagination?.errorMessage,

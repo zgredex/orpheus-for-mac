@@ -16,18 +16,12 @@ struct EditorialHeroPanel: View {
     var body: some View {
         if !editorial.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.s) {
-                HStack(spacing: DS.Space.s) {
-                    Label(heading, systemImage: "quote.opening")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if editorial.benefitsFromReader {
-                        Button("Read more") { isReaderPresented = true }
-                            .buttonStyle(.plain)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.tint)
-                    }
-                }
+                EditorialSectionHeader(
+                    heading: heading,
+                    actionTitle: editorial.benefitsFromReader ? "Read more" : nil,
+                    actionSymbol: nil,
+                    action: { isReaderPresented = true }
+                )
 
                 if let summary = editorial.summary {
                     Text(summary)

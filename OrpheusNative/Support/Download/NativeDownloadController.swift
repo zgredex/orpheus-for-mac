@@ -219,39 +219,18 @@ final class NativeDownloadController: ObservableObject {
         }
     }
 
-    func resume(
+    func recover(
         _ activity: NativeDownloadActivity,
+        action: NativeDownloadRecoveryAction,
         client: (any NativeQobuzServicing)?,
         credentialsConfigured: Bool,
         defaultQuality: QobuzQuality,
         defaultRootPath: String
     ) {
-        guard status(for: activity).canResume else { return }
+        guard status(for: activity)[keyPath: action.permission] else { return }
         qobuzLog.notice(
             "activity.recovery",
-            "User requested download resume",
-            metadata: ["activityID": activity.id.uuidString, "queueID": activity.queueID.uuidString]
-        )
-        start(
-            ids: [activity.queueID],
-            client: client,
-            credentialsConfigured: credentialsConfigured,
-            defaultQuality: defaultQuality,
-            defaultRootPath: defaultRootPath
-        )
-    }
-
-    func retry(
-        _ activity: NativeDownloadActivity,
-        client: (any NativeQobuzServicing)?,
-        credentialsConfigured: Bool,
-        defaultQuality: QobuzQuality,
-        defaultRootPath: String
-    ) {
-        guard status(for: activity).canRetry else { return }
-        qobuzLog.notice(
-            "activity.recovery",
-            "User requested download retry",
+            action.logMessage,
             metadata: ["activityID": activity.id.uuidString, "queueID": activity.queueID.uuidString]
         )
         start(

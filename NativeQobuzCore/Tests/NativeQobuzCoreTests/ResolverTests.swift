@@ -294,19 +294,14 @@ actor FakeQobuzService: QobuzCatalogService {
     }
 }
 
-private actor DelayedArtistService: QobuzCatalogService {
-    private let artistValue: QobuzArtistCatalog
+private actor DelayedAlbumLookup {
     private let albums: [QobuzID: QobuzAlbum]
     private var activeAlbumRequests = 0
     private(set) var peakConcurrentAlbumRequests = 0
 
-    init(artist: QobuzArtistCatalog, albums: [QobuzAlbum]) {
-        artistValue = artist
+    init(albums: [QobuzAlbum]) {
         self.albums = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
     }
-
-    func validateAccount() async throws -> String? { "FR" }
-    func track(id: QobuzID) async throws -> QobuzTrack { throw NativeQobuzError.unavailable("Unused") }
 
     func album(id: QobuzID) async throws -> QobuzAlbum {
         activeAlbumRequests += 1
@@ -316,6 +311,24 @@ private actor DelayedArtistService: QobuzCatalogService {
         guard let album = albums[id] else { throw NativeQobuzError.unavailable("Missing album") }
         return album
     }
+}
+
+private actor DelayedArtistService: QobuzCatalogService {
+    private let artistValue: QobuzArtistCatalog
+    private let albumLookup: DelayedAlbumLookup
+
+    init(artist: QobuzArtistCatalog, albums: [QobuzAlbum]) {
+        artistValue = artist
+        albumLookup = DelayedAlbumLookup(albums: albums)
+    }
+
+    var peakConcurrentAlbumRequests: Int {
+        get async { await albumLookup.peakConcurrentAlbumRequests }
+    }
+
+    func validateAccount() async throws -> String? { "FR" }
+    func track(id: QobuzID) async throws -> QobuzTrack { throw NativeQobuzError.unavailable("Unused") }
+    func album(id: QobuzID) async throws -> QobuzAlbum { try await albumLookup.album(id: id) }
 
     func playlist(id: QobuzID) async throws -> QobuzPlaylist { throw NativeQobuzError.unavailable("Unused") }
     func artist(id: QobuzID) async throws -> QobuzArtistCatalog { artistValue }
@@ -327,26 +340,20 @@ private actor DelayedArtistService: QobuzCatalogService {
 
 private actor DelayedPlaylistService: QobuzCatalogService {
     private let playlistValue: QobuzPlaylist
-    private let albums: [QobuzID: QobuzAlbum]
-    private var activeAlbumRequests = 0
-    private(set) var peakConcurrentAlbumRequests = 0
+    private let albumLookup: DelayedAlbumLookup
 
     init(playlist: QobuzPlaylist, albums: [QobuzAlbum]) {
         playlistValue = playlist
-        self.albums = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
+        albumLookup = DelayedAlbumLookup(albums: albums)
+    }
+
+    var peakConcurrentAlbumRequests: Int {
+        get async { await albumLookup.peakConcurrentAlbumRequests }
     }
 
     func validateAccount() async throws -> String? { "FR" }
     func track(id: QobuzID) async throws -> QobuzTrack { throw NativeQobuzError.unavailable("Unused") }
-
-    func album(id: QobuzID) async throws -> QobuzAlbum {
-        activeAlbumRequests += 1
-        peakConcurrentAlbumRequests = max(peakConcurrentAlbumRequests, activeAlbumRequests)
-        defer { activeAlbumRequests -= 1 }
-        try await Task.sleep(for: .milliseconds(30))
-        guard let album = albums[id] else { throw NativeQobuzError.unavailable("Missing album") }
-        return album
-    }
+    func album(id: QobuzID) async throws -> QobuzAlbum { try await albumLookup.album(id: id) }
 
     func playlist(id: QobuzID) async throws -> QobuzPlaylist { playlistValue }
     func artist(id: QobuzID) async throws -> QobuzArtistCatalog {

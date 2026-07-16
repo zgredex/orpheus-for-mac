@@ -11,6 +11,19 @@ struct QobuzVerifiedDownloadOutput: Sendable {
     let sha256: String
 }
 
+struct QobuzCompletedTrackRecord: Sendable {
+    let item: QobuzResolvedTrack
+    let destination: URL
+    let checksum: String
+    let bytes: Int64
+    let delivery: QobuzValidatedAudioDelivery
+}
+
+enum QobuzTrackCompletionDisposition: Sendable {
+    case downloaded
+    case reused
+}
+
 final class QobuzDownloadOperationState: @unchecked Sendable {
     private(set) var downloaded = 0
     private(set) var skipped = 0
@@ -26,44 +39,29 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
         self.reusableAudio = reusableAudio
     }
 
-    func recordSkipped(
-        item: QobuzResolvedTrack,
-        destination: URL,
-        checksum: String,
-        bytes: Int64,
-        delivery: QobuzValidatedAudioDelivery,
+    func record(
+        _ completed: QobuzCompletedTrackRecord,
+        disposition: QobuzTrackCompletionDisposition,
         reuseRegistry: QobuzAudioReuseRegistry,
         root: URL
     ) {
-        albumBytes += bytes
-        skipped += 1
-        recordOutput(item: item, destination: destination, checksum: checksum)
-        registerReusable(
-            item: item,
-            delivery: delivery,
-            destination: destination,
-            reuseRegistry: reuseRegistry,
-            root: root
+        albumBytes += completed.bytes
+        switch disposition {
+        case .downloaded:
+            currentTrackBytes = 0
+            downloaded += 1
+        case .reused:
+            skipped += 1
+        }
+        recordOutput(
+            item: completed.item,
+            destination: completed.destination,
+            checksum: completed.checksum
         )
-    }
-
-    func recordDownloaded(
-        item: QobuzResolvedTrack,
-        destination: URL,
-        checksum: String,
-        bytes: Int64,
-        delivery: QobuzValidatedAudioDelivery,
-        reuseRegistry: QobuzAudioReuseRegistry,
-        root: URL
-    ) {
-        albumBytes += bytes
-        currentTrackBytes = 0
-        downloaded += 1
-        recordOutput(item: item, destination: destination, checksum: checksum)
         registerReusable(
-            item: item,
-            delivery: delivery,
-            destination: destination,
+            item: completed.item,
+            delivery: completed.delivery,
+            destination: completed.destination,
             reuseRegistry: reuseRegistry,
             root: root
         )

@@ -16,6 +16,12 @@ final class APITests: XCTestCase {
         XCTAssertEqual(QobuzAudioFormat.hiRes96.formatID, 7)
     }
 
+    func testAvailabilityProjectionPreservesAllOptionalBooleanStates() {
+        XCTAssertEqual(QobuzAvailabilityState(advertised: true), .available)
+        XCTAssertEqual(QobuzAvailabilityState(advertised: false), .unavailable)
+        XCTAssertEqual(QobuzAvailabilityState(advertised: nil), .unknown)
+    }
+
     func testSignatureMatchesPythonReferenceAlgorithm() {
         let signature = QobuzRequestSigner.signature(
             endpoint: "track/getFileUrl",
@@ -35,27 +41,10 @@ final class APITests: XCTestCase {
     }
 
     func testFileInfoUsesSignedQobuzRequestAndDeviceHeaders() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubURLProtocol.self]
-        let session = URLSession(configuration: configuration)
         let requestBox = LockedBox<URLRequest?>(nil)
-        StubURLProtocol.handler = { request in
-            requestBox.set(request)
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            let body = #"{"url":"https://media.example/track.flac","format_id":6,"bit_depth":16,"sampling_rate":44.1,"restrictions":[{"code":"FormatRestrictedByFormatAvailability"}]}"#
-            return (response, Data(body.utf8))
-        }
-
-        let client = QobuzAPIClient(
-            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
-            session: session,
-            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
-            timestamp: { 1_700_000_000 }
+        let client = fileInfoClient(
+            responseBody: #"{"url":"https://media.example/track.flac","format_id":6,"bit_depth":16,"sampling_rate":44.1,"restrictions":[{"code":"FormatRestrictedByFormatAvailability"}]}"#,
+            capturedRequest: requestBox
         )
         let info = try await client.fileInfo(trackID: QobuzID("123"), format: .hiRes)
 
@@ -77,25 +66,10 @@ final class APITests: XCTestCase {
     }
 
     func testFileInfoCanRequestExactFormat7() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubURLProtocol.self]
         let requestBox = LockedBox<URLRequest?>(nil)
-        StubURLProtocol.handler = { request in
-            requestBox.set(request)
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            let body = #"{"url":"https://media.example/track.flac","format_id":7,"bit_depth":24,"sampling_rate":96}"#
-            return (response, Data(body.utf8))
-        }
-        let client = QobuzAPIClient(
-            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
-            session: URLSession(configuration: configuration),
-            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
-            timestamp: { 1_700_000_000 }
+        let client = fileInfoClient(
+            responseBody: #"{"url":"https://media.example/track.flac","format_id":7,"bit_depth":24,"sampling_rate":96}"#,
+            capturedRequest: requestBox
         )
 
         let info = try await client.fileInfo(trackID: QobuzID("123"), format: .hiRes96)
@@ -616,6 +590,30 @@ final class APITests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    private func fileInfoClient(
+        responseBody: String,
+        capturedRequest: LockedBox<URLRequest?>
+    ) -> QobuzAPIClient {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { request in
+            capturedRequest.set(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(responseBody.utf8))
+        }
+        return QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
+            timestamp: { 1_700_000_000 }
+        )
     }
 }
 

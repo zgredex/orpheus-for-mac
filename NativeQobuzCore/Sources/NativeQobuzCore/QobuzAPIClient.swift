@@ -215,46 +215,54 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     }
 
     public func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
-        let offset = max(offset, 0)
-        let limit = min(max(limit, 1), 500)
-        let (value, _): (QobuzPlaylist, HTTPURLResponse) = try await get(
+        try await catalogPage(
             endpoint: "playlist/get",
-            parameters: [
-                "playlist_id": id.rawValue,
-                "app_id": credentials.appID,
-                "extra": "tracks,subscribers,focusAll",
-                "limit": String(limit),
-                "offset": String(offset)
-            ]
+            identifierKey: "playlist_id",
+            id: id,
+            extra: "tracks,subscribers,focusAll",
+            offset: offset,
+            limit: limit
         )
-        return value
     }
 
     public func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
-        let offset = max(offset, 0)
-        let limit = min(max(limit, 1), 500)
-        let (value, _): (QobuzArtistCatalog, HTTPURLResponse) = try await get(
+        try await catalogPage(
             endpoint: "artist/get",
-            parameters: [
-                "artist_id": id.rawValue,
-                "app_id": credentials.appID,
-                "extra": "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
-                "limit": String(limit),
-                "offset": String(offset)
-            ]
+            identifierKey: "artist_id",
+            id: id,
+            extra: "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
+            offset: offset,
+            limit: limit
         )
-        return value
     }
 
     public func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
+        try await catalogPage(
+            endpoint: "label/get",
+            identifierKey: "label_id",
+            id: id,
+            extra: "albums",
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    private func catalogPage<Value: Decodable>(
+        endpoint: String,
+        identifierKey: String,
+        id: QobuzID,
+        extra: String,
+        offset: Int,
+        limit: Int
+    ) async throws -> Value {
         let offset = max(offset, 0)
         let limit = min(max(limit, 1), 500)
-        let (value, _): (QobuzLabelCatalog, HTTPURLResponse) = try await get(
-            endpoint: "label/get",
+        let (value, _): (Value, HTTPURLResponse) = try await get(
+            endpoint: endpoint,
             parameters: [
-                "label_id": id.rawValue,
+                identifierKey: id.rawValue,
                 "app_id": credentials.appID,
-                "extra": "albums",
+                "extra": extra,
                 "limit": String(limit),
                 "offset": String(offset)
             ]

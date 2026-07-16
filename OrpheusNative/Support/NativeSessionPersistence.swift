@@ -105,14 +105,7 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
             qobuzLog.info(
                 "persistence.session",
                 "Download session restored",
-                metadata: [
-                    "sessionPath": paths.sessionURL.path,
-                    "queueCount": String(snapshot.queue.count),
-                    "activityCount": String(snapshot.operations.count { $0.activityID != nil }),
-                    "operationCount": String(snapshot.operations.count),
-                    "inboxCount": String(snapshot.linkInbox.count),
-                    "schemaVersion": String(snapshot.schemaVersion)
-                ]
+                metadata: diagnosticMetadata(for: snapshot)
             )
             return snapshot
         } catch {
@@ -150,14 +143,18 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
         qobuzLog.debug(
             "persistence.session",
             "Download session saved",
-            metadata: [
-                "sessionPath": paths.sessionURL.path,
-                "queueCount": String(snapshot.queue.count),
-                "activityCount": String(snapshot.operations.count { $0.activityID != nil }),
-                "operationCount": String(snapshot.operations.count),
-                "inboxCount": String(snapshot.linkInbox.count),
-                "schemaVersion": String(snapshot.schemaVersion)
-            ]
+            metadata: diagnosticMetadata(for: snapshot)
         )
+    }
+
+    private func diagnosticMetadata(for snapshot: NativeSessionSnapshot) -> [String: String] {
+        [
+            "sessionPath": paths.sessionURL.path,
+            "queueCount": String(snapshot.queue.count),
+            "activityCount": String(snapshot.operations.count { $0.activityID != nil }),
+            "operationCount": String(snapshot.operations.count),
+            "inboxCount": String(snapshot.linkInbox.count),
+            "schemaVersion": String(snapshot.schemaVersion)
+        ]
     }
 }
