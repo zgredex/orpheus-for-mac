@@ -44,6 +44,7 @@ struct NativeContentView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
+            #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 ToolbarItem {
                     RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
@@ -54,6 +55,11 @@ struct NativeContentView: View {
                     RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
                 }
             }
+            #else
+            ToolbarItem {
+                RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
+            }
+            #endif
             ToolbarItem {
                 Button {
                     if vm.isLibraryOpen { vm.closeLibrary() }
