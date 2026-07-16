@@ -22,6 +22,7 @@ final class NativeLibraryController: ObservableObject {
     private let archiveStore: any NativeArchiveIndexStoring
     private let scanner: any QobuzArchiveScanning
     private let adopter: any QobuzLibraryAdopting
+    private let downloadedIndexer: NativeDownloadedLibraryIndexer
     private var refreshTask: Task<Void, Never>?
     private var refreshID: UUID?
 
@@ -33,6 +34,10 @@ final class NativeLibraryController: ObservableObject {
         self.archiveStore = archiveStore
         self.scanner = scanner
         self.adopter = adopter
+        downloadedIndexer = NativeDownloadedLibraryIndexer(
+            archiveStore: archiveStore,
+            scanner: scanner
+        )
     }
 
     @discardableResult
@@ -153,6 +158,26 @@ final class NativeLibraryController: ObservableObject {
                 )
                 onFailure("Could not scan the library: \(error.localizedDescription)")
             }
+        }
+    }
+
+    func indexDownloadedRoot(_ root: URL, activeRoot: URL) async throws {
+        cancelRefresh()
+        isScanning = true
+        defer { isScanning = false }
+        let standardizedRoot = root.standardizedFileURL
+        let reusable = snapshot?.rootPath == standardizedRoot.path ? snapshot : nil
+        do {
+            let indexed = try await downloadedIndexer.index(root: standardizedRoot, reusing: reusable)
+            if standardizedRoot == activeRoot.standardizedFileURL { snapshot = indexed }
+        } catch {
+            qobuzLog.error(
+                "download.library.index",
+                "Downloaded output could not be committed to the Library index",
+                metadata: ["downloadRoot": standardizedRoot.path],
+                error: error
+            )
+            throw error
         }
     }
 

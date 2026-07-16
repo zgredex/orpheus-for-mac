@@ -22,6 +22,7 @@ final class NativeDownloadItemRunner {
         engine: NativeQobuzDownloadEngine,
         quality: QobuzQuality,
         root: URL,
+        indexLibrary: @escaping @MainActor (URL) async throws -> Void,
         isTerminating: @escaping @MainActor () -> Bool,
         checkpoint: @escaping @MainActor () -> Void
     ) async {
@@ -71,9 +72,19 @@ final class NativeDownloadItemRunner {
                         for try await event in events {
                             try Task.checkCancellation()
                             ledger.handle(event, activityID: activityID)
+                            if case .checkpoint = event { checkpoint() }
                         }
                     }
-                    ledger.transition(queueID: item.id, activityID: activityID, to: .completed)
+                    ledger.transition(queueID: item.id, activityID: activityID, to: .indexingLibrary)
+                    ledger.updateActivity(activityID) {
+                        $0.recordCheckpoint(QobuzDownloadCheckpoint(phase: .indexingLibrary))
+                        $0.phase = "Indexing Library"
+                        $0.bytesPerSecond = nil
+                    }
+                    checkpoint()
+                    try await indexLibrary(root)
+                    ledger.markLibraryIndexed(queueID: item.id, activityID: activityID)
+                    checkpoint()
                     qobuzLog.notice(
                         "download.item",
                         "Queue item download completed",
@@ -181,6 +192,7 @@ final class NativeDownloadItemRunner {
                         $0.errorMessage = error.localizedDescription
                         $0.bytesPerSecond = nil
                     }
+                    checkpoint()
                     return
                 } catch {
                     qobuzLog.error(
@@ -199,6 +211,7 @@ final class NativeDownloadItemRunner {
                         $0.errorMessage = error.localizedDescription
                         $0.bytesPerSecond = nil
                     }
+                    checkpoint()
                     return
                 }
             }

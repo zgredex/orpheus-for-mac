@@ -19,7 +19,7 @@ final class NativeDownloadController: ObservableObject {
     private var isTerminating = false
     private var onNotice: ((String) -> Void)?
     private var onRequireSettings: (() -> Void)?
-    private var onArchiveRefresh: (() -> Void)?
+    private var onIndexLibrary: (URL) async throws -> Void = { _ in throw NativeQobuzError.unavailable("The Library index is unavailable.") }
     private var onCheckpoint: (() -> Void)?
 
     init(
@@ -45,17 +45,17 @@ final class NativeDownloadController: ObservableObject {
     func configureCallbacks(
         onNotice: @escaping (String) -> Void,
         onRequireSettings: @escaping () -> Void,
-        onArchiveRefresh: @escaping () -> Void,
+        onIndexLibrary: @escaping (URL) async throws -> Void,
         onCheckpoint: @escaping () -> Void
     ) {
         self.onNotice = onNotice
         self.onRequireSettings = onRequireSettings
-        self.onArchiveRefresh = onArchiveRefresh
+        self.onIndexLibrary = onIndexLibrary
         self.onCheckpoint = onCheckpoint
     }
 
-    func restore(activities: [NativeDownloadActivity], operations: [NativeDownloadOperation]) {
-        ledger.restore(activities: activities, operations: operations)
+    func restore(operations: [NativeDownloadOperation]) {
+        ledger.restore(operations: operations)
     }
 
     func status(for item: NativeQueueItem) -> NativeDownloadStatus {
@@ -177,6 +177,7 @@ final class NativeDownloadController: ObservableObject {
                                 engine: engine,
                                 quality: quality,
                                 root: root,
+                                indexLibrary: self.onIndexLibrary,
                                 isTerminating: { [weak self] in self?.isTerminating == true },
                                 checkpoint: { [weak self] in self?.onCheckpoint?() }
                             )
@@ -423,6 +424,5 @@ final class NativeDownloadController: ObservableObject {
         activeItemQueueID = nil
         downloadTask = nil
         isDownloading = false
-        if !isTerminating { onArchiveRefresh?() }
     }
 }

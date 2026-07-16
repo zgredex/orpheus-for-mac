@@ -8,6 +8,8 @@ enum NativeDownloadStatus: Codable, Equatable, Sendable {
     case downloading
     case tagging
     case validating
+    case finalizingAssets
+    case indexingLibrary
     case waitingForNetwork
     case paused
     case completed
@@ -18,13 +20,15 @@ enum NativeDownloadStatus: Codable, Equatable, Sendable {
         switch self {
         case .ready, .paused, .failed, .cancelled: true
         case .queued, .resolving, .downloading, .tagging, .validating,
+             .finalizingAssets, .indexingLibrary,
              .waitingForNetwork, .completed: false
         }
     }
 
     var isActive: Bool {
         switch self {
-        case .queued, .resolving, .downloading, .tagging, .validating, .waitingForNetwork: true
+        case .queued, .resolving, .downloading, .tagging, .validating,
+             .finalizingAssets, .indexingLibrary, .waitingForNetwork: true
         default: false
         }
     }
@@ -61,6 +65,7 @@ enum NativeDownloadStatus: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case kind, message }
     private enum Kind: String, Codable {
         case ready, queued, resolving, downloading, tagging, validating
+        case finalizingAssets, indexingLibrary
         case waitingForNetwork, paused, completed, failed, cancelled
     }
 
@@ -72,6 +77,8 @@ enum NativeDownloadStatus: Codable, Equatable, Sendable {
         case .downloading: .downloading
         case .tagging: .tagging
         case .validating: .validating
+        case .finalizingAssets: .finalizingAssets
+        case .indexingLibrary: .indexingLibrary
         case .waitingForNetwork: .waitingForNetwork
         case .paused: .paused
         case .completed: .completed
@@ -89,6 +96,8 @@ enum NativeDownloadStatus: Codable, Equatable, Sendable {
         case .downloading: self = .downloading
         case .tagging: self = .tagging
         case .validating: self = .validating
+        case .finalizingAssets: self = .finalizingAssets
+        case .indexingLibrary: self = .indexingLibrary
         case .waitingForNetwork: self = .waitingForNetwork
         case .paused: self = .paused
         case .completed: self = .completed

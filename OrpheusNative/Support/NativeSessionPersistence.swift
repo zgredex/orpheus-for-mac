@@ -2,25 +2,22 @@ import Foundation
 import NativeQobuzCore
 
 struct NativeSessionSnapshot: Codable, Equatable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     let schemaVersion: Int
     var queue: [NativeQueueItem]
-    var activities: [NativeDownloadActivity]
     var operations: [NativeDownloadOperation]
     var selectedQueueID: UUID?
     var linkInbox: [NativeLinkInboxItem]
 
     init(
         queue: [NativeQueueItem],
-        activities: [NativeDownloadActivity],
         operations: [NativeDownloadOperation],
         selectedQueueID: UUID?,
         linkInbox: [NativeLinkInboxItem]
     ) {
         schemaVersion = Self.currentSchemaVersion
         self.queue = queue
-        self.activities = activities
         self.operations = operations
         self.selectedQueueID = selectedQueueID
         self.linkInbox = linkInbox
@@ -29,7 +26,6 @@ struct NativeSessionSnapshot: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case queue
-        case activities
         case operations
         case selectedQueueID
         case linkInbox
@@ -39,7 +35,6 @@ struct NativeSessionSnapshot: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         queue = try container.decode([NativeQueueItem].self, forKey: .queue)
-        activities = try container.decode([NativeDownloadActivity].self, forKey: .activities)
         operations = try container.decode([NativeDownloadOperation].self, forKey: .operations)
         selectedQueueID = try container.decodeIfPresent(UUID.self, forKey: .selectedQueueID)
         linkInbox = try container.decode([NativeLinkInboxItem].self, forKey: .linkInbox)
@@ -48,7 +43,6 @@ struct NativeSessionSnapshot: Codable, Equatable {
 
     func validate() throws {
         let queueIDs = queue.map(\.id)
-        let activityIDs = activities.map(\.id)
         let operationQueueIDs = operations.map(\.queueID)
         let operationActivityIDs = operations.compactMap(\.activityID)
 
@@ -60,9 +54,6 @@ struct NativeSessionSnapshot: Codable, Equatable {
         guard Set(queueIDs).count == queueIDs.count else {
             throw NativeQobuzError.invalidResponse("The download session contains duplicate queue IDs.")
         }
-        guard Set(activityIDs).count == activityIDs.count else {
-            throw NativeQobuzError.invalidResponse("The download session contains duplicate Activity IDs.")
-        }
         guard Set(operationQueueIDs).count == operationQueueIDs.count else {
             throw NativeQobuzError.invalidResponse("The download session contains duplicate operation queue IDs.")
         }
@@ -71,7 +62,6 @@ struct NativeSessionSnapshot: Codable, Equatable {
         }
 
         let queueIDSet = Set(queueIDs)
-        let activitiesByID = Dictionary(uniqueKeysWithValues: activities.map { ($0.id, $0) })
         let operationsByQueueID = Dictionary(uniqueKeysWithValues: operations.map { ($0.queueID, $0) })
         guard queueIDSet.allSatisfy({ operationsByQueueID[$0] != nil }) else {
             throw NativeQobuzError.invalidResponse("A queued item has no download operation.")
@@ -79,18 +69,8 @@ struct NativeSessionSnapshot: Codable, Equatable {
         if let selectedQueueID, !queueIDSet.contains(selectedQueueID) {
             throw NativeQobuzError.invalidResponse("The selected queue ID does not exist in the session.")
         }
-        for activity in activities {
-            guard let operation = operationsByQueueID[activity.queueID],
-                  operation.activityID == activity.id else {
-                throw NativeQobuzError.invalidResponse("An Activity item has no matching download operation.")
-            }
-        }
         for operation in operations {
-            if let activityID = operation.activityID {
-                guard activitiesByID[activityID]?.queueID == operation.queueID else {
-                    throw NativeQobuzError.invalidResponse("A download operation has an invalid Activity binding.")
-                }
-            } else if !queueIDSet.contains(operation.queueID) {
+            if operation.activityID == nil, !queueIDSet.contains(operation.queueID) {
                 throw NativeQobuzError.invalidResponse("A download operation has no queue or Activity owner.")
             }
         }
@@ -128,7 +108,7 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
                 metadata: [
                     "sessionPath": paths.sessionURL.path,
                     "queueCount": String(snapshot.queue.count),
-                    "activityCount": String(snapshot.activities.count),
+                    "activityCount": String(snapshot.operations.count { $0.activityID != nil }),
                     "operationCount": String(snapshot.operations.count),
                     "inboxCount": String(snapshot.linkInbox.count),
                     "schemaVersion": String(snapshot.schemaVersion)
@@ -173,7 +153,7 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
             metadata: [
                 "sessionPath": paths.sessionURL.path,
                 "queueCount": String(snapshot.queue.count),
-                "activityCount": String(snapshot.activities.count),
+                "activityCount": String(snapshot.operations.count { $0.activityID != nil }),
                 "operationCount": String(snapshot.operations.count),
                 "inboxCount": String(snapshot.linkInbox.count),
                 "schemaVersion": String(snapshot.schemaVersion)

@@ -1,44 +1,37 @@
 import Foundation
 import NativeQobuzCore
 
-struct NativeDownloadActivity: Codable, Identifiable, Equatable {
-    let id: UUID
-    let queueID: UUID
-    var title: String
-    /// User maximum for normal downloads. Repairs instead use `audioFormat`.
-    var quality: QobuzQuality?
-    /// Exact archived format requested by a repair.
-    var audioFormat: QobuzAudioFormat?
-    var phase = "Queued"
-    var currentTrack: String?
-    var progress = 0.0
-    var completedTracks = 0
-    var totalTracks = 0
-    var bytesWritten: Int64?
-    var totalBytes: Int64?
-    var bytesPerSecond: Double?
-    var albumBytesWritten: Int64?
-    var checksum: String?
-    var notices: [String] = []
-    var warnings: [String] = []
-    var errorMessage: String?
-    var outputURL: URL?
+/// Read-only UI projection of an authoritative `NativeDownloadOperation`.
+/// It is never encoded or mutated independently.
+struct NativeDownloadActivity: Identifiable, Equatable {
+    let operation: NativeDownloadOperation
 
-    var informationalNotices: [String] { notices }
-
-    init(
-        id: UUID,
-        queueID: UUID,
-        title: String,
-        quality: QobuzQuality? = nil,
-        audioFormat: QobuzAudioFormat? = nil
-    ) {
-        self.id = id
-        self.queueID = queueID
-        self.title = title
-        self.quality = quality
-        self.audioFormat = audioFormat
+    var id: UUID {
+        guard let activityID = operation.activityID else {
+            preconditionFailure("An Activity projection requires an Activity-bound download operation.")
+        }
+        return activityID
     }
+    var queueID: UUID { operation.queueID }
+    var title: String { operation.title }
+    var quality: QobuzQuality? { operation.quality }
+    var audioFormat: QobuzAudioFormat? { operation.audioFormat }
+    var phase: String { operation.phase }
+    var currentTrack: String? { operation.currentTrack }
+    var progress: Double { operation.progress }
+    var completedTracks: Int { operation.completedTracks }
+    var totalTracks: Int { operation.totalTracks }
+    var bytesWritten: Int64? { operation.bytesWritten }
+    var totalBytes: Int64? { operation.totalBytes }
+    var bytesPerSecond: Double? { operation.bytesPerSecond }
+    var albumBytesWritten: Int64? { operation.albumBytesWritten }
+    var checksum: String? { operation.checksum }
+    var notices: [String] { operation.notices }
+    var warnings: [String] { operation.warnings }
+    var errorMessage: String? { operation.errorMessage }
+    var outputURL: URL? { operation.latestOutputURL }
+    var checkpoint: QobuzDownloadCheckpoint? { operation.checkpoint }
+    var informationalNotices: [String] { notices }
 }
 
 struct NativePartialDownload: Equatable {

@@ -136,7 +136,9 @@ final class NativeViewModel: ObservableObject {
         downloads.configureCallbacks(
             onNotice: { [weak self] message in self?.notice = message },
             onRequireSettings: { [weak self] in self?.showSettings = true },
-            onArchiveRefresh: { [weak self] in self?.refreshArchive() },
+            onIndexLibrary: { root in
+                try await library.indexDownloadedRoot(root, activeRoot: account.downloadRoot)
+            },
             onCheckpoint: { [weak self] in self?.session.persistNow(reportErrors: false) }
         )
         do {
@@ -157,9 +159,6 @@ final class NativeViewModel: ObservableObject {
     var isLibraryOpen: Bool { library.isOpen }
     var archiveSnapshot: QobuzArchiveSnapshot? { library.snapshot }
     var isArchiveScanning: Bool { library.isScanning }
-    private var libraryRoot: URL {
-        URL(fileURLWithPath: settings.downloadPath, isDirectory: true).standardizedFileURL
-    }
 
     func queueTrackSelection(for request: QobuzRequest) -> Set<QobuzID>? {
         queueOrchestrator.selectedTrackIDs(for: request)
@@ -449,7 +448,7 @@ final class NativeViewModel: ObservableObject {
 
     func openLibrary() {
         browse.close()
-        library.open(root: libraryRoot) { [weak self] message in self?.notice = message }
+        library.open(root: account.downloadRoot) { [weak self] message in self?.notice = message }
     }
 
     func closeLibrary() {
@@ -458,7 +457,7 @@ final class NativeViewModel: ObservableObject {
 
     func refreshArchive(fullVerification: Bool = false) {
         library.refresh(
-            root: libraryRoot,
+            root: account.downloadRoot,
             fullVerification: fullVerification,
             onFailure: { [weak self] message in self?.notice = message }
         )

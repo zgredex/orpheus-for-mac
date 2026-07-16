@@ -39,7 +39,7 @@ final class NativeSessionController {
         isRestoring = true
         defer { isRestoring = false }
 
-        downloads.restore(activities: snapshot.activities, operations: snapshot.operations)
+        downloads.restore(operations: snapshot.operations)
         linkInbox.restore(snapshot.linkInbox)
         queue.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
     }
@@ -62,7 +62,6 @@ final class NativeSessionController {
             try store.save(
                 NativeSessionSnapshot(
                     queue: queue.items,
-                    activities: downloads.activities,
                     operations: downloads.operations,
                     selectedQueueID: queue.selectedID,
                     linkInbox: linkInbox.items

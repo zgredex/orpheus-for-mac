@@ -41,6 +41,7 @@ final class QobuzDownloadOperation: @unchecked Sendable {
         qobuzLog.notice("download.lifecycle", "Download operation started")
         do {
             let fileSystem = try LibraryFileSystem(rootURL: configuration.downloadRoot)
+            continuation.yield(.checkpoint(QobuzDownloadCheckpoint(phase: .resolvingCatalog)))
             continuation.yield(.resolving(configuration.request))
             let plan = try await resolver.resolve(configuration.request)
                 .selecting(trackIDs: configuration.includedTrackIDs)

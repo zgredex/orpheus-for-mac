@@ -44,7 +44,37 @@ public struct QobuzDownloadProgress: Equatable, Sendable {
     }
 }
 
+public enum QobuzDownloadCheckpointPhase: String, Codable, Equatable, Sendable {
+    case resolvingCatalog
+    case transferringAudio
+    case writingTags
+    case validatingAudio
+    case writingProvenance
+    case writingCollectionAssets
+    case indexingLibrary
+    case complete
+}
+
+/// Durable, presentation-neutral recovery position emitted by the download
+/// engine. The app persists the latest value on its authoritative operation.
+public struct QobuzDownloadCheckpoint: Codable, Equatable, Sendable {
+    public let phase: QobuzDownloadCheckpointPhase
+    public let trackID: QobuzID?
+    public let outputURL: URL?
+
+    public init(
+        phase: QobuzDownloadCheckpointPhase,
+        trackID: QobuzID? = nil,
+        outputURL: URL? = nil
+    ) {
+        self.phase = phase
+        self.trackID = trackID
+        self.outputURL = outputURL
+    }
+}
+
 public enum QobuzDownloadEvent: Equatable, Sendable {
+    case checkpoint(QobuzDownloadCheckpoint)
     case resolving(QobuzRequest)
     case planReady(title: String, trackCount: Int)
     case trackStarted(track: QobuzResolvedTrack, destination: URL, format: QobuzAudioFormat)

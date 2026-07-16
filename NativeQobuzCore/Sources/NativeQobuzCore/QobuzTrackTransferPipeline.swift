@@ -40,45 +40,23 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
         continuation.yield(.trackStarted(track: item, destination: destination, format: fileInfo.format))
         let artworkTask = artworkTask(for: item, state: state, trackMetadata: trackMetadata)
         let staging = QobuzDownloadArtifacts.processingURL(for: destination, formatID: fileInfo.formatID)
-        defer { removeStagingFileIfPresent(staging, fileSystem: fileSystem, trackMetadata: trackMetadata) }
 
         do {
-            qobuzLog.info(
-                "download.transfer",
-                "Track audio transfer started",
-                metadata: trackMetadata.merging([
-                    "stagingPath": staging.path,
-                    "partialPath": QobuzDownloadArtifacts.partialURL(
-                        for: destination,
-                        formatID: fileInfo.formatID
-                    ).path
-                ]) { _, new in new }
+            continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
+                phase: .transferringAudio,
+                trackID: item.track.id,
+                outputURL: staging
+            )))
+            try await transferUnlessStaged(
+                item: item,
+                fileInfo: fileInfo,
+                destination: destination,
+                staging: staging,
+                fileSystem: fileSystem,
+                state: state,
+                trackMetadata: trackMetadata,
+                continuation: continuation
             )
-            let transferEvents = await QobuzLogScope.withValue(trackMetadata) {
-                transfer.events(from: fileInfo.url, to: staging, fileSystem: fileSystem)
-            }
-            for try await transferEvent in transferEvents {
-                try Task.checkCancellation()
-                guard case .progress(let progress) = transferEvent else { continue }
-                let fileFraction = progress.fraction
-                let overall = (Double(item.position - 1) + (fileFraction ?? 0)) / Double(max(item.total, 1))
-                state.currentTrackBytes = progress.bytesWritten
-                continuation.yield(
-                    .progress(
-                        QobuzDownloadProgress(
-                            completedTracks: item.position - 1,
-                            totalTracks: item.total,
-                            currentTrackFraction: fileFraction,
-                            overallFraction: overall,
-                            bytesWritten: progress.bytesWritten,
-                            totalBytes: progress.totalBytes,
-                            bytesPerSecond: progress.bytesPerSecond,
-                            albumBytesWritten: state.albumBytes + state.currentTrackBytes
-                        )
-                    )
-                )
-            }
-            qobuzLog.info("download.transfer", "Track audio transfer finished", metadata: trackMetadata)
 
             let artwork = try await resolvedArtwork(
                 from: artworkTask,
@@ -87,6 +65,11 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
                 trackMetadata: trackMetadata,
                 continuation: continuation
             )
+            continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
+                phase: .writingTags,
+                trackID: item.track.id,
+                outputURL: staging
+            )))
             continuation.yield(.tagging(track: item))
             qobuzLog.info("download.metadata", "Writing audio metadata and artwork", metadata: trackMetadata)
             try metadataWriter.write(
@@ -96,9 +79,22 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
                 fileSystem: fileSystem
             )
             qobuzLog.debug("download.metadata", "Audio metadata written", metadata: trackMetadata)
+            continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
+                phase: .validatingAudio,
+                trackID: item.track.id,
+                outputURL: staging
+            )))
             continuation.yield(.validating(track: item))
-            let media = try await validator.validate(staging, fileSystem: fileSystem)
-            let delivery = try deliveryPolicy.validate(fileInfo: fileInfo, media: media)
+            let delivery: QobuzValidatedAudioDelivery
+            do {
+                let media = try await validator.validate(staging, fileSystem: fileSystem)
+                delivery = try deliveryPolicy.validate(fileInfo: fileInfo, media: media)
+            } catch let error where error.isQobuzCancellation {
+                throw NativeQobuzError.cancelled
+            } catch {
+                removeStagingFileIfPresent(staging, fileSystem: fileSystem, trackMetadata: trackMetadata)
+                throw error
+            }
             try Task.checkCancellation()
             let stagingPath = try fileSystem.relativePath(for: staging)
             let checksum = try MusicFileIntegrity.sha256(of: stagingPath, in: fileSystem)
@@ -107,15 +103,11 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
                 "Track checksum calculated",
                 metadata: trackMetadata.merging(["sha256": checksum]) { _, new in new }
             )
-            try fileSystem.replaceItem(
-                at: fileSystem.relativePath(for: destination),
-                with: stagingPath
-            )
-            qobuzLog.info(
-                "download.output",
-                "Validated audio installed at final destination",
-                metadata: trackMetadata.merging(["destinationPath": destination.path]) { _, new in new }
-            )
+            continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
+                phase: .writingProvenance,
+                trackID: item.track.id,
+                outputURL: destination
+            )))
             try assetWriter.recordProvenance(
                 QobuzFileProvenance(
                     item: item,
@@ -125,6 +117,15 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
                 ),
                 for: destination,
                 fileSystem: fileSystem
+            )
+            try fileSystem.replaceItem(
+                at: fileSystem.relativePath(for: destination),
+                with: stagingPath
+            )
+            qobuzLog.info(
+                "download.output",
+                "Validated audio and provenance committed at final destination",
+                metadata: trackMetadata.merging(["destinationPath": destination.path]) { _, new in new }
             )
             continuation.yield(.integrityVerified(track: item, sha256: checksum))
             if let artwork {
@@ -147,6 +148,68 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             artworkTask.cancel()
             throw error
         }
+    }
+
+    private func transferUnlessStaged(
+        item: QobuzResolvedTrack,
+        fileInfo: QobuzFileInfo,
+        destination: URL,
+        staging: URL,
+        fileSystem: LibraryFileSystem,
+        state: QobuzDownloadOperationState,
+        trackMetadata: [String: String],
+        continuation: QobuzDownloadContinuation
+    ) async throws {
+        let stagingPath = try fileSystem.relativePath(for: staging)
+        if let metadata = try fileSystem.metadata(at: stagingPath) {
+            guard metadata.kind == .regularFile else {
+                throw NativeQobuzError.fileSystem("The recovered audio staging item is not a regular file.")
+            }
+            state.currentTrackBytes = metadata.byteCount
+            qobuzLog.notice(
+                "download.recovery.finalization",
+                "Completed audio staging file recovered; network transfer skipped",
+                metadata: trackMetadata.merging([
+                    "stagingPath": staging.path,
+                    "stagingBytes": String(metadata.byteCount)
+                ]) { _, new in new }
+            )
+            continuation.yield(.notice("Resuming metadata and validation from completed audio"))
+            return
+        }
+
+        qobuzLog.info(
+            "download.transfer",
+            "Track audio transfer started",
+            metadata: trackMetadata.merging([
+                "stagingPath": staging.path,
+                "partialPath": QobuzDownloadArtifacts.partialURL(
+                    for: destination,
+                    formatID: fileInfo.formatID
+                ).path
+            ]) { _, new in new }
+        )
+        let transferEvents = await QobuzLogScope.withValue(trackMetadata) {
+            transfer.events(from: fileInfo.url, to: staging, fileSystem: fileSystem)
+        }
+        for try await transferEvent in transferEvents {
+            try Task.checkCancellation()
+            guard case .progress(let progress) = transferEvent else { continue }
+            let fileFraction = progress.fraction
+            let overall = (Double(item.position - 1) + (fileFraction ?? 0)) / Double(max(item.total, 1))
+            state.currentTrackBytes = progress.bytesWritten
+            continuation.yield(.progress(QobuzDownloadProgress(
+                completedTracks: item.position - 1,
+                totalTracks: item.total,
+                currentTrackFraction: fileFraction,
+                overallFraction: overall,
+                bytesWritten: progress.bytesWritten,
+                totalBytes: progress.totalBytes,
+                bytesPerSecond: progress.bytesPerSecond,
+                albumBytesWritten: state.albumBytes + state.currentTrackBytes
+            )))
+        }
+        qobuzLog.info("download.transfer", "Track audio transfer finished", metadata: trackMetadata)
     }
 
     private func artworkTask(

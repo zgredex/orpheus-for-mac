@@ -31,6 +31,7 @@ final class NativeAccountController: ObservableObject {
     }
 
     var isConfigured: Bool { credentials.isComplete }
+    var downloadRoot: URL { URL(fileURLWithPath: settings.downloadPath, isDirectory: true).standardizedFileURL }
 
     var draft: SettingsDraft {
         SettingsDraft(

@@ -1,26 +1,5 @@
 import Foundation
 
-/// The only durable lifecycle record for a queued download and its optional
-/// Activity projection. Queue and Activity payloads deliberately contain no
-/// independent status field.
-struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
-    let queueID: UUID
-    var activityID: UUID?
-    var status: NativeDownloadStatus
-
-    var id: UUID { queueID }
-
-    init(
-        queueID: UUID,
-        activityID: UUID? = nil,
-        status: NativeDownloadStatus = .ready
-    ) {
-        self.queueID = queueID
-        self.activityID = activityID
-        self.status = status
-    }
-}
-
 /// Focused owner for download lifecycle state. It intentionally has no UI or
 /// persistence dependencies; `NativeDownloadLedger` publishes projections and
 /// is the sole mutation boundary for the app's operation lifecycle.
@@ -37,6 +16,13 @@ struct NativeDownloadStateStore: Equatable {
         operationsByQueueID.values.sorted {
             $0.queueID.uuidString < $1.queueID.uuidString
         }
+    }
+
+    var activities: [NativeDownloadActivity] {
+        operations
+            .filter { $0.activityID != nil }
+            .sorted { ($0.activityCreatedAt ?? .distantPast) > ($1.activityCreatedAt ?? .distantPast) }
+            .map(NativeDownloadActivity.init(operation:))
     }
 
     func status(forQueueID queueID: UUID) -> NativeDownloadStatus {
@@ -68,6 +54,7 @@ struct NativeDownloadStateStore: Equatable {
         var operation = operationsByQueueID[queueID]
             ?? NativeDownloadOperation(queueID: queueID)
         operation.activityID = activityID
+        operation.activityCreatedAt = operation.activityCreatedAt ?? Date()
         if let status { operation.status = status }
         operationsByQueueID[queueID] = operation
     }
@@ -84,6 +71,15 @@ struct NativeDownloadStateStore: Equatable {
         operationsByQueueID[queueID] = operation
     }
 
+    mutating func mutateOperation(
+        queueID: UUID,
+        _ mutate: (inout NativeDownloadOperation) -> Void
+    ) {
+        guard var operation = operationsByQueueID[queueID] else { return }
+        mutate(&operation)
+        operationsByQueueID[queueID] = operation
+    }
+
     mutating func removeQueue(_ queueID: UUID) {
         guard let operation = operationsByQueueID[queueID] else { return }
         if operation.activityID == nil { operationsByQueueID.removeValue(forKey: queueID) }
@@ -93,7 +89,7 @@ struct NativeDownloadStateStore: Equatable {
         guard let queueID = operationsByQueueID.first(where: { $0.value.activityID == activityID })?.key,
               var operation = operationsByQueueID[queueID] else { return }
         if queueStillExists {
-            operation.activityID = nil
+            operation.clearActivity()
             operationsByQueueID[queueID] = operation
         } else {
             operationsByQueueID.removeValue(forKey: queueID)
@@ -110,6 +106,8 @@ struct NativeDownloadStateStore: Equatable {
                     interruptedActivityIDs.insert(activityID)
                 }
                 operation.status = .paused
+                operation.phase = "Paused after interruption"
+                operation.bytesPerSecond = nil
             default:
                 break
             }

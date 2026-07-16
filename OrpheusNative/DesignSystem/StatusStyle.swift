@@ -12,7 +12,7 @@ extension NativeDownloadStatus {
     var queueStyle: StatusStyle? {
         switch self {
         case .ready: nil
-        case .queued, .resolving, .tagging, .validating:
+        case .queued, .resolving, .tagging, .validating, .finalizingAssets, .indexingLibrary:
             StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
         case .downloading: StatusStyle(systemImage: "arrow.down.circle.fill", tint: .accentColor)
         case .waitingForNetwork: StatusStyle(systemImage: "wifi.exclamationmark", tint: .orange)
@@ -29,7 +29,7 @@ extension NativeDownloadStatus {
         // One steady spinner for every active phase: statuses flap between
         // downloading/tagging/validating on each track, and swapping glyph
         // styles per flap makes the row flicker.
-        case .resolving, .downloading, .tagging, .validating:
+        case .resolving, .downloading, .tagging, .validating, .finalizingAssets, .indexingLibrary:
             StatusStyle(systemImage: "progress.indicator", tint: .accentColor, isSpinner: true)
         case .waitingForNetwork:
             StatusStyle(systemImage: "wifi.exclamationmark", tint: .orange)

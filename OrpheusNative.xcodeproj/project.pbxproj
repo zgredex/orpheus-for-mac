@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00CC422F6BDE278A284F3D4B /* NativeDownloadedLibraryIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D84D07574AD1930B051C26 /* NativeDownloadedLibraryIndexer.swift */; };
 		04D0999A0CC2E9DFB555DBC7 /* NativeLibrarySummaryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA34FDF881F4F29D2B540F /* NativeLibrarySummaryBar.swift */; };
 		05714791ED1614BDD4CF8E5F /* NativeDownloadItemRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299298E81FAB20EE3E90BDC5 /* NativeDownloadItemRunner.swift */; };
 		0689103947A8DDF533635DF0 /* NativeLinkInboxModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */; };
@@ -75,6 +76,7 @@
 		A7A9183A28BA8F3ED4B0902C /* EditorialContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96C777437F88709C97FD469 /* EditorialContent.swift */; };
 		AA9AA89B629EAA5F24C694C9 /* NativeLibraryProblemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EE49B9A1C120E5F3C76AC3F /* NativeLibraryProblemsView.swift */; };
 		B30F89034197A12FEA98F0C0 /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF10861B2EA64C6B46BFDB4 /* NativeSettingsView.swift */; };
+		B4CC0CFB28C85DDA0AE0043D /* NativeDownloadOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC888651F6CAE28EA87EA7DF /* NativeDownloadOperation.swift */; };
 		B51166C741F31E64F1523E03 /* NativeQueueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */; };
 		B61EEC96804CD8256ABCE78F /* EditorialTextFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81F3296DBFA84D9AEF4CC927 /* EditorialTextFormatterTests.swift */; };
 		B62DA1CA6B5C955195F6708E /* SearchResultsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA88442A935015C025CE423 /* SearchResultsList.swift */; };
@@ -174,9 +176,11 @@
 		AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueuePane.swift; sourceTree = "<group>"; };
 		AB38BF8B7F13870BEF444120 /* NativeQobuzCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NativeQobuzCore; path = NativeQobuzCore; sourceTree = SOURCE_ROOT; };
 		ABC4B8F6486F410CD6E762FB /* NativeLogTailReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogTailReader.swift; sourceTree = "<group>"; };
+		AC888651F6CAE28EA87EA7DF /* NativeDownloadOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadOperation.swift; sourceTree = "<group>"; };
 		AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryArchiveRows.swift; sourceTree = "<group>"; };
 		B10A14C40B3A1482C04D2095 /* NativeDiagnosticSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticSnapshotBuilder.swift; sourceTree = "<group>"; };
 		B3D453705AFB21557619B77B /* QueueRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueRow.swift; sourceTree = "<group>"; };
+		B4D84D07574AD1930B051C26 /* NativeDownloadedLibraryIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadedLibraryIndexer.swift; sourceTree = "<group>"; };
 		B4DC1ACBD7261521C591C90F /* NativeRequestIntakeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRequestIntakeController.swift; sourceTree = "<group>"; };
 		B642C18087F0EF6F7230A62E /* EditorialHeroPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialHeroPanel.swift; sourceTree = "<group>"; };
 		B6EB097B50DA94628D894D48 /* LabelPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelPreview.swift; sourceTree = "<group>"; };
@@ -257,6 +261,7 @@
 				7A3AE3BF79AC58159CBD9005 /* NativeDownloadController.swift */,
 				299298E81FAB20EE3E90BDC5 /* NativeDownloadItemRunner.swift */,
 				865F0B88B9C6E354244E6439 /* NativeDownloadLedger.swift */,
+				AC888651F6CAE28EA87EA7DF /* NativeDownloadOperation.swift */,
 				D4F3D2CDE3338BA340D20AE4 /* NativeDownloadOrchestrator.swift */,
 				CFDA5A8D31B88CED18DDB9DD /* NativePartialDownloadLocator.swift */,
 			);
@@ -295,6 +300,7 @@
 			isa = PBXGroup;
 			children = (
 				50A0A8AC373FE4F6E43B4774 /* NativeArchiveIndexStore.swift */,
+				B4D84D07574AD1930B051C26 /* NativeDownloadedLibraryIndexer.swift */,
 				CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */,
 				E2590AB055407F6EB3B83B08 /* NativeLibraryModels.swift */,
 			);
@@ -686,9 +692,11 @@
 				C5BE9431BCB98704FB67FDA7 /* NativeDownloadController.swift in Sources */,
 				05714791ED1614BDD4CF8E5F /* NativeDownloadItemRunner.swift in Sources */,
 				4D60D253C23468EE4541692D /* NativeDownloadLedger.swift in Sources */,
+				B4CC0CFB28C85DDA0AE0043D /* NativeDownloadOperation.swift in Sources */,
 				2E769A1C81D472E3D0F2FCC8 /* NativeDownloadOrchestrator.swift in Sources */,
 				2E760C3BFD96768C3028421D /* NativeDownloadStateStore.swift in Sources */,
 				21A5CB844CAE6D1D561252E7 /* NativeDownloadStatus.swift in Sources */,
+				00CC422F6BDE278A284F3D4B /* NativeDownloadedLibraryIndexer.swift in Sources */,
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
 				8638F6D2DD73C12E99D15ABA /* NativeLibraryArchiveRows.swift in Sources */,
 				D6B10B98C315E5C80AEC24CE /* NativeLibraryCategoryView.swift in Sources */,

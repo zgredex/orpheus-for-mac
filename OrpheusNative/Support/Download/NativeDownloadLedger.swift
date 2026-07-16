@@ -4,7 +4,6 @@ import NativeQobuzCore
 
 @MainActor
 final class NativeDownloadLedger: ObservableObject {
-    @Published private(set) var activities: [NativeDownloadActivity] = []
     @Published private var state = NativeDownloadStateStore()
 
     private var lastProgressUpdate: [UUID: Date] = [:]
@@ -15,17 +14,12 @@ final class NativeDownloadLedger: ObservableObject {
     }
 
     var operations: [NativeDownloadOperation] { state.operations }
+    var activities: [NativeDownloadActivity] { state.activities }
 
-    func restore(activities: [NativeDownloadActivity], operations: [NativeDownloadOperation]) {
+    func restore(operations: [NativeDownloadOperation]) {
         var restoredState = NativeDownloadStateStore(operations: operations)
-        let interruptedActivityIDs = restoredState.normalizeAfterInterruption()
-        var restoredActivities = activities
-        for index in restoredActivities.indices where interruptedActivityIDs.contains(restoredActivities[index].id) {
-            restoredActivities[index].phase = "Paused after interruption"
-            restoredActivities[index].bytesPerSecond = nil
-        }
+        _ = restoredState.normalizeAfterInterruption()
         state = restoredState
-        self.activities = restoredActivities
         lastProgressUpdate.removeAll()
     }
 
@@ -51,7 +45,8 @@ final class NativeDownloadLedger: ObservableObject {
 
     func resetAfterPlanChange(_ queueID: UUID) {
         switch status(forQueueID: queueID) {
-        case .queued, .resolving, .downloading, .tagging, .validating, .waitingForNetwork, .ready:
+        case .queued, .resolving, .downloading, .tagging, .validating,
+             .finalizingAssets, .indexingLibrary, .waitingForNetwork, .ready:
             break
         case .paused, .completed, .failed, .cancelled:
             transition(queueID: queueID, to: .ready)
@@ -63,33 +58,41 @@ final class NativeDownloadLedger: ObservableObject {
         quality: QobuzQuality,
         repairFormat: QobuzAudioFormat?
     ) -> UUID {
-        if let index = activities.firstIndex(where: {
-            $0.queueID == item.id && (status(for: $0).canResume || status(for: $0).canRetry)
-        }) {
-            let activityID = activities[index].id
-            let partial = partialLocator.artifact(for: activities[index])
-            let isRetry = status(for: activities[index]).canRetry
-            activities[index].phase = partial == nil ? (isRetry ? "Retrying" : "Resuming") : "Resuming existing partial file"
-            activities[index].quality = repairFormat == nil ? quality : nil
-            activities[index].audioFormat = repairFormat
-            activities[index].bytesPerSecond = nil
-            activities[index].errorMessage = nil
-            transition(queueID: item.id, activityID: activityID, to: .queued)
+        if let operation = state.operation(forQueueID: item.id),
+           let activityID = operation.activityID,
+           operation.status.canResume || operation.status.canRetry {
+            let activity = NativeDownloadActivity(operation: operation)
+            let partial = partialLocator.artifact(for: activity)
+            let isRetry = operation.status.canRetry
+            mutateState { state in
+                state.mutateOperation(queueID: item.id) {
+                    $0.resetForRestart(
+                        title: item.title,
+                        quality: repairFormat == nil ? quality : nil,
+                        audioFormat: repairFormat,
+                        phase: partial == nil
+                            ? (isRetry ? "Retrying" : "Resuming")
+                            : "Resuming existing partial file"
+                    )
+                }
+                state.transition(queueID: item.id, activityID: activityID, to: .queued)
+            }
             return activityID
         }
 
         let activityID = UUID()
-        activities.insert(
-            NativeDownloadActivity(
-                id: activityID,
-                queueID: item.id,
-                title: item.title,
-                quality: repairFormat == nil ? quality : nil,
-                audioFormat: repairFormat
-            ),
-            at: 0
-        )
-        transition(queueID: item.id, activityID: activityID, to: .queued)
+        mutateState { state in
+            state.registerQueue(item.id)
+            state.bindActivity(activityID, to: item.id, status: .queued)
+            state.mutateOperation(queueID: item.id) {
+                $0.resetForRestart(
+                    title: item.title,
+                    quality: repairFormat == nil ? quality : nil,
+                    audioFormat: repairFormat,
+                    phase: "Queued"
+                )
+            }
+        }
         return activityID
     }
 
@@ -109,7 +112,6 @@ final class NativeDownloadLedger: ObservableObject {
 
     func removeActivity(_ activity: NativeDownloadActivity, queueStillExists: Bool) {
         guard !status(for: activity).isActive else { return }
-        activities.removeAll { $0.id == activity.id }
         mutateState { $0.removeActivity(activity.id, queueStillExists: queueStillExists) }
         lastProgressUpdate.removeValue(forKey: activity.id)
     }
@@ -117,7 +119,6 @@ final class NativeDownloadLedger: ObservableObject {
     func clearFinished(queueIDs: Set<UUID>) -> Int {
         let removed = activities.filter { status(for: $0).isClearable }
         let removedIDs = Set(removed.map(\.id))
-        activities.removeAll { removedIDs.contains($0.id) }
         mutateState { state in
             for activity in removed {
                 state.removeActivity(activity.id, queueStillExists: queueIDs.contains(activity.queueID))
@@ -138,11 +139,19 @@ final class NativeDownloadLedger: ObservableObject {
 
         let queueID = activity(id: activityID)?.queueID
         let nextStatus: NativeDownloadStatus? = switch event {
+        case .checkpoint(let checkpoint): switch checkpoint.phase {
+            case .resolvingCatalog: .resolving
+            case .transferringAudio: .downloading
+            case .writingTags: .tagging
+            case .validatingAudio, .writingProvenance: .validating
+            case .writingCollectionAssets: .finalizingAssets
+            case .indexingLibrary, .complete: .indexingLibrary
+            }
         case .resolving: .resolving
         case .trackStarted, .progress: .downloading
         case .tagging: .tagging
         case .validating: .validating
-        case .completed: .completed
+        case .completed: .indexingLibrary
         default: nil
         }
         if let queueID, let nextStatus {
@@ -150,6 +159,8 @@ final class NativeDownloadLedger: ObservableObject {
         }
         updateActivity(activityID) { activity in
             switch event {
+            case .checkpoint(let checkpoint):
+                activity.recordCheckpoint(checkpoint)
             case .resolving:
                 activity.phase = "Resolving Qobuz"
             case .planReady(let title, let count):
@@ -159,7 +170,7 @@ final class NativeDownloadLedger: ObservableObject {
             case .trackStarted(let track, let destination, let format):
                 activity.phase = "Downloading"
                 activity.currentTrack = track.track.displayTitle
-                activity.outputURL = destination
+                activity.recordOutput(destination)
                 activity.audioFormat = format
                 activity.bytesPerSecond = nil
             case .progress(let progress):
@@ -178,6 +189,7 @@ final class NativeDownloadLedger: ObservableObject {
                 activity.checksum = checksum
                 activity.phase = "Integrity verified"
             case .assetCreated(let url):
+                activity.recordAsset(url)
                 activity.phase = "Created \(url.lastPathComponent)"
             case .notice(let message):
                 if !activity.notices.contains(message) { activity.notices.append(message) }
@@ -185,18 +197,18 @@ final class NativeDownloadLedger: ObservableObject {
                 if !activity.warnings.contains(message) { activity.warnings.append(message) }
                 activity.phase = "Finishing with warnings"
             case .trackCompleted(_, let destination), .trackSkipped(_, let destination):
-                activity.outputURL = destination
+                activity.recordOutput(destination)
             case .completed:
-                activity.phase = activity.warnings.isEmpty ? "Complete" : "Complete with warnings"
+                activity.phase = "Indexing Library"
                 activity.progress = 1
                 activity.bytesPerSecond = nil
             }
         }
     }
 
-    func updateActivity(_ id: UUID, mutate: (inout NativeDownloadActivity) -> Void) {
-        guard let index = activities.firstIndex(where: { $0.id == id }) else { return }
-        mutate(&activities[index])
+    func updateActivity(_ id: UUID, mutate: (inout NativeDownloadOperation) -> Void) {
+        guard let queueID = state.operations.first(where: { $0.activityID == id })?.queueID else { return }
+        mutateState { $0.mutateOperation(queueID: queueID, mutate) }
     }
 
     func transition(queueID: UUID, activityID: UUID? = nil, to status: NativeDownloadStatus) {
@@ -213,6 +225,16 @@ final class NativeDownloadLedger: ObservableObject {
                 "to": status.diagnosticDescription
             ]
         )
+    }
+
+    func markLibraryIndexed(queueID: UUID, activityID: UUID) {
+        updateActivity(activityID) {
+            $0.recordCheckpoint(QobuzDownloadCheckpoint(phase: .complete))
+            $0.phase = $0.warnings.isEmpty ? "Complete" : "Complete with warnings"
+            $0.progress = 1
+            $0.bytesPerSecond = nil
+        }
+        transition(queueID: queueID, activityID: activityID, to: .completed)
     }
 
     func markActiveCancelled() {

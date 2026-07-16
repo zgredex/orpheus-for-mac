@@ -16,6 +16,92 @@ final class DownloadEngineTests: XCTestCase {
         )
     }
 
+    func testCompletedStagingResumesTaggingWithoutAnotherAudioTransfer() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let recorder = TransferRecorder()
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("Artist/Album/01. One.flac")
+        let staging = QobuzDownloadArtifacts.processingURL(
+            for: destination,
+            formatID: QobuzAudioFormat.hiRes.formatID
+        )
+        try FileManager.default.createDirectory(
+            at: staging.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([1, 2, 3]).write(to: staging)
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(albums: [album.id: album]),
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
+
+        var events: [QobuzDownloadEvent] = []
+        for try await event in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {
+            events.append(event)
+        }
+
+        let resumedTransferCount = await recorder.sources.count
+        XCTAssertEqual(resumedTransferCount, 0)
+        XCTAssertEqual(try Data(contentsOf: destination), Data([1, 2, 3]))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
+        XCTAssertTrue(events.contains(.checkpoint(QobuzDownloadCheckpoint(
+            phase: .writingTags,
+            trackID: QobuzID("one"),
+            outputURL: staging
+        ))))
+        XCTAssertTrue(events.contains { event in
+            guard case .notice(let message) = event else { return false }
+            return message.contains("Resuming metadata")
+        })
+    }
+
+    func testLibraryManifestFailurePreventsCompletionAndRetryReusesAudio() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let recorder = TransferRecorder()
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let manifest = root.appendingPathComponent(QobuzLibraryManifestIO.filename)
+        try FileManager.default.createSymbolicLink(
+            at: manifest,
+            withDestinationURL: root.appendingPathComponent("outside.json")
+        )
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(albums: [album.id: album]),
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(),
+            metadataWriter: RecordingMetadataWriter()
+        )
+
+        var firstEvents: [QobuzDownloadEvent] = []
+        do {
+            for try await event in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {
+                firstEvents.append(event)
+            }
+            XCTFail("Expected the Library transaction to fail")
+        } catch {}
+
+        XCTAssertFalse(firstEvents.contains { if case .completed = $0 { true } else { false } })
+        let firstTransferCount = await recorder.sources.count
+        XCTAssertEqual(firstTransferCount, 1)
+        let destination = root.appendingPathComponent("Artist/Album/01. One.flac")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
+
+        try FileManager.default.removeItem(at: manifest)
+        var retryEvents: [QobuzDownloadEvent] = []
+        for try await event in engine.events(for: .album(album.id), quality: .hiRes, downloadRoot: root) {
+            retryEvents.append(event)
+        }
+
+        let retryTransferCount = await recorder.sources.count
+        XCTAssertEqual(retryTransferCount, 1)
+        XCTAssertTrue(retryEvents.contains(.completed(title: "Album", downloaded: 0, skipped: 1)))
+        XCTAssertEqual(try QobuzLibraryManifestIO.load(at: root).collections.count, 1)
+    }
+
     func testOutputPlannerSanitizesPathsAndUsesDiscPrefix() {
         let artist = QobuzArtist(id: QobuzID("artist"), name: "Artist/Name")
         let track = QobuzTrack(

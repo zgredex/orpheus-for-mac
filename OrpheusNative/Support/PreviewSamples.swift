@@ -34,20 +34,21 @@ enum PreviewSamples {
     }()
 
     static let activity: NativeDownloadActivity = {
-        var activity = NativeDownloadActivity(
-            id: UUID(),
+        var operation = NativeDownloadOperation(
             queueID: UUID(),
+            activityID: UUID(),
+            status: .downloading,
             title: "Midnight Frequencies"
         )
-        activity.phase = "Downloading"
-        activity.currentTrack = "Carrier Wave"
-        activity.progress = 0.62
-        activity.completedTracks = 2
-        activity.totalTracks = 3
-        activity.bytesWritten = 96_400_000
-        activity.totalBytes = 154_000_000
-        activity.bytesPerSecond = 4_200_000
-        return activity
+        operation.phase = "Downloading"
+        operation.currentTrack = "Carrier Wave"
+        operation.progress = 0.62
+        operation.completedTracks = 2
+        operation.totalTracks = 3
+        operation.bytesWritten = 96_400_000
+        operation.totalBytes = 154_000_000
+        operation.bytesPerSecond = 4_200_000
+        return NativeDownloadActivity(operation: operation)
     }()
 
     static let searchResults: [SearchResult] = [

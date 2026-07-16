@@ -14,6 +14,7 @@ struct QobuzDownloadFinalizer: Sendable {
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
     ) async throws {
+        continuation.yield(.checkpoint(QobuzDownloadCheckpoint(phase: .writingCollectionAssets)))
         try await writeBooklets(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
         writeDescriptions(state: state, fileSystem: fileSystem, continuation: continuation)
@@ -23,9 +24,13 @@ struct QobuzDownloadFinalizer: Sendable {
         writeChecksums(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
         try await writePlaylistMetadata(plan: plan, fileSystem: fileSystem, continuation: continuation)
-        guard configuration.repairTarget == nil else { return }
+        guard configuration.repairTarget == nil else {
+            continuation.yield(.checkpoint(QobuzDownloadCheckpoint(phase: .indexingLibrary)))
+            return
+        }
         try Task.checkCancellation()
-        updateLibrary(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
+        continuation.yield(.checkpoint(QobuzDownloadCheckpoint(phase: .indexingLibrary)))
+        try updateLibrary(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
     }
 
     private func writeBooklets(
@@ -146,26 +151,21 @@ struct QobuzDownloadFinalizer: Sendable {
         fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
-    ) {
-        do {
-            let manifest = try assetWriter.recordLibraryCollections(
-                plan: plan,
-                outputs: state.outputTuples,
-                fileSystem: fileSystem
-            )
-            try assetWriter.markLibraryManaged(
-                state.outputs.map(\.audioURL),
-                fileSystem: fileSystem
-            )
-            qobuzLog.notice(
-                "download.library",
-                "Library manifest updated",
-                metadata: ["manifestPath": manifest.path, "outputCount": String(state.outputs.count)]
-            )
-            continuation.yield(.assetCreated(manifest))
-        } catch {
-            qobuzLog.warning("download.library", "Library manifest could not be updated", error: error)
-            continuation.yield(.warning("Library manifest: \(error.localizedDescription)"))
-        }
+    ) throws {
+        let manifest = try assetWriter.recordLibraryCollections(
+            plan: plan,
+            outputs: state.outputTuples,
+            fileSystem: fileSystem
+        )
+        try assetWriter.markLibraryManaged(
+            state.outputs.map(\.audioURL),
+            fileSystem: fileSystem
+        )
+        qobuzLog.notice(
+            "download.library",
+            "Library manifest transaction committed",
+            metadata: ["manifestPath": manifest.path, "outputCount": String(state.outputs.count)]
+        )
+        continuation.yield(.assetCreated(manifest))
     }
 }

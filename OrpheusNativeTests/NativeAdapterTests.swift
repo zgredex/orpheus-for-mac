@@ -68,16 +68,21 @@ final class NativeAdapterTests: XCTestCase {
 
     func testWaitingForNetworkStatusesRoundTripThroughSessionCoding() throws {
         let item = NativeQueueItem(request: .album(QobuzID("album")))
-        var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: "Album")
-        activity.phase = "Waiting for network · partial file preserved"
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .waitingForNetwork,
+            title: "Album"
+        )
+        operation.phase = "Waiting for network · partial file preserved"
+        operation.recordCheckpoint(QobuzDownloadCheckpoint(
+            phase: .transferringAudio,
+            trackID: QobuzID("track"),
+            outputURL: URL(fileURLWithPath: "/Library/Album.processing.flac")
+        ))
         let value = NativeSessionSnapshot(
             queue: [item],
-            activities: [activity],
-            operations: [NativeDownloadOperation(
-                queueID: item.id,
-                activityID: activity.id,
-                status: .waitingForNetwork
-            )],
+            operations: [operation],
             selectedQueueID: item.id,
             linkInbox: []
         )
@@ -88,14 +93,17 @@ final class NativeAdapterTests: XCTestCase {
         )
 
         XCTAssertEqual(decoded.operations.first?.status, .waitingForNetwork)
+        XCTAssertEqual(decoded.operations.first?.checkpoint, operation.checkpoint)
+        XCTAssertEqual(decoded.operations.first?.outputURLs, operation.outputURLs)
 
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any]
         )
         let queue = try XCTUnwrap((object["queue"] as? [[String: Any]])?.first)
-        let activities = try XCTUnwrap((object["activities"] as? [[String: Any]])?.first)
+        let encodedOperation = try XCTUnwrap((object["operations"] as? [[String: Any]])?.first)
         XCTAssertNil(queue["status"])
-        XCTAssertNil(activities["status"])
+        XCTAssertNotNil(encodedOperation["status"])
+        XCTAssertNil(object["activities"])
     }
 
     func testBrowseResultsOwnEveryCategoryWithoutCrossCategoryMutation() {
@@ -280,13 +288,18 @@ final class NativeAdapterTests: XCTestCase {
         ]
         item.expectedTrackIDs = [QobuzID("one"), QobuzID("two")]
         item.selectedTrackIDs = [QobuzID("two")]
-        var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: item.title)
-        activity.phase = "Paused after interruption"
-        activity.progress = 0.42
-        activity.bytesWritten = 42
-        activity.totalBytes = 100
-        activity.warnings = ["Cover artwork could not be saved."]
-        activity.errorMessage = "The transfer was interrupted."
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .paused,
+            title: item.title
+        )
+        operation.phase = "Paused after interruption"
+        operation.progress = 0.42
+        operation.bytesWritten = 42
+        operation.totalBytes = 100
+        operation.warnings = ["Cover artwork could not be saved."]
+        operation.errorMessage = "The transfer was interrupted."
         var inboxItem = NativeLinkInboxItem(link: ParsedQobuzLink(
             original: "https://open.qobuz.com/album/album",
             request: .album(QobuzID("album"))
@@ -295,12 +308,7 @@ final class NativeAdapterTests: XCTestCase {
         inboxItem.status = .available
         let snapshot = NativeSessionSnapshot(
             queue: [item],
-            activities: [activity],
-            operations: [NativeDownloadOperation(
-                queueID: item.id,
-                activityID: activity.id,
-                status: .paused
-            )],
+            operations: [operation],
             selectedQueueID: item.id,
             linkInbox: [inboxItem]
         )
@@ -343,7 +351,6 @@ final class NativeAdapterTests: XCTestCase {
         let second = NativeQueueItem(request: .album(QobuzID("album-two")), title: "Second")
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
             queue: [first, second],
-            activities: [],
             operations: [
                 NativeDownloadOperation(queueID: first.id, status: .completed),
                 NativeDownloadOperation(queueID: second.id)
@@ -401,17 +408,18 @@ final class NativeAdapterTests: XCTestCase {
         try Data(repeating: 7, count: 4_096).write(to: partial)
 
         let item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
-        var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: "Album")
-        activity.quality = .hiRes
-        activity.outputURL = output
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .paused,
+            title: "Album"
+        )
+        operation.quality = .hiRes
+        operation.recordOutput(output)
+        let activity = NativeDownloadActivity(operation: operation)
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
             queue: [item],
-            activities: [activity],
-            operations: [NativeDownloadOperation(
-                queueID: item.id,
-                activityID: activity.id,
-                status: .paused
-            )],
+            operations: [operation],
             selectedQueueID: item.id,
             linkInbox: []
         ))
@@ -433,35 +441,37 @@ final class NativeAdapterTests: XCTestCase {
             formatID: QobuzAudioFormat.hiRes96.formatID
         )
         try Data(repeating: 7, count: 2_048).write(to: format7Partial)
-        activity.audioFormat = .hiRes96
+        operation.quality = nil
+        operation.audioFormat = .hiRes96
+        let format7Activity = NativeDownloadActivity(operation: operation)
         XCTAssertEqual(
-            viewModel.resumablePartial(for: activity),
+            viewModel.resumablePartial(for: format7Activity),
             NativePartialDownload(url: format7Partial, bytes: 2_048)
         )
 
         let completedViewModel = restoredViewModel(
             status: .completed,
             item: item,
-            activity: activity,
+            activity: format7Activity,
             paths: paths
         )
-        XCTAssertNil(completedViewModel.resumablePartial(for: activity))
+        XCTAssertNil(completedViewModel.resumablePartial(for: format7Activity))
 
         let failedViewModel = restoredViewModel(
             status: .failed("Network unavailable"),
             item: item,
-            activity: activity,
+            activity: format7Activity,
             paths: paths
         )
-        XCTAssertEqual(failedViewModel.resumablePartial(for: activity)?.bytes, 2_048)
+        XCTAssertEqual(failedViewModel.resumablePartial(for: format7Activity)?.bytes, 2_048)
 
         try Data().write(to: format7Partial)
-        XCTAssertNil(failedViewModel.resumablePartial(for: activity))
+        XCTAssertNil(failedViewModel.resumablePartial(for: format7Activity))
     }
 
     func testSessionCodingRejectsAnyPreviousSchema() throws {
         let data = Data(
-            #"{"version":1,"queue":[],"activities":[],"selectedQueueID":null}"#.utf8
+            #"{"schemaVersion":2,"queue":[],"operations":[],"selectedQueueID":null,"linkInbox":[]}"#.utf8
         )
 
         XCTAssertThrowsError(try JSONDecoder().decode(NativeSessionSnapshot.self, from: data))
@@ -474,18 +484,18 @@ final class NativeAdapterTests: XCTestCase {
         var item = NativeQueueItem(request: .album(QobuzID("album")), title: "Interrupted Album")
         item.downloadQuality = .lossless
         item.downloadRootPath = paths.defaultDownloadRoot.path
-        var activity = NativeDownloadActivity(id: UUID(), queueID: item.id, title: item.title)
-        activity.phase = "Downloading"
-        activity.progress = 0.35
-        activity.bytesPerSecond = 1_000
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .downloading,
+            title: item.title
+        )
+        operation.phase = "Downloading"
+        operation.progress = 0.35
+        operation.bytesPerSecond = 1_000
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
             queue: [item],
-            activities: [activity],
-            operations: [NativeDownloadOperation(
-                queueID: item.id,
-                activityID: activity.id,
-                status: .downloading
-            )],
+            operations: [operation],
             selectedQueueID: item.id,
             linkInbox: []
         ))
@@ -1008,14 +1018,11 @@ final class NativeAdapterTests: XCTestCase {
         activity: NativeDownloadActivity,
         paths: NativePaths
     ) -> NativeViewModel {
+        var operation = activity.operation
+        operation.status = status
         let sessionStore = MemorySessionStore(snapshot: NativeSessionSnapshot(
             queue: [item],
-            activities: [activity],
-            operations: [NativeDownloadOperation(
-                queueID: item.id,
-                activityID: activity.id,
-                status: status
-            )],
+            operations: [operation],
             selectedQueueID: item.id,
             linkInbox: []
         ))
