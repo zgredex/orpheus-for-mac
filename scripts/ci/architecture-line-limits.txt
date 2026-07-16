@@ -3,11 +3,7 @@
 # the file is at or below the default ceiling.
 NativeQobuzCore/Sources/NativeQobuzCore/FileTransfer.swift|612
 NativeQobuzCore/Sources/NativeQobuzCore/LibraryAdoption.swift|378
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzCollectionModels.swift|375
-NativeQobuzCore/Sources/NativeQobuzCore/QobuzReleaseModels.swift|394
-OrpheusNative/Support/Browse/NativeBrowseController.swift|400
 OrpheusNative/Support/Download/NativeDownloadController.swift|428
 OrpheusNative/Support/NativeSupplementalDiagnostics.swift|454
 OrpheusNative/Support/NativeViewModel.swift|598
-OrpheusNative/Views/Browse/NativeBrowseView.swift|443
 OrpheusNative/Views/Diagnostics/NativeLogView.swift|357

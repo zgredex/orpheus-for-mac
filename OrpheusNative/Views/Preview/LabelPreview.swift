@@ -7,6 +7,10 @@ struct LabelPreview: View {
     var onAddAlbums: (([QobuzAlbum]) -> Void)?
     var isAlbumQueued: ((QobuzAlbum) -> Bool)?
     var albumLibraryStatus: ((QobuzAlbum) -> NativeLibraryStatus?)?
+    var hasMore = false
+    var isLoadingMore = false
+    var loadMoreError: String?
+    var loadMore: (() -> Void)?
 
     @State private var selectedAlbumIDs: Set<QobuzID> = []
 
@@ -21,7 +25,7 @@ struct LabelPreview: View {
             VStack(spacing: 0) {
                 selectionBar
                 Divider()
-                if albums.isEmpty {
+                if albums.isEmpty, !hasMore, !isLoadingMore, loadMoreError == nil {
                     ContentUnavailableView(
                         "No Available Albums",
                         systemImage: "nosign",
@@ -29,7 +33,17 @@ struct LabelPreview: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(albums, id: \.id) { album in albumRow(album) }
+                    List {
+                        ForEach(albums, id: \.id) { album in albumRow(album) }
+                        if hasMore || isLoadingMore || loadMoreError != nil {
+                            CatalogPaginationRow(
+                                subject: "albums",
+                                isLoading: isLoadingMore,
+                                errorMessage: loadMoreError,
+                                loadMore: loadMore
+                            )
+                        }
+                    }
                         .listStyle(.inset)
                 }
             }

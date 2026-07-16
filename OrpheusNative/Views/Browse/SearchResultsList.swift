@@ -31,7 +31,12 @@ struct SearchResultsList: View {
                 SearchResultRow(result: result)
             }
             if hasMore || isLoadingMore || loadMoreError != nil {
-                paginationRow
+                CatalogPaginationRow(
+                    subject: emptyCategory,
+                    isLoading: isLoadingMore,
+                    errorMessage: loadMoreError,
+                    loadMore: loadMore
+                )
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
@@ -46,31 +51,6 @@ struct SearchResultsList: View {
         }
     }
 
-    private var paginationRow: some View {
-        HStack(spacing: DS.Space.m) {
-            Spacer()
-            if isLoadingMore {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Loading more \(emptyCategory)…")
-                    .foregroundStyle(.secondary)
-            } else if let loadMoreError {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text(loadMoreError)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Button("Try Again") { loadMore?() }
-                    .controlSize(.small)
-            } else {
-                Button("Load More", systemImage: "arrow.down.circle") { loadMore?() }
-                    .controlSize(.small)
-            }
-            Spacer()
-        }
-        .font(.caption)
-        .frame(minHeight: 40)
-    }
 }
 
 private struct SearchResultRow: View {

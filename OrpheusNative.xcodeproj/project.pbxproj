@@ -15,6 +15,7 @@
 		0C611D9CE4F2A2FE1C00C53A /* NativeLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */; };
 		0D269BECD091F6F0FE0AD430 /* EditorialOverview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FCC9E16DCFF8327CED91BB3 /* EditorialOverview.swift */; };
 		0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F84910388BFB4F7DEBB16B /* NativeInputBar.swift */; };
+		12A9671647D3F345F9F864AD /* BrowseAvailabilityBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E7B2E6B377139952B57D0D8 /* BrowseAvailabilityBanner.swift */; };
 		13BF0FBF4716AE1DBFF062F9 /* NativeAppLifecycleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */; };
 		142B246D2F8A927B03ACD8BD /* ActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9299EA155D4AFB06EA6C7680 /* ActivityRow.swift */; };
 		14DE772DCBCE72612DE7605C /* AlbumPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */; };
@@ -64,6 +65,7 @@
 		8638F6D2DD73C12E99D15ABA /* NativeLibraryArchiveRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */; };
 		89C603BB7B24BD3E4E3223DC /* NativeDownloadActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */; };
 		8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */; };
+		8F65278DB92E852EF3188ABB /* NativeCatalogSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F4D979A0A59883F63207D3 /* NativeCatalogSearchController.swift */; };
 		90738BD4D2713EA68ACE51B0 /* QobuzLogEntryCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB71A4FDDB59FC77808F460F /* QobuzLogEntryCollection.swift */; };
 		910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */; };
 		932C95E5CF18DB912842BC40 /* LayoutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51A5AB448A84780643E8102 /* LayoutPolicyTests.swift */; };
@@ -74,6 +76,7 @@
 		A6CCC521F034B2AB6CD2695D /* NativeLinkInboxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DB5568FBA1DEE55549C644 /* NativeLinkInboxController.swift */; };
 		A779F1F644E153CE1F6F2E98 /* NativeConnectivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD347D5763C02114434DF383 /* NativeConnectivityController.swift */; };
 		A7A9183A28BA8F3ED4B0902C /* EditorialContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96C777437F88709C97FD469 /* EditorialContent.swift */; };
+		AA8F90A459DD72D1AE5CD0F8 /* NativeBrowseHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F3C7C0E203BD67635565484 /* NativeBrowseHeader.swift */; };
 		AA9AA89B629EAA5F24C694C9 /* NativeLibraryProblemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EE49B9A1C120E5F3C76AC3F /* NativeLibraryProblemsView.swift */; };
 		B30F89034197A12FEA98F0C0 /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF10861B2EA64C6B46BFDB4 /* NativeSettingsView.swift */; };
 		B4CC0CFB28C85DDA0AE0043D /* NativeDownloadOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC888651F6CAE28EA87EA7DF /* NativeDownloadOperation.swift */; };
@@ -87,7 +90,9 @@
 		BF37B6EC389F9E350A7B02E5 /* NativeSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFD94316353838D6095EA51D /* NativeSessionController.swift */; };
 		C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6DCC874D8946A6969AECD8 /* RegionBadge.swift */; };
 		C4EEA1E1154B5E7376518131 /* NativeQueuePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */; };
+		C528992FD96F668AF1B537C4 /* NativeBrowsePageReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59399B423879A3B543DD5AC /* NativeBrowsePageReducer.swift */; };
 		C5BE9431BCB98704FB67FDA7 /* NativeDownloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A3AE3BF79AC58159CBD9005 /* NativeDownloadController.swift */; };
+		C7A95A28CB5D7F4EEBFB61E4 /* CatalogPaginationRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE3E7127799C2DBC52AEA64 /* CatalogPaginationRow.swift */; };
 		C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */; };
 		D1C4D0D769F132B8890219C0 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
 		D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */; };
@@ -97,6 +102,7 @@
 		DC67CA2A118AC3A94A6EE70B /* NativeBrowseNavigationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CF9CE7AB59289B455575E2A /* NativeBrowseNavigationController.swift */; };
 		DCF6774CB290535AD4E9CEA1 /* NativeLogSerialWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8018D9249943EE483B447B27 /* NativeLogSerialWriter.swift */; };
 		DDC6A65A276420938D8A5FE1 /* NativeContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */; };
+		DFDC4404F5BAA327C4A35234 /* NativeBrowsePageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA06DD6BDF551C34AF3F9C42 /* NativeBrowsePageLoader.swift */; };
 		F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
 		F4C0B0021A1432FE31CD9F90 /* NativeLogTailReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABC4B8F6486F410CD6E762FB /* NativeLogTailReader.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
@@ -122,17 +128,20 @@
 		02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLinkInboxModels.swift; sourceTree = "<group>"; };
 		0705669E15A714623F9D53B4 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCatalogAvailabilityPolicy.swift; sourceTree = "<group>"; };
+		0E7B2E6B377139952B57D0D8 /* BrowseAvailabilityBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseAvailabilityBanner.swift; sourceTree = "<group>"; };
 		115C4C7863FB40DF04E3BE9C /* NativePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePreviewView.swift; sourceTree = "<group>"; };
 		15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryPresentation.swift; sourceTree = "<group>"; };
 		177F6887E92A0662B72B4E1A /* TrackListRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackListRow.swift; sourceTree = "<group>"; };
 		18CA34FDF881F4F29D2B540F /* NativeLibrarySummaryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibrarySummaryBar.swift; sourceTree = "<group>"; };
 		19A65459F1F88915E30A939C /* NativeAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAdapterTests.swift; sourceTree = "<group>"; };
 		226B2DEBEC48592C07F09899 /* OrpheusNativeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrpheusNativeApp.swift; sourceTree = "<group>"; };
+		25F4D979A0A59883F63207D3 /* NativeCatalogSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCatalogSearchController.swift; sourceTree = "<group>"; };
 		2704F594552DAF12733A3709 /* TrackPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPreview.swift; sourceTree = "<group>"; };
 		299298E81FAB20EE3E90BDC5 /* NativeDownloadItemRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadItemRunner.swift; sourceTree = "<group>"; };
 		2A71E6268E28372DB55B7375 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2C17AACC47CC2470C3287259 /* OrpheusNativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrpheusNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C549640E3C4CC5A7454731C /* NativeDownloadStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadStateStore.swift; sourceTree = "<group>"; };
+		2F3C7C0E203BD67635565484 /* NativeBrowseHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseHeader.swift; sourceTree = "<group>"; };
 		360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadActivity.swift; sourceTree = "<group>"; };
 		3CA4FA13034A6C66A0BD4432 /* NativeLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryView.swift; sourceTree = "<group>"; };
 		3FCC9E16DCFF8327CED91BB3 /* EditorialOverview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialOverview.swift; sourceTree = "<group>"; };
@@ -172,6 +181,7 @@
 		923659614A8B428EF4C2ADE2 /* NativePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePersistence.swift; sourceTree = "<group>"; };
 		9299EA155D4AFB06EA6C7680 /* ActivityRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRow.swift; sourceTree = "<group>"; };
 		99536D23BDAF3AD8F187C289 /* NativeLoggingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLoggingTests.swift; sourceTree = "<group>"; };
+		9EE3E7127799C2DBC52AEA64 /* CatalogPaginationRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogPaginationRow.swift; sourceTree = "<group>"; };
 		AA36D0E2EF3744F06EF0524A /* NativeActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeActivityView.swift; sourceTree = "<group>"; };
 		AB1BC32628F526533ACA63A4 /* NativeQueuePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQueuePane.swift; sourceTree = "<group>"; };
 		AB38BF8B7F13870BEF444120 /* NativeQobuzCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NativeQobuzCore; path = NativeQobuzCore; sourceTree = SOURCE_ROOT; };
@@ -186,6 +196,7 @@
 		B6EB097B50DA94628D894D48 /* LabelPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelPreview.swift; sourceTree = "<group>"; };
 		B7F894D18FBA27D31C3D298D /* NativeLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogView.swift; sourceTree = "<group>"; };
 		B96C777437F88709C97FD469 /* EditorialContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialContent.swift; sourceTree = "<group>"; };
+		BA06DD6BDF551C34AF3F9C42 /* NativeBrowsePageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowsePageLoader.swift; sourceTree = "<group>"; };
 		BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppLifecycleController.swift; sourceTree = "<group>"; };
 		C0504E8EACB55220B9F71476 /* NativeSecureFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSecureFileWriter.swift; sourceTree = "<group>"; };
 		C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContentView.swift; sourceTree = "<group>"; };
@@ -199,6 +210,7 @@
 		D4F3D2CDE3338BA340D20AE4 /* NativeDownloadOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadOrchestrator.swift; sourceTree = "<group>"; };
 		D51A5AB448A84780643E8102 /* LayoutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPolicyTests.swift; sourceTree = "<group>"; };
 		D57563958E39251BB8E57A83 /* AddToQueueButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToQueueButton.swift; sourceTree = "<group>"; };
+		D59399B423879A3B543DD5AC /* NativeBrowsePageReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowsePageReducer.swift; sourceTree = "<group>"; };
 		D7F84910388BFB4F7DEBB16B /* NativeInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeInputBar.swift; sourceTree = "<group>"; };
 		DA986A2A917D8F063500CCA0 /* NativeDownloadStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadStateStoreTests.swift; sourceTree = "<group>"; };
 		DB7F396DBCA963176977A9DE /* EditorialTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorialTextFormatter.swift; sourceTree = "<group>"; };
@@ -280,6 +292,9 @@
 		6697FAC06F6E9C79B8DA204E /* Browse */ = {
 			isa = PBXGroup;
 			children = (
+				0E7B2E6B377139952B57D0D8 /* BrowseAvailabilityBanner.swift */,
+				9EE3E7127799C2DBC52AEA64 /* CatalogPaginationRow.swift */,
+				2F3C7C0E203BD67635565484 /* NativeBrowseHeader.swift */,
 				7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */,
 				FDA88442A935015C025CE423 /* SearchResultsList.swift */,
 			);
@@ -403,7 +418,10 @@
 				CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */,
 				54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */,
 				7CF9CE7AB59289B455575E2A /* NativeBrowseNavigationController.swift */,
+				BA06DD6BDF551C34AF3F9C42 /* NativeBrowsePageLoader.swift */,
+				D59399B423879A3B543DD5AC /* NativeBrowsePageReducer.swift */,
 				0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */,
+				25F4D979A0A59883F63207D3 /* NativeCatalogSearchController.swift */,
 			);
 			path = Browse;
 			sourceTree = "<group>";
@@ -660,7 +678,9 @@
 				14DE772DCBCE72612DE7605C /* AlbumPreview.swift in Sources */,
 				847F01E6E238197DD88FE236 /* ArtistPreview.swift in Sources */,
 				20EF95BD35A9895BA249E85B /* ArtworkView.swift in Sources */,
+				12A9671647D3F345F9F864AD /* BrowseAvailabilityBanner.swift in Sources */,
 				2A16AD28B4384DB4FE0439F8 /* CatalogMarkers.swift in Sources */,
+				C7A95A28CB5D7F4EEBFB61E4 /* CatalogPaginationRow.swift in Sources */,
 				BB1C68F692DCBAF8FB217F57 /* CollectionPreview.swift in Sources */,
 				3F2B6D33694006542BA748D3 /* DesignTokens.swift in Sources */,
 				A7A9183A28BA8F3ED4B0902C /* EditorialContent.swift in Sources */,
@@ -677,10 +697,14 @@
 				13BF0FBF4716AE1DBFF062F9 /* NativeAppLifecycleController.swift in Sources */,
 				83C228999EA50D9BEEB900A3 /* NativeArchiveIndexStore.swift in Sources */,
 				C998EA8B96D2C6DC2C9AB6AE /* NativeBrowseController.swift in Sources */,
+				AA8F90A459DD72D1AE5CD0F8 /* NativeBrowseHeader.swift in Sources */,
 				F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */,
 				DC67CA2A118AC3A94A6EE70B /* NativeBrowseNavigationController.swift in Sources */,
+				DFDC4404F5BAA327C4A35234 /* NativeBrowsePageLoader.swift in Sources */,
+				C528992FD96F668AF1B537C4 /* NativeBrowsePageReducer.swift in Sources */,
 				7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */,
 				910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */,
+				8F65278DB92E852EF3188ABB /* NativeCatalogSearchController.swift in Sources */,
 				8B84C26336796595E8CAED23 /* NativeCommandBar.swift in Sources */,
 				A779F1F644E153CE1F6F2E98 /* NativeConnectivityController.swift in Sources */,
 				5299B1EE55A439832966A4B2 /* NativeConnectivityEvents.swift in Sources */,

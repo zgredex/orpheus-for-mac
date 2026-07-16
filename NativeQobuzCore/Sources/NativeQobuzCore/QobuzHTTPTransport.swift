@@ -5,20 +5,27 @@ final class QobuzHTTPTransport: @unchecked Sendable {
     private let authToken: String
     private let session: URLSession
     private let retryPolicy: QobuzRetryPolicy
-    private let sleep: @Sendable (Duration) async throws -> Void
+    private let retryScheduler: QobuzRetryScheduler
 
     init(
         baseURL: URL,
         authToken: String,
         session: URLSession,
         retryPolicy: QobuzRetryPolicy,
-        sleep: @escaping @Sendable (Duration) async throws -> Void
+        sleep: @escaping @Sendable (Duration) async throws -> Void,
+        now: @escaping @Sendable () -> Date,
+        jitter: @escaping @Sendable () -> Double
     ) {
         self.baseURL = baseURL
         self.authToken = authToken
         self.session = session
         self.retryPolicy = retryPolicy
-        self.sleep = sleep
+        retryScheduler = QobuzRetryScheduler(
+            policy: retryPolicy,
+            sleep: sleep,
+            now: now,
+            jitter: jitter
+        )
     }
 
     func get<T: Decodable>(
@@ -77,7 +84,7 @@ final class QobuzHTTPTransport: @unchecked Sendable {
                         "Qobuz request will retry after HTTP failure",
                         metadata: responseMetadata
                     )
-                    try await wait(attempt: attempt, response: http)
+                    try await wait(attempt: attempt, response: http, metadata: responseMetadata)
                     continue
                 }
                 let mapped = mapHTTPError(status: http.statusCode, data: data, response: http)
@@ -114,7 +121,7 @@ final class QobuzHTTPTransport: @unchecked Sendable {
                         metadata: attemptMetadata,
                         error: error
                     )
-                    try await wait(attempt: attempt, response: nil)
+                    try await wait(attempt: attempt, response: nil, metadata: attemptMetadata)
                     continue
                 }
                 qobuzLog.error(
@@ -217,14 +224,21 @@ final class QobuzHTTPTransport: @unchecked Sendable {
         ].contains(code)
     }
 
-    private func wait(attempt: Int, response: HTTPURLResponse?) async throws {
-        if let rawValue = response?.value(forHTTPHeaderField: "Retry-After"),
-           let retryAfter = retryDelay(from: rawValue) {
-            try await sleep(.seconds(min(max(retryAfter, 0), 5)))
-            return
-        }
-        let multiplier = 1 << min(attempt, 4)
-        try await sleep(retryPolicy.baseDelay * multiplier)
+    private func wait(
+        attempt: Int,
+        response: HTTPURLResponse?,
+        metadata: [String: String]
+    ) async throws {
+        let delay = retryScheduler.delay(attempt: attempt, response: response)
+        qobuzLog.info(
+            "api.retry.wait",
+            "Waiting before the next Qobuz request attempt",
+            metadata: metadata.merging([
+                "delay": String(describing: delay.duration),
+                "delaySource": delay.source.rawValue
+            ]) { _, new in new }
+        )
+        try await retryScheduler.wait(delay)
     }
 
     private func mapHTTPError(status: Int, data: Data, response: HTTPURLResponse) -> NativeQobuzError {
@@ -240,23 +254,6 @@ final class QobuzHTTPTransport: @unchecked Sendable {
         return .http(status, body.isEmpty ? "No response body" : body)
     }
 
-    private func retryDelay(from value: String) -> TimeInterval? {
-        if let seconds = Double(value) { return seconds }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        for format in [
-            "EEE',' dd MMM yyyy HH':'mm':'ss zzz",
-            "EEEE',' dd-MMM-yy HH':'mm':'ss zzz",
-            "EEE MMM d HH':'mm':'ss yyyy"
-        ] {
-            formatter.dateFormat = format
-            if let date = formatter.date(from: value) {
-                return max(0, date.timeIntervalSinceNow)
-            }
-        }
-        return nil
-    }
 }
 
 private struct LoggedQobuzRequestError: Error {

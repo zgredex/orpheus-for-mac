@@ -15,6 +15,10 @@ struct CollectionPreview: View {
     var onToggleTrackSelection: ((QobuzID) -> Void)?
     var onSelectAllTracks: (() -> Void)?
     var onClearTrackSelection: (() -> Void)?
+    var hasMore = false
+    var isLoadingMore = false
+    var loadMoreError: String?
+    var loadMore: (() -> Void)?
 
     var body: some View {
         PreviewScaffold(header: PreviewHeader(
@@ -40,18 +44,28 @@ struct CollectionPreview: View {
                     Divider()
                 }
                 selectionBar
-                List(tracks, id: \.id) { track in
-                    TrackListRow(
-                        leading: .artist(track.performer?.name ?? "Unknown Artist"),
-                        title: track.displayTitle,
-                        isExplicit: track.parentalWarning,
-                        duration: track.duration,
-                        libraryStatus: trackLibraryStatus?(track),
-                        quality: .catalog(track),
-                        unavailableReason: trackAvailabilityMessage?(track),
-                        isSelected: selectedTrackIDs.map { $0.contains(track.id) },
-                        toggleSelection: onToggleTrackSelection.map { toggle in { toggle(track.id) } }
-                    )
+                List {
+                    ForEach(tracks, id: \.id) { track in
+                        TrackListRow(
+                            leading: .artist(track.performer?.name ?? "Unknown Artist"),
+                            title: track.displayTitle,
+                            isExplicit: track.parentalWarning,
+                            duration: track.duration,
+                            libraryStatus: trackLibraryStatus?(track),
+                            quality: .catalog(track),
+                            unavailableReason: trackAvailabilityMessage?(track),
+                            isSelected: selectedTrackIDs.map { $0.contains(track.id) },
+                            toggleSelection: onToggleTrackSelection.map { toggle in { toggle(track.id) } }
+                        )
+                    }
+                    if hasMore || isLoadingMore || loadMoreError != nil {
+                        CatalogPaginationRow(
+                            subject: "tracks",
+                            isLoading: isLoadingMore,
+                            errorMessage: loadMoreError,
+                            loadMore: loadMore
+                        )
+                    }
                 }
                 .listStyle(.inset)
             }

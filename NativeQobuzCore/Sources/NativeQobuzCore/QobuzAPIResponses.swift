@@ -6,11 +6,18 @@ struct QobuzSearchResponse: Decodable {
     let playlists: Items<QobuzPlaylist>?
     let tracks: Items<QobuzTrack>?
 
-    struct Items<Value: Decodable>: Decodable {
-        let items: [Value]
-        let offset: Int?
-        let limit: Int?
-        let total: Int?
+    typealias Items<Value: Decodable> = QobuzLossyPage<Value>
+
+    private enum CodingKeys: String, CodingKey {
+        case albums, artists, playlists, tracks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        albums = container.qobuzTolerant(Items<QobuzAlbumSummary>.self, forKey: .albums)
+        artists = container.qobuzTolerant(Items<QobuzArtist>.self, forKey: .artists)
+        playlists = container.qobuzTolerant(Items<QobuzPlaylist>.self, forKey: .playlists)
+        tracks = container.qobuzTolerant(Items<QobuzTrack>.self, forKey: .tracks)
     }
 }
 

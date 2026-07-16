@@ -11,7 +11,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         retryPolicy: QobuzRetryPolicy = .standard,
         baseURL: URL = URL(string: "https://www.qobuz.com/api.json/0.2/")!,
         timestamp: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970) },
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        now: @escaping @Sendable () -> Date = { Date() },
+        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0...1) }
     ) {
         self.credentials = credentials
         transport = QobuzHTTPTransport(
@@ -19,7 +21,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
             authToken: credentials.authToken,
             session: session,
             retryPolicy: retryPolicy,
-            sleep: sleep
+            sleep: sleep,
+            now: now,
+            jitter: jitter
         )
         signer = QobuzRequestSigner(appSecret: credentials.appSecret, timestamp: timestamp)
     }
@@ -210,7 +214,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         }
     }
 
-    private func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
+    public func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
+        let offset = max(offset, 0)
+        let limit = min(max(limit, 1), 500)
         let (value, _): (QobuzPlaylist, HTTPURLResponse) = try await get(
             endpoint: "playlist/get",
             parameters: [
@@ -224,7 +230,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         return value
     }
 
-    private func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
+    public func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
+        let offset = max(offset, 0)
+        let limit = min(max(limit, 1), 500)
         let (value, _): (QobuzArtistCatalog, HTTPURLResponse) = try await get(
             endpoint: "artist/get",
             parameters: [
@@ -238,7 +246,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         return value
     }
 
-    private func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
+    public func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
+        let offset = max(offset, 0)
+        let limit = min(max(limit, 1), 500)
         let (value, _): (QobuzLabelCatalog, HTTPURLResponse) = try await get(
             endpoint: "label/get",
             parameters: [

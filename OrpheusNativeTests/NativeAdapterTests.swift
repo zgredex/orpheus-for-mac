@@ -786,6 +786,66 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertFalse(viewModel.browse.canLoadMore(for: .tracks))
     }
 
+    func testArtistBrowseLoadsAdditionalReleasesWithoutReplacingVisiblePage() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let service = FakeQobuzService(paginatedCollections: true)
+        let viewModel = NativeViewModel(
+            paths: paths,
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore(credentials: .complete),
+            clientFactory: { _ in service }
+        )
+
+        viewModel.start()
+        viewModel.openArtist(QobuzID("adele"))
+        for _ in 0..<100 where viewModel.browse.path.last?.content == .loading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard case .artist(let initial)? = viewModel.browse.path.last?.content else {
+            return XCTFail("Expected the first artist page")
+        }
+        XCTAssertEqual(initial.albums.map(\.title), ["First", "Second"])
+        XCTAssertEqual(viewModel.browse.path.last?.pagination?.nextOffset, 2)
+        XCTAssertEqual(viewModel.browse.path.last?.pagination?.total, 3)
+
+        viewModel.browse.loadMoreCurrentPage()
+        for _ in 0..<100 where viewModel.browse.path.last?.isLoadingMore == true {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        guard case .artist(let complete)? = viewModel.browse.path.last?.content else {
+            return XCTFail("Expected the merged artist pages")
+        }
+        XCTAssertEqual(complete.albums.map(\.title), ["First", "Second", "Third"])
+        XCTAssertNil(viewModel.browse.path.last?.pagination?.nextOffset)
+        XCTAssertEqual(viewModel.browse.path.last?.availability, .available)
+    }
+
+    func testUnknownTrackAvailabilityRemainsQueueableAndExplainsVerification() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
+        let viewModel = NativeViewModel(
+            paths: paths,
+            settingsStore: NativeSettingsStore(paths: paths),
+            credentialStore: MemoryCredentialStore()
+        )
+        let track = QobuzTrack(
+            id: QobuzID("unknown"),
+            title: "Unknown",
+            streamable: nil,
+            downloadable: nil
+        )
+
+        guard case .unknown(let message) = viewModel.browse.availability(for: track) else {
+            return XCTFail("Expected unknown availability")
+        }
+        XCTAssertTrue(viewModel.browse.availability(for: track).allowsQueue)
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("verify"))
+    }
+
     func testBrowseDrillDownOpensAlbumPageAndBackReturnsToResults() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1119,9 +1179,11 @@ private extension CredentialDraft {
 
 private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable {
     private let paginatedSearch: Bool
+    private let paginatedCollections: Bool
 
-    init(paginatedSearch: Bool = false) {
+    init(paginatedSearch: Bool = false, paginatedCollections: Bool = false) {
         self.paginatedSearch = paginatedSearch
+        self.paginatedCollections = paginatedCollections
     }
 
     func validateAccount() async throws -> String? { "FR" }
@@ -1220,6 +1282,28 @@ private final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable 
                     streamable: false
                 )
             ]
+        )
+    }
+
+    func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
+        guard paginatedCollections else { return try await artist(id: id) }
+        let artist = QobuzArtist(id: id, name: "Adele")
+        let albums: [QobuzAlbum]
+        if offset == 0 {
+            albums = [
+                QobuzAlbum(id: QobuzID("first"), title: "First", artist: artist),
+                QobuzAlbum(id: QobuzID("second"), title: "Second", artist: artist)
+            ]
+        } else {
+            albums = [QobuzAlbum(id: QobuzID("third"), title: "Third", artist: artist)]
+        }
+        return QobuzArtistCatalog(
+            id: id,
+            name: artist.name,
+            albums: albums,
+            albumsTotal: 3,
+            albumsOffset: offset,
+            albumsLimit: limit
         )
     }
 

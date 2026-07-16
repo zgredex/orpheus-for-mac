@@ -49,14 +49,14 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertTrue(results.0.albums.contains {
             $0.artist?.name.localizedCaseInsensitiveContains("adele") == true
         })
-        XCTAssertTrue(results.0.albums.allSatisfy(\.streamable))
+        XCTAssertTrue(results.0.albums.allSatisfy { $0.streamable != false })
         XCTAssertTrue(results.1.artists.contains {
             $0.name.localizedCaseInsensitiveContains("adele")
         })
         XCTAssertTrue(results.2.tracks.contains {
             $0.performer?.name.localizedCaseInsensitiveContains("adele") == true
         })
-        XCTAssertTrue(results.2.tracks.allSatisfy(\.streamable))
+        XCTAssertTrue(results.2.tracks.allSatisfy { $0.streamable != false })
     }
 
     func testFrenchAccountPaginatesAdeleArtistCatalog() async throws {
@@ -76,10 +76,10 @@ final class LiveQobuzIntegrationTests: XCTestCase {
         XCTAssertFalse(catalog.appearanceAlbums.isEmpty)
         XCTAssertLessThan(catalog.officialAlbums.count, catalog.appearanceAlbums.count)
         XCTAssertTrue(catalog.officialAlbums.allSatisfy {
-            catalog.relationship(of: $0) == .official && $0.streamable && $0.displayable
+            catalog.relationship(of: $0) == .official && $0.accountAvailabilityIssue == nil
         })
         XCTAssertTrue(catalog.appearanceAlbums.allSatisfy {
-            catalog.relationship(of: $0) == .appearance && $0.streamable && $0.displayable
+            catalog.relationship(of: $0) == .appearance && $0.accountAvailabilityIssue == nil
         })
     }
 

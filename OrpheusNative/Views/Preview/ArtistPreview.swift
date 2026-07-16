@@ -7,6 +7,10 @@ struct ArtistPreview: View {
     var onAddAlbums: (([QobuzAlbum]) -> Void)?
     var isAlbumQueued: ((QobuzAlbum) -> Bool)?
     var albumLibraryStatus: ((QobuzAlbum) -> NativeLibraryStatus?)?
+    var hasMore = false
+    var isLoadingMore = false
+    var loadMoreError: String?
+    var loadMore: (() -> Void)?
 
     @State private var scope: ReleaseScope = .official
     @State private var selectedAlbumIDs: Set<QobuzID> = []
@@ -85,7 +89,7 @@ struct ArtistPreview: View {
     }
 
     @ViewBuilder private var catalogList: some View {
-        if visibleAlbums.isEmpty {
+        if visibleAlbums.isEmpty, !hasMore, !isLoadingMore, loadMoreError == nil {
             ContentUnavailableView(
                 scope.emptyTitle,
                 systemImage: scope.emptySymbol,
@@ -93,8 +97,16 @@ struct ArtistPreview: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(visibleAlbums, id: \.id) { album in
-                albumRow(album)
+            List {
+                ForEach(visibleAlbums, id: \.id) { album in albumRow(album) }
+                if hasMore || isLoadingMore || loadMoreError != nil {
+                    CatalogPaginationRow(
+                        subject: "releases",
+                        isLoading: isLoadingMore,
+                        errorMessage: loadMoreError,
+                        loadMore: loadMore
+                    )
+                }
             }
             .listStyle(.inset)
         }

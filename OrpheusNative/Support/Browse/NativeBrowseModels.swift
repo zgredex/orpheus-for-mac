@@ -22,19 +22,20 @@ enum BrowsePageContent: Equatable {
 enum NativeBrowseAvailability: Equatable {
     case checking
     case available
+    case unknown(String)
     case partial(String)
     case unavailable(String)
 
     var allowsQueue: Bool {
         switch self {
-        case .available, .partial: true
+        case .available, .unknown, .partial: true
         case .checking, .unavailable: false
         }
     }
 
     var message: String? {
         switch self {
-        case .partial(let message), .unavailable(let message): message
+        case .unknown(let message), .partial(let message), .unavailable(let message): message
         case .checking, .available: nil
         }
     }
@@ -45,11 +46,22 @@ enum NativeBrowseAvailability: Equatable {
     }
 }
 
+struct NativeBrowsePagePagination: Equatable {
+    var nextOffset: Int?
+    let total: Int?
+    var isLoading = false
+    var errorMessage: String?
+}
+
 struct BrowsePage: Identifiable, Equatable {
     let id: UUID
     let destination: BrowseDestination
     var content: BrowsePageContent
     var availability: NativeBrowseAvailability = .checking
+    var pagination: NativeBrowsePagePagination?
+
+    var hasMore: Bool { pagination?.nextOffset != nil }
+    var isLoadingMore: Bool { pagination?.isLoading == true }
 }
 
 enum NativeBrowseCategory: String, CaseIterable, Hashable, Identifiable {

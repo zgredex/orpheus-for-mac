@@ -229,6 +229,7 @@ final class NativeLinkInboxController: ObservableObject {
         switch availability {
         case .checking: .checking
         case .available: .available
+        case .unknown(let message): .partial(message)
         case .partial(let message): .partial(message)
         case .unavailable(let message): .unavailable(message)
         }

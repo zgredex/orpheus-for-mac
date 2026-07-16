@@ -178,10 +178,11 @@ final class APITests: XCTestCase {
 
         let results = try await client.search("Adele 19", category: .albums, limit: 30)
 
-        XCTAssertEqual(results.albums.map(\.title), ["19"])
+        XCTAssertEqual(results.albums.map(\.title), ["19", "Unknown availability"])
         XCTAssertEqual(results.albums.first?.maximumBitDepth, 24)
         XCTAssertEqual(results.albums.first?.maximumSamplingRate, 96)
         XCTAssertEqual(results.albums.first?.hiresStreamable, true)
+        XCTAssertEqual(results.albums.last?.catalogMetadata.availability.streamable, .unknown)
         XCTAssertTrue(results.artists.isEmpty)
         let request = try XCTUnwrap(requestBox.value)
         let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
@@ -221,7 +222,7 @@ final class APITests: XCTestCase {
         XCTAssertEqual(query["offset"], "30")
     }
 
-    func testSearchFiltersUnstreamableTracksEvenWhenTheyAreDownloadable() async throws {
+    func testSearchFiltersExplicitlyUnavailableTracksAndPreservesUnknownAvailability() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -238,8 +239,8 @@ final class APITests: XCTestCase {
 
         let results = try await client.search("Adele", category: .tracks, limit: 30)
 
-        XCTAssertEqual(results.tracks.map(\.title), ["Hello"])
-        XCTAssertTrue(results.tracks.allSatisfy(\.streamable))
+        XCTAssertEqual(results.tracks.map(\.title), ["Hello", "Unknown"])
+        XCTAssertEqual(results.tracks.last?.catalogMetadata.availability.streamable, .unknown)
     }
 
     func testSearchReturnsPlaylistResultsSupportedByPythonPlugin() async throws {
@@ -443,7 +444,8 @@ final class APITests: XCTestCase {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
-        let retryAfter = formatter.string(from: Date().addingTimeInterval(3))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryAfter = formatter.string(from: now.addingTimeInterval(90))
         StubURLProtocol.handler = { request in
             let attempt = attempts.value + 1
             attempts.set(attempt)
@@ -468,15 +470,152 @@ final class APITests: XCTestCase {
             credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
             session: URLSession(configuration: configuration),
             retryPolicy: QobuzRetryPolicy(maxAttempts: 2, baseDelay: .milliseconds(1)),
-            sleep: { delay in delays.set(delays.value + [delay]) }
+            sleep: { delay in delays.set(delays.value + [delay]) },
+            now: { now },
+            jitter: { 0 }
         )
 
         _ = try await client.search("retry", category: .tracks, limit: 30)
 
         XCTAssertEqual(attempts.value, 2)
         let delay = try XCTUnwrap(delays.value.first)
-        XCTAssertGreaterThan(delay, .zero)
-        XCTAssertLessThanOrEqual(delay, .seconds(5))
+        XCTAssertEqual(delay, .seconds(90))
+    }
+
+    func testRetryAfterIsCappedAtTwoMinutesAndJitterNeverExceedsTheCap() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let attempts = LockedBox(0)
+        let delays = LockedBox<[Duration]>([])
+        StubURLProtocol.handler = { request in
+            let attempt = attempts.value + 1
+            attempts.set(attempt)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: attempt == 1 ? 429 : 200,
+                httpVersion: nil,
+                headerFields: attempt == 1 ? ["Retry-After": "600"] : nil
+            )!
+            return (response, Data(#"{"tracks":{"items":[]}}"#.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 2, baseDelay: .milliseconds(1)),
+            sleep: { delay in delays.set(delays.value + [delay]) },
+            jitter: { 1 }
+        )
+
+        _ = try await client.search("retry", category: .tracks, limit: 30)
+
+        XCTAssertEqual(delays.value, [.seconds(120)])
+    }
+
+    func testMalformedOptionalCatalogMetadataDoesNotDiscardUsableAlbum() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"id":"album","title":"Usable","artist":{"name":"Artist"},"image":{"large":42},"genres_list":["Soul",17],"release_tags":"wrong-shape","awards":[{"name":"Editors' Pick"},42],"maximum_bit_depth":"unknown","streamable":"unknown","tracks":{"items":[{"id":"track","title":"Track","performer":{"name":"Artist"},"duration":"wrong"}]}}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let album = try await client.album(id: QobuzID("album"))
+
+        XCTAssertEqual(album.title, "Usable")
+        XCTAssertEqual(album.tracks.map(\.title), ["Track"])
+        XCTAssertEqual(album.genresList, ["Soul"])
+        XCTAssertEqual(album.awards.map(\.name), ["Editors' Pick"])
+        XCTAssertNil(album.maximumBitDepth)
+        XCTAssertEqual(album.catalogMetadata.availability.streamable, .unknown)
+    }
+
+    func testSearchToleratesMalformedCursorMetadataAndPresentationItems() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"tracks":{"items":[{"id":"usable","title":"Usable"},{"id":"missing-title"},42],"total":"many","offset":"start","limit":{"wrong":true}}}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let results = try await client.search("usable", category: .tracks, limit: 30)
+
+        XCTAssertEqual(results.tracks.map(\.title), ["Usable"])
+        XCTAssertEqual(results.offset, 0)
+        XCTAssertNil(results.total)
+        XCTAssertNil(results.nextOffset)
+    }
+
+    func testCollectionPageKeepsStrictItemsWhenOptionalCursorMetadataIsMalformed() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let body = #"{"id":"artist","name":"Artist","albums":{"items":[{"id":"album","title":"Album","artist":{"id":"artist","name":"Artist"}}],"total":"many","offset":"start","limit":[]}}"#
+            return (response, Data(body.utf8))
+        }
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
+
+        let page = try await client.artistPage(id: QobuzID("artist"), offset: 0, limit: 100)
+
+        XCTAssertEqual(page.albums.map(\.title), ["Album"])
+        XCTAssertNil(page.albumsTotal)
+        XCTAssertNil(page.albumsOffset)
+        XCTAssertNil(page.albumsLimit)
+    }
+
+    func testCancellingRetryAfterWaitCancelsTheRequestPromptly() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 429,
+                httpVersion: nil,
+                headerFields: ["Retry-After": "120"]
+            )!
+            return (response, Data())
+        }
+        let waiting = expectation(description: "Retry wait started")
+        let client = QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: URLSession(configuration: configuration),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 2, baseDelay: .zero),
+            sleep: { _ in
+                waiting.fulfill()
+                try await Task.sleep(for: .seconds(30))
+            },
+            jitter: { 0 }
+        )
+        let task = Task {
+            try await client.search("cancel", category: .tracks, limit: 30)
+        }
+        await fulfillment(of: [waiting], timeout: 1)
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch NativeQobuzError.cancelled {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 }
 

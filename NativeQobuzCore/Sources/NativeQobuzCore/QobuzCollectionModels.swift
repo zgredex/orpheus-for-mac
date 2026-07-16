@@ -24,12 +24,7 @@ public struct QobuzPlaylist: Decodable, Equatable, Sendable {
         case imageRectangle = "image_rectangle"
         case imageRectangleMini = "image_rectangle_mini"
     }
-    private struct TracksContainer: Codable {
-        let items: [QobuzTrack]
-        let total: Int?
-        let offset: Int?
-        let limit: Int?
-    }
+    private typealias TracksContainer = QobuzStrictPage<QobuzTrack>
 
     public init(
         id: QobuzID,
@@ -66,20 +61,23 @@ public struct QobuzPlaylist: Decodable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(QobuzID.self, forKey: .id)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-            ?? container.decode(String.self, forKey: .title)
+        if let decodedName = container.qobuzTolerant(String.self, forKey: .name) {
+            name = decodedName
+        } else {
+            name = try container.decode(String.self, forKey: .title)
+        }
         let page = try container.decodeIfPresent(TracksContainer.self, forKey: .tracks)
         tracks = page?.items ?? []
-        image = try container.decodeIfPresent(QobuzImage.self, forKey: .image)
-        owner = try container.decodeIfPresent(QobuzPlaylistOwner.self, forKey: .owner)
-        createdAt = try container.decodeIfPresent(Int.self, forKey: .createdAt)
-        updatedAt = try container.decodeIfPresent(Int.self, forKey: .updatedAt)
-        duration = try container.decodeIfPresent(Int.self, forKey: .duration)
-        playlistDescription = try container.decodeIfPresent(String.self, forKey: .description)
-        tracksCount = try container.decodeIfPresent(Int.self, forKey: .tracksCount)
+        image = container.qobuzTolerant(QobuzImage.self, forKey: .image)
+        owner = container.qobuzTolerant(QobuzPlaylistOwner.self, forKey: .owner)
+        createdAt = container.qobuzTolerant(Int.self, forKey: .createdAt)
+        updatedAt = container.qobuzTolerant(Int.self, forKey: .updatedAt)
+        duration = container.qobuzTolerant(Int.self, forKey: .duration)
+        playlistDescription = container.qobuzTolerant(String.self, forKey: .description)
+        tracksCount = container.qobuzTolerant(Int.self, forKey: .tracksCount)
         artworkURLs = (
-            (try container.decodeIfPresent([URL].self, forKey: .imageRectangle) ?? [])
-            + (try container.decodeIfPresent([URL].self, forKey: .imageRectangleMini) ?? [])
+            container.qobuzTolerantArray(URL.self, forKey: .imageRectangle)
+            + container.qobuzTolerantArray(URL.self, forKey: .imageRectangleMini)
         )
         tracksTotal = page?.total
         tracksOffset = page?.offset
@@ -108,12 +106,7 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
     public let albumsLimit: Int?
 
     enum CodingKeys: String, CodingKey { case id, name, image, albums }
-    private struct AlbumsContainer: Decodable {
-        let items: [QobuzAlbum]
-        let total: Int?
-        let offset: Int?
-        let limit: Int?
-    }
+    private typealias AlbumsContainer = QobuzStrictPage<QobuzAlbum>
 
     public init(
         id: QobuzID,
@@ -137,7 +130,7 @@ public struct QobuzArtistCatalog: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(QobuzID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
-        image = try container.decodeIfPresent(QobuzImage.self, forKey: .image)
+        image = container.qobuzTolerant(QobuzImage.self, forKey: .image)
         let albumPage = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
         albums = albumPage?.items ?? []
         albumsTotal = albumPage?.total
@@ -156,12 +149,7 @@ public struct QobuzLabelCatalog: Decodable, Equatable, Sendable {
     public let albumsLimit: Int?
 
     enum CodingKeys: String, CodingKey { case id, name, slug, albums }
-    private struct AlbumsContainer: Decodable {
-        let items: [QobuzAlbum]
-        let total: Int?
-        let offset: Int?
-        let limit: Int?
-    }
+    private typealias AlbumsContainer = QobuzStrictPage<QobuzAlbum>
 
     public init(
         id: QobuzID,
@@ -185,7 +173,7 @@ public struct QobuzLabelCatalog: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(QobuzID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
-        slug = try container.decodeIfPresent(String.self, forKey: .slug)
+        slug = container.qobuzTolerant(String.self, forKey: .slug)
         let page = try container.decodeIfPresent(AlbumsContainer.self, forKey: .albums)
         albums = page?.items ?? []
         albumsTotal = page?.total
@@ -193,183 +181,4 @@ public struct QobuzLabelCatalog: Decodable, Equatable, Sendable {
         albumsLimit = page?.limit
     }
 
-    public var availableAlbums: [QobuzAlbum] {
-        albums.filter { $0.accountAvailabilityIssue == nil }
-    }
-}
-
-public enum QobuzArtistReleaseRelationship: Equatable, Sendable {
-    case official
-    case appearance
-}
-
-public enum QobuzAvailabilityIssue: Equatable, Sendable {
-    case notDisplayable
-    case notStreamable
-    case notPurchasable
-}
-
-public extension QobuzCatalogAvailability {
-    var accountAvailabilityIssue: QobuzAvailabilityIssue? {
-        if !displayable { return .notDisplayable }
-        if !streamable { return .notStreamable }
-        if purchasable == false { return .notPurchasable }
-        return nil
-    }
-}
-
-public extension QobuzAlbumSummary {
-    var catalogMetadata: QobuzAlbumCatalogMetadata {
-        QobuzAlbumCatalogMetadata(
-            releaseType: releaseType,
-            releaseTags: releaseTags,
-            genres: genresList.isEmpty ? [genre].compactMap { $0 } : genresList,
-            isOfficial: isOfficial,
-            releaseDate: releaseDate,
-            subtitle: subtitle,
-            awards: awards,
-            audioCapabilities: QobuzCatalogAudioCapabilities(
-                maximumBitDepth: maximumBitDepth,
-                maximumSamplingRate: maximumSamplingRate,
-                maximumChannelCount: maximumChannelCount
-            ),
-            availability: QobuzCatalogAvailability(
-                streamable: streamable,
-                downloadable: downloadable,
-                displayable: displayable,
-                purchasable: purchasable
-            )
-        )
-    }
-
-    var albumArtistDisplayName: String {
-        let value = mainArtists.map(\.name).joined(separator: ", ")
-        return value.isEmpty ? (artist?.name ?? "Unknown Artist") : value
-    }
-
-    var accountAvailabilityIssue: QobuzAvailabilityIssue? {
-        catalogMetadata.availability.accountAvailabilityIssue
-    }
-}
-
-public extension QobuzTrack {
-    var catalogMetadata: QobuzTrackCatalogMetadata {
-        QobuzTrackCatalogMetadata(
-            audioCapabilities: QobuzCatalogAudioCapabilities(
-                maximumBitDepth: maximumBitDepth,
-                maximumSamplingRate: maximumSamplingRate,
-                maximumChannelCount: maximumChannelCount
-            ),
-            availability: QobuzCatalogAvailability(
-                streamable: streamable,
-                downloadable: downloadable,
-                purchasable: purchasable
-            ),
-            copyright: copyright
-        )
-    }
-
-    var accountAvailabilityIssue: QobuzAvailabilityIssue? {
-        catalogMetadata.availability.accountAvailabilityIssue
-    }
-}
-
-public extension QobuzAlbum {
-    var catalogMetadata: QobuzAlbumCatalogMetadata {
-        QobuzAlbumCatalogMetadata(
-            releaseType: releaseType,
-            releaseTags: releaseTags,
-            genres: genresList.isEmpty ? [genre].compactMap { $0 } : genresList,
-            isOfficial: isOfficial,
-            releaseDate: releaseDate,
-            subtitle: subtitle,
-            catchline: catchline,
-            editorialDescription: albumDescription,
-            awards: awards,
-            audioCapabilities: QobuzCatalogAudioCapabilities(
-                maximumBitDepth: maximumBitDepth,
-                maximumSamplingRate: maximumSamplingRate,
-                maximumChannelCount: maximumChannelCount
-            ),
-            availability: QobuzCatalogAvailability(
-                streamable: streamable,
-                downloadable: downloadable,
-                displayable: displayable,
-                purchasable: purchasable
-            )
-        )
-    }
-
-    var albumArtistDisplayName: String {
-        mainArtists.map(\.name).joined(separator: ", ")
-    }
-
-    var accountAvailabilityIssue: QobuzAvailabilityIssue? {
-        catalogMetadata.availability.accountAvailabilityIssue
-    }
-
-    var availableTracks: [QobuzTrack] {
-        tracks.filter { $0.accountAvailabilityIssue == nil }
-    }
-
-    var unavailableTrackCount: Int {
-        tracks.count - availableTracks.count
-    }
-}
-
-public extension QobuzPlaylist {
-    var catalogMetadata: QobuzPlaylistCatalogMetadata {
-        QobuzPlaylistCatalogMetadata(
-            artworkURL: artworkURL,
-            editorialDescription: playlistDescription,
-            duration: duration,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-            tracksCount: tracksCount ?? tracksTotal ?? tracks.count
-        )
-    }
-
-    var availableTracks: [QobuzTrack] {
-        tracks.filter { $0.accountAvailabilityIssue == nil }
-    }
-
-    var unavailableTrackCount: Int {
-        tracks.count - availableTracks.count
-    }
-}
-
-public extension QobuzArtistCatalog {
-    var availableAlbums: [QobuzAlbum] {
-        albums.filter { $0.accountAvailabilityIssue == nil }
-    }
-
-    var allOfficialAlbums: [QobuzAlbum] {
-        albums.filter { relationship(of: $0) == .official }
-    }
-
-    var officialAlbums: [QobuzAlbum] {
-        allOfficialAlbums.filter { $0.accountAvailabilityIssue == nil }
-    }
-
-    var appearanceAlbums: [QobuzAlbum] {
-        availableAlbums.filter { relationship(of: $0) == .appearance }
-    }
-
-    func relationship(of album: QobuzAlbum) -> QobuzArtistReleaseRelationship {
-        if album.mainArtists.contains(where: { $0.id == id }) {
-            return .official
-        }
-        if let albumArtistID = album.artist.id {
-            return albumArtistID == id ? .official : .appearance
-        }
-        return normalizedArtistName(album.artist.name) == normalizedArtistName(name)
-            ? .official
-            : .appearance
-    }
-
-    private func normalizedArtistName(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-    }
 }
