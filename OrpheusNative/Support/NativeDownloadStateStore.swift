@@ -21,7 +21,12 @@ struct NativeDownloadStateStore: Equatable {
     var activities: [NativeDownloadActivity] {
         operations
             .filter { $0.activityID != nil }
-            .sorted { ($0.activityCreatedAt ?? .distantPast) > ($1.activityCreatedAt ?? .distantPast) }
+            .sorted {
+                let lhsCreatedAt = $0.activityCreatedAt ?? .distantPast
+                let rhsCreatedAt = $1.activityCreatedAt ?? .distantPast
+                if lhsCreatedAt != rhsCreatedAt { return lhsCreatedAt > rhsCreatedAt }
+                return $0.queueID.uuidString < $1.queueID.uuidString
+            }
             .map(NativeDownloadActivity.init(operation:))
     }
 

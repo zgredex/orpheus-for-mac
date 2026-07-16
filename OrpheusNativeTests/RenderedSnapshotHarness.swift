@@ -65,6 +65,9 @@ enum RenderedSnapshotHarness {
             backing: .buffered,
             defer: false
         )
+        let appearance = NSAppearance(named: .darkAqua)
+        hostingView.appearance = appearance
+        window.appearance = appearance
         window.isReleasedWhenClosed = false
         window.contentView = hostingView
         hostingView.layoutSubtreeIfNeeded()

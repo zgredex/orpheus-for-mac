@@ -51,6 +51,30 @@ final class NativeDownloadStateStoreTests: XCTestCase {
         XCTAssertEqual(state.operations.first?.status, .downloading)
     }
 
+    func testActivitiesUseQueueIDAsStableTieBreakerForEqualCreationDates() {
+        let firstQueueID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let secondQueueID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let createdAt = Date(timeIntervalSince1970: 1_720_958_400)
+        var first = NativeDownloadOperation(
+            queueID: firstQueueID,
+            activityID: UUID(),
+            status: .paused,
+            title: "First"
+        )
+        first.activityCreatedAt = createdAt
+        var second = NativeDownloadOperation(
+            queueID: secondQueueID,
+            activityID: UUID(),
+            status: .paused,
+            title: "Second"
+        )
+        second.activityCreatedAt = createdAt
+
+        let state = NativeDownloadStateStore(operations: [second, first])
+
+        XCTAssertEqual(state.activities.map(\.queueID), [firstQueueID, secondQueueID])
+    }
+
     func testInterruptedOperationsNormalizeTheirAuthoritativeActivityData() {
         let activeQueueID = UUID()
         let activeActivityID = UUID()

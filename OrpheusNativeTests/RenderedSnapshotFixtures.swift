@@ -118,6 +118,7 @@ enum RenderedSnapshotFixtures {
             root: downloadRoot,
             stem: "01 - Failed",
             phase: "Failed while validating the delivered FLAC",
+            createdAt: Date(timeIntervalSince1970: 1_720_958_400),
             warnings: ["Artwork download returned HTTP 404.", "A lower available format 7 was delivered."],
             notices: ["The existing audio payload passed checksum validation."]
         )
@@ -127,6 +128,7 @@ enum RenderedSnapshotFixtures {
             root: downloadRoot,
             stem: "02 - Paused",
             phase: "Paused after app closed",
+            createdAt: Date(timeIntervalSince1970: 1_720_958_401),
             warnings: [],
             notices: []
         )
@@ -158,6 +160,7 @@ enum RenderedSnapshotFixtures {
         root: URL,
         stem: String,
         phase: String,
+        createdAt: Date,
         warnings: [String],
         notices: [String]
     ) throws -> NativeDownloadOperation {
@@ -181,7 +184,7 @@ enum RenderedSnapshotFixtures {
         operation.warnings = warnings
         operation.notices = notices
         operation.outputURLs = [output]
-        operation.activityCreatedAt = Date(timeIntervalSince1970: 1_720_958_400)
+        operation.activityCreatedAt = createdAt
         return operation
     }
 
