@@ -76,7 +76,13 @@ enum PreviewSamples {
 }
 
 #Preview("Activity row") {
-    List { ActivityRow(activity: PreviewSamples.activity, status: .downloading) }
+    List {
+        ActivityRow(
+            activity: PreviewSamples.activity,
+            status: .downloading,
+            showsDetails: .constant(false)
+        )
+    }
         .environmentObject(NativeViewModel(paths: NativePaths()))
         .frame(width: 520, height: 120)
 }

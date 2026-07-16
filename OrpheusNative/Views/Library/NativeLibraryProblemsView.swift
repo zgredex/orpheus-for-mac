@@ -166,7 +166,7 @@ private struct NativeLibraryIndexProblemRow: View {
 
     var body: some View {
         HStack(spacing: DS.Space.m) {
-            Image(systemName: "doc.badge.exclamationmark")
+            Image(systemName: "doc.text.magnifyingglass")
                 .font(.title3)
                 .foregroundStyle(.orange)
                 .frame(width: 24)

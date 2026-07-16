@@ -18,7 +18,7 @@ struct OrpheusNativeApp: App {
                 ]
             )
         }
-        let paths = NativePaths()
+        let paths = NativeProcessContext.paths
         _viewModel = StateObject(wrappedValue: NativeViewModel(paths: paths))
         qobuzLog.notice(
             "lifecycle",
@@ -63,7 +63,9 @@ struct OrpheusNativeApp: App {
                     minHeight: 560,
                     maxHeight: .infinity
                 )
-                .task { viewModel.start() }
+                .task {
+                    if !NativeProcessContext.isRunningUnitTests { viewModel.start() }
+                }
                 .onOpenURL {
                     qobuzLog.info(
                         "lifecycle.url",

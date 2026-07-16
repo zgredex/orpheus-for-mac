@@ -189,6 +189,7 @@ struct QualityBadge: View {
             .font(.caption2.weight(.semibold))
             .foregroundStyle(kind.color)
             .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(kind.color.opacity(0.12), in: Capsule())

@@ -1124,55 +1124,6 @@ final class NativeAdapterTests: XCTestCase {
     }
 }
 
-private struct MemoryCredentialStore: NativeCredentialStoring {
-    var credentials: CredentialDraft?
-
-    init(credentials: CredentialDraft? = nil) {
-        self.credentials = credentials
-    }
-
-    func load() throws -> CredentialDraft? { credentials }
-    func save(_ credentials: CredentialDraft) throws {}
-}
-
-@MainActor
-private final class FakeConnectivityMonitor: NativeConnectivityMonitoring {
-    private(set) var state: NativeConnectivityState = .unknown
-    private var handler: ((NativeConnectivityState) -> Void)?
-    private(set) var startCount = 0
-    private(set) var stopCount = 0
-
-    func start(onChange: @escaping @MainActor (NativeConnectivityState) -> Void) {
-        startCount += 1
-        handler = onChange
-    }
-
-    func stop() {
-        stopCount += 1
-        handler = nil
-    }
-
-    func emit(_ state: NativeConnectivityState) {
-        self.state = state
-        handler?(state)
-    }
-}
-
-@MainActor
-private final class FakePowerActivityManager: NativePowerActivityManaging {
-    private(set) var beginReasons: [String] = []
-    private(set) var endCount = 0
-
-    func begin(reason: String) -> NSObjectProtocol {
-        beginReasons.append(reason)
-        return NSObject()
-    }
-
-    func end(_ token: NSObjectProtocol) {
-        endCount += 1
-    }
-}
-
 private extension CredentialDraft {
     static let complete = CredentialDraft(appID: "app-id", appSecret: "app-secret", authToken: "token")
 }
@@ -1338,47 +1289,5 @@ private final class FakeArchiveScanner: QobuzArchiveScanning, @unchecked Sendabl
         lock.withLock { scans += 1 }
         try await Task.sleep(for: .milliseconds(10))
         return snapshot
-    }
-}
-
-private final class MemoryArchiveStore: NativeArchiveIndexStoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: QobuzArchiveSnapshot?
-
-    init(snapshot: QobuzArchiveSnapshot? = nil) {
-        stored = snapshot
-    }
-
-    var snapshot: QobuzArchiveSnapshot? {
-        lock.withLock { stored }
-    }
-
-    func load() throws -> NativeArchiveIndexLoadResult {
-        lock.withLock { stored.map(NativeArchiveIndexLoadResult.restored) ?? .missing }
-    }
-
-    func save(_ snapshot: QobuzArchiveSnapshot) throws {
-        lock.withLock { stored = snapshot }
-    }
-}
-
-private final class MemorySessionStore: NativeSessionStoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: NativeSessionSnapshot?
-
-    init(snapshot: NativeSessionSnapshot? = nil) {
-        stored = snapshot
-    }
-
-    var snapshot: NativeSessionSnapshot? {
-        lock.withLock { stored }
-    }
-
-    func load() throws -> NativeSessionSnapshot? {
-        lock.withLock { stored }
-    }
-
-    func save(_ snapshot: NativeSessionSnapshot) throws {
-        lock.withLock { stored = snapshot }
     }
 }

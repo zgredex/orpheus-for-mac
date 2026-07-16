@@ -4,7 +4,7 @@ struct ActivityRow: View {
     @EnvironmentObject private var vm: NativeViewModel
     let activity: NativeDownloadActivity
     let status: NativeDownloadStatus
-    @State private var showsDetails = false
+    @Binding var showsDetails: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
