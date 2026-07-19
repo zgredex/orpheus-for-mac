@@ -62,6 +62,10 @@ dist-native/Orpheus-for-Mac-1.0.0.dmg.sha256
 
 The build fails if any bundled Mach-O does not contain exactly the native arm64 and x86_64 slices, or links to Homebrew, `/usr/local`, or a user-specific path. `REQUIRE_NOTARIZATION=1` fails closed when signing or notarization credentials are unavailable.
 
+## Continuous Integration
+
+CI rejects Rosetta and selects the runner's exact native architecture. Apple Silicon runs the hosted app suite and rendered SwiftUI snapshots. A native Intel runner compiles the same app and test sources into an unhosted logic-test bundle, avoiding the hosted runner's headless Metal path, and then launches the exact release artifact's x86_64 slice. The Intel suite does not copy or reimplement production behavior; only the app entry point and rendered snapshot harness are excluded from the unhosted target.
+
 ## Qualification
 
 The release harness runs app and core tests, the live French-account matrix, packaging, a moved-bundle launch, clean-account evidence, and notarization validation. It writes redacted logs and JSON reports under `Build/Acceptance`.

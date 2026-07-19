@@ -84,10 +84,10 @@ jobs:
         with:
           name: orpheus-native-release
           path: Build/CI/IntelRelease
-      - name: Run core and app tests natively on Intel
+      - name: Run core and unhosted app logic tests natively on Intel
         run: |
           scripts/ci/test_core.sh
-          scripts/ci/test_app.sh
+          scripts/ci/test_app_logic.sh
       - name: Verify release on Intel
         run: scripts/ci/test_intel_release.sh
       - name: Upload Intel qualification report

@@ -71,6 +71,32 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: com.orpheus.formac.tests
         SWIFT_VERSION: "5.10"
+  OrpheusNativeLogicTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: OrpheusNative
+        excludes:
+          - Assets.xcassets
+          - Info.plist
+          - OrpheusNativeApp.swift
+          - README.md
+      - path: OrpheusNativeTests
+        excludes:
+          - ReferenceSnapshots
+          - RenderedSnapshotFixtures.swift
+          - RenderedSnapshotHarness.swift
+          - RenderedUISnapshotTests.swift
+    dependencies:
+      - package: NativeQobuzCore
+        product: NativeQobuzCore
+    settings:
+      base:
+        ENABLE_APP_SANDBOX: false
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.orpheus.formac.logic-tests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ORPHEUS_UNHOSTED_TESTS"
+        SWIFT_VERSION: "5.10"
 schemes:
   OrpheusNative:
     build:
@@ -84,3 +110,12 @@ schemes:
       gatherCoverageData: true
       targets:
         - OrpheusNativeTests
+  OrpheusNativeLogicTests:
+    build:
+      targets:
+        OrpheusNativeLogicTests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - OrpheusNativeLogicTests

@@ -1,6 +1,8 @@
 import XCTest
 import NativeQobuzCore
+#if !ORPHEUS_UNHOSTED_TESTS
 @testable import OrpheusNative
+#endif
 
 @MainActor
 final class NativeDownloadStateStoreTests: XCTestCase {

@@ -1,6 +1,8 @@
 import Foundation
 import NativeQobuzCore
+#if !ORPHEUS_UNHOSTED_TESTS
 @testable import OrpheusNative
+#endif
 
 final class NativeViewModelTestFixture {
     let root: URL

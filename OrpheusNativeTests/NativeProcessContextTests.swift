@@ -1,9 +1,11 @@
 import Foundation
 import XCTest
+#if !ORPHEUS_UNHOSTED_TESTS
 @testable import OrpheusNative
+#endif
 
 final class NativeProcessContextTests: XCTestCase {
-    func testXCTestHostUsesIsolatedApplicationPaths() {
+    func testXCTestProcessUsesIsolatedApplicationPaths() {
         XCTAssertTrue(NativeProcessContext.isRunningUnitTests)
         XCTAssertTrue(NativeProcessContext.paths.applicationSupportRoot.path.hasPrefix(NSTemporaryDirectory()))
         XCTAssertTrue(NativeProcessContext.paths.defaultDownloadRoot.path.hasPrefix(NSTemporaryDirectory()))
@@ -11,4 +13,11 @@ final class NativeProcessContextTests: XCTestCase {
             NativeProcessContext.paths.applicationSupportRoot.path.contains("Application Support/Orpheus for Mac")
         )
     }
+
+    #if ORPHEUS_UNHOSTED_TESTS
+    func testLogicSuiteRunsWithoutAnApplicationHost() {
+        XCTAssertEqual(ProcessInfo.processInfo.processName, "xctest")
+        XCTAssertNotEqual(Bundle.main.bundleURL.pathExtension, "app")
+    }
+    #endif
 }

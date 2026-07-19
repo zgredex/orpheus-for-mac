@@ -1,7 +1,9 @@
 import Foundation
 import NativeQobuzCore
 import XCTest
+#if !ORPHEUS_UNHOSTED_TESTS
 @testable import OrpheusNative
+#endif
 
 @MainActor
 final class NativeHardeningTests: XCTestCase {
