@@ -70,6 +70,17 @@ if rg -n '^[[:space:]]+(var|let) status:' \
     failed=1
 fi
 
+unexpected_renderers="$(
+    rg -n 'ImageRenderer[[:space:]]*\(' "$ROOT/OrpheusNativeTests" \
+        --glob '*.swift' \
+        --glob '!Rendered*.swift' \
+        || true
+)"
+if [ -n "$unexpected_renderers" ]; then
+    printf 'ImageRenderer belongs only in the dedicated rendered UI suite:\n%s\n' "$unexpected_renderers" >&2
+    failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then exit 1; fi
 "$ROOT/scripts/ci/verify_duplication.py"
 printf 'Architecture guardrails passed.\n'
