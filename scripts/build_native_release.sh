@@ -2,6 +2,8 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/native_macho.sh"
+. "$ROOT/scripts/lib/media_validator_bundle.sh"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 DERIVED_DATA="$ROOT/Build/NativeReleaseDerivedData"
 OUTPUT_DIR="$ROOT/dist-native"
@@ -25,7 +27,7 @@ xcodebuild \
     -project OrpheusNative.xcodeproj \
     -scheme OrpheusNative \
     -configuration Release \
-    -destination 'platform=macOS,arch=arm64' \
+    -destination 'generic/platform=macOS' \
     -derivedDataPath "$DERIVED_DATA" \
     build
 
@@ -38,20 +40,13 @@ if [ -z "$VALIDATOR_ROOT" ]; then
     echo "Mandatory native media validator is missing from the app bundle" >&2
     exit 1
 fi
+verify_media_validator_bundle "$VALIDATOR_ROOT"
+verify_universal_portable_machos_in "$OUTPUT_APP"
 for binary in \
     "$OUTPUT_APP/Contents/MacOS/OrpheusNative" \
     "$VALIDATOR_ROOT/bin/orpheus-media-validator" \
     "$VALIDATOR_ROOT"/lib/*.dylib; do
-    if [ "$(lipo -archs "$binary")" != "arm64" ]; then
-        printf 'Expected an arm64 binary: %s\n' "$binary" >&2
-        exit 1
-    fi
     codesign --verify --strict --verbose=2 "$binary"
-    if otool -L "$binary" | tail -n +2 | grep -E '/(opt/homebrew|usr/local|Users)/' >/dev/null; then
-        printf 'Found a non-portable dependency in %s\n' "$binary" >&2
-        otool -L "$binary" >&2
-        exit 1
-    fi
 done
 
 if [ -n "$CODESIGN_IDENTITY" ]; then

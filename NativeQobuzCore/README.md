@@ -52,7 +52,8 @@ Playlist downloads reuse matching validated album audio instead of copying it.
 Their M3U entries point to that canonical audio using relative paths, so the
 entire download folder can move between Macs without rewriting playlists.
 
-The 1.3 MB arm64 validator build contains local-file input plus MP3/FLAC
+The roughly 2.7 MB universal validator bundle contains native arm64 and x86_64
+slices with local-file input plus MP3/FLAC
 demuxers, parsers, and decoders only. See [FFMPEG.md](FFMPEG.md) for its exact
 LGPL build recipe and source information.
 

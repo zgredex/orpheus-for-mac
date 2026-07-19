@@ -2,6 +2,7 @@
 set -u
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/native_macho.sh"
 OUTPUT="${QOBUZ_ACCEPTANCE_OUTPUT:-$ROOT/Build/Acceptance}"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 CREDENTIALS="${QOBUZ_CREDENTIALS_FILE:-$HOME/Library/Application Support/Orpheus for Mac/credentials.json}"
@@ -9,6 +10,10 @@ PREVIEW_CREDENTIALS="$HOME/Library/Application Support/OrpheusNativePreview/cred
 VERSION="${MARKETING_VERSION:-1.0.0}"
 APP="$ROOT/dist-native/Orpheus for Mac.app"
 DMG="$ROOT/dist-native/Orpheus-for-Mac-$VERSION.dmg"
+
+if ! require_native_runtime; then
+    exit 1
+fi
 
 if [ ! -f "$CREDENTIALS" ] && [ -f "$PREVIEW_CREDENTIALS" ]; then
     CREDENTIALS="$PREVIEW_CREDENTIALS"
@@ -45,7 +50,7 @@ if [ "$xcodegen_status" -eq 0 ]; then
     run_step app-tests env DEVELOPER_DIR="$DEVELOPER_DIR" xcodebuild \
         -project OrpheusNative.xcodeproj \
         -scheme OrpheusNative \
-        -destination 'platform=macOS,arch=arm64' \
+        -destination "platform=macOS,arch=$NATIVE_RUNTIME_ARCHITECTURE" \
         -derivedDataPath "$ROOT/Build/NativeQualificationDerivedData" \
         test
     app_tests_status=$?

@@ -71,3 +71,28 @@ jobs:
             dist-native/
             Build/CI/portability-report.json
           if-no-files-found: error
+
+  intel-native:
+    if: github.event_name != 'pull_request'
+    needs: release-portability
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download universal release
+        uses: actions/download-artifact@v4
+        with:
+          name: orpheus-native-release
+          path: Build/CI/IntelRelease
+      - name: Run core and app tests natively on Intel
+        run: |
+          scripts/ci/test_core.sh
+          scripts/ci/test_app.sh
+      - name: Verify release on Intel
+        run: scripts/ci/test_intel_release.sh
+      - name: Upload Intel qualification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: orpheus-native-intel-portability
+          path: Build/CI/intel-portability-report.json
+          if-no-files-found: error

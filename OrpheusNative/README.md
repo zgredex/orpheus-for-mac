@@ -19,7 +19,7 @@ This directory contains the SwiftUI adapter for `NativeQobuzCore`.
 - `.orpheus-provenance.json` and `checksums.sha256` own physical identity and integrity.
 - The archive index is a rebuildable projection, not another authority.
 
-The app is fully self-contained and does not use Python, Homebrew, OrpheusDL, or a runtime helper. The bundled arm64 media validator is mandatory.
+The app is fully self-contained and does not use Python, Homebrew, OrpheusDL, Rosetta, or a runtime helper. The app and mandatory media validator contain native arm64 and x86_64 slices.
 
 ## Build and Qualification
 

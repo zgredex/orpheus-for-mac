@@ -1,6 +1,6 @@
 # Orpheus for Mac
 
-Orpheus for Mac is a native Apple Silicon macOS client for browsing and downloading Qobuz. The application, Qobuz client, download engine, metadata writers, integrity checks, and mandatory media validator are bundled in one portable `.app`. Python, Homebrew, OrpheusDL, and a helper daemon are not required at runtime.
+Orpheus for Mac is a universal native macOS client for browsing and downloading Qobuz. Apple Silicon runs the arm64 slice and Intel runs the x86_64 slice directly; Rosetta is not required. The application, Qobuz client, download engine, metadata writers, integrity checks, and mandatory media validator are bundled in one portable `.app`. Python, Homebrew, OrpheusDL, and a helper daemon are not required at runtime.
 
 ## Highlights
 
@@ -12,7 +12,7 @@ Orpheus for Mac is a native Apple Silicon macOS client for browsing and download
 - Native FLAC and ID3 metadata, embedded and external artwork, booklets, relative M3U playlists, and SHA-256 manifests.
 - One canonical physical audio file with explicit Library membership for albums, standalone tracks, and playlists.
 - Structured, rotating diagnostics with exact timestamps, source file/function/line, error details, and correlated request, queue, activity, transfer, validation, and Library scan identifiers.
-- A mandatory arm64 FFmpeg-derived validator containing only the components used for MP3 and FLAC decode checks.
+- A mandatory universal FFmpeg-derived validator containing only the components used for MP3 and FLAC decode checks.
 
 ## Portability
 
@@ -33,7 +33,7 @@ Persistent JSONL logs are stored in `~/Library/Application Support/Orpheus for M
 
 Requirements:
 
-- macOS 14 or newer on Apple Silicon.
+- macOS 14 or newer on Apple Silicon or Intel.
 - Full Xcode installation.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
@@ -60,7 +60,7 @@ dist-native/Orpheus-for-Mac-1.0.0.dmg
 dist-native/Orpheus-for-Mac-1.0.0.dmg.sha256
 ```
 
-The build fails if a bundled executable is not arm64 or links to Homebrew, `/usr/local`, or a user-specific path. `REQUIRE_NOTARIZATION=1` fails closed when signing or notarization credentials are unavailable.
+The build fails if any bundled Mach-O does not contain exactly the native arm64 and x86_64 slices, or links to Homebrew, `/usr/local`, or a user-specific path. `REQUIRE_NOTARIZATION=1` fails closed when signing or notarization credentials are unavailable.
 
 ## Qualification
 

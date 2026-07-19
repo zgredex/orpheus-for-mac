@@ -1,4 +1,5 @@
 import Foundation
+import NativeQobuzCore
 
 enum AcceptanceStatus: String, Codable {
     case passed
@@ -48,7 +49,7 @@ final class AcceptanceMatrix {
             product: "Orpheus for Mac",
             productVersion: "1.0.0",
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-            architecture: "arm64",
+            architecture: NativeRuntimePlatform.architecture,
             startedAt: Date(),
             finishedAt: Date(),
             accountRegion: nil,

@@ -134,14 +134,6 @@ final class NativeDiagnosticsController: @unchecked Sendable {
     }
 
     private func makeReport(from snapshot: NativeDiagnosticSnapshot) -> NativeDiagnosticReport {
-        let architecture: String
-        #if arch(arm64)
-        architecture = "arm64"
-        #elseif arch(x86_64)
-        architecture = "x86_64"
-        #else
-        architecture = "unknown"
-        #endif
         let bundle = Bundle.main
         return NativeDiagnosticReport(
             generatedAt: Date(),
@@ -149,7 +141,7 @@ final class NativeDiagnosticsController: @unchecked Sendable {
             appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             appBuild: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
-            architecture: architecture,
+            architecture: NativeRuntimePlatform.architecture,
             locale: Locale.current.identifier,
             timeZone: TimeZone.current.identifier,
             downloadQuality: snapshot.downloadQuality,

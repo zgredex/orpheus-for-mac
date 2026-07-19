@@ -2,11 +2,15 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/native_macho.sh"
+. "$ROOT/scripts/lib/media_validator_bundle.sh"
 APP="${1:-$ROOT/dist-native/Orpheus for Mac.app}"
 REPORT="${2:-$ROOT/Build/Acceptance/portability-report.json}"
 STAGING_ROOT="$(mktemp -d '/private/tmp/orpheus moved app.XXXXXX')"
 MOVED_APP="$STAGING_ROOT/Movable Release/Orpheus for Mac.app"
 trap 'rm -rf "$STAGING_ROOT"' EXIT INT TERM
+
+require_native_runtime
 
 mkdir -p "$(dirname "$MOVED_APP")" "$(dirname "$REPORT")"
 ditto "$APP" "$MOVED_APP"
@@ -19,16 +23,8 @@ VERSION="$(defaults read "$MOVED_APP/Contents/Info" CFBundleShortVersionString)"
 
 VALIDATOR_ROOT="$(find "$MOVED_APP/Contents/Resources" -type d -path '*/MediaValidator' -print -quit)"
 [ -n "$VALIDATOR_ROOT" ]
-for binary in \
-    "$MOVED_APP/Contents/MacOS/OrpheusNative" \
-    "$VALIDATOR_ROOT/bin/orpheus-media-validator" \
-    "$VALIDATOR_ROOT"/lib/*.dylib; do
-    [ "$(lipo -archs "$binary")" = "arm64" ]
-    if otool -L "$binary" | tail -n +2 | grep -E '/(opt/homebrew|usr/local|Users)/' >/dev/null; then
-        printf 'Non-portable dependency in %s\n' "$binary" >&2
-        exit 1
-    fi
-done
+verify_media_validator_bundle "$VALIDATOR_ROOT"
+verify_universal_portable_machos_in "$MOVED_APP"
 
 "$MOVED_APP/Contents/MacOS/OrpheusNative" --portability-smoke-test
 
@@ -46,9 +42,11 @@ printf '%s\n' \
     '  "product": "Orpheus for Mac",' \
     "  \"version\": \"$VERSION\"," \
     "  \"bundleIdentifier\": \"$IDENTIFIER\"," \
+    '  "architectures": ["arm64", "x86_64"],' \
+    "  \"runtimeArchitecture\": \"$NATIVE_RUNTIME_ARCHITECTURE\"," \
     '  "movedBundle": {' \
     '    "status": "passed",' \
-    '    "detail": "Codesign, arm64 architecture, portable dependencies, resources, and headless launch passed from a moved path."' \
+    '    "detail": "Codesign, universal architecture, portable dependencies, resources, and native headless launch passed from a moved path."' \
     '  },' \
     '  "cleanAccount": {' \
     "    \"status\": \"$CLEAN_STATUS\"," \
