@@ -55,25 +55,7 @@ struct OrpheusNativeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NativeContentView()
-                .environmentObject(viewModel)
-                .frame(
-                    minWidth: 820,
-                    maxWidth: .infinity,
-                    minHeight: 560,
-                    maxHeight: .infinity
-                )
-                .task {
-                    if !NativeProcessContext.isRunningUnitTests { viewModel.start() }
-                }
-                .onOpenURL {
-                    qobuzLog.info(
-                        "lifecycle.url",
-                        "App received an open-URL event",
-                        metadata: ["scheme": $0.scheme ?? "none", "host": $0.host ?? "none"]
-                    )
-                    viewModel.handleOpenURL($0)
-                }
+            applicationContent
         }
         .defaultSize(width: 1180, height: 760)
         .commands {
@@ -98,6 +80,31 @@ struct OrpheusNativeApp: App {
                     .keyboardShortcut("l", modifiers: [.command, .shift])
                 Button("Reveal Log Files") { viewModel.revealDiagnostics() }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var applicationContent: some View {
+        if NativeProcessContext.isRunningUnitTests {
+            EmptyView()
+        } else {
+            NativeContentView()
+                .environmentObject(viewModel)
+                .frame(
+                    minWidth: 820,
+                    maxWidth: .infinity,
+                    minHeight: 560,
+                    maxHeight: .infinity
+                )
+                .task { viewModel.start() }
+                .onOpenURL {
+                    qobuzLog.info(
+                        "lifecycle.url",
+                        "App received an open-URL event",
+                        metadata: ["scheme": $0.scheme ?? "none", "host": $0.host ?? "none"]
+                    )
+                    viewModel.handleOpenURL($0)
+                }
         }
     }
 }
