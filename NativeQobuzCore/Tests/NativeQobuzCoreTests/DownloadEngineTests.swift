@@ -905,7 +905,7 @@ struct RecordingMetadataWriter: AudioMetadataWriting {
 }
 
 private struct FailingAssetFetcher: QobuzAssetFetching {
-    func fetch(_ url: URL) async throws -> QobuzAssetResponse {
+    func fetch(_ url: URL, maximumBytes: Int) async throws -> QobuzAssetResponse {
         throw NativeQobuzError.network("Fixture asset failure")
     }
 }

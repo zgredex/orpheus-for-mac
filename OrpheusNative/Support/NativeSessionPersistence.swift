@@ -1,7 +1,7 @@
 import Foundation
 import NativeQobuzCore
 
-struct NativeSessionSnapshot: Codable, Equatable {
+struct NativeSessionSnapshot: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 3
 
     let schemaVersion: Int
@@ -82,24 +82,24 @@ protocol NativeSessionStoring: Sendable {
     func save(_ snapshot: NativeSessionSnapshot) throws
 }
 
-struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
+struct NativeSessionStore: NativeSessionStoring, Sendable {
     let paths: NativePaths
-    let fileManager: FileManager
+    private let files: NativeApplicationSupportFileStore
 
-    init(paths: NativePaths, fileManager: FileManager = .default) {
+    init(paths: NativePaths) {
         self.paths = paths
-        self.fileManager = fileManager
+        files = NativeApplicationSupportFileStore(rootURL: paths.applicationSupportRoot)
     }
 
     func load() throws -> NativeSessionSnapshot? {
-        guard fileManager.fileExists(atPath: paths.sessionURL.path) else {
-            qobuzLog.debug("persistence.session", "No saved download session exists")
-            return nil
-        }
         do {
+            guard let data = try files.read(.session) else {
+                qobuzLog.debug("persistence.session", "No saved download session exists")
+                return nil
+            }
             let snapshot = try JSONDecoder().decode(
                 NativeSessionSnapshot.self,
-                from: Data(contentsOf: paths.sessionURL)
+                from: data
             )
             try snapshot.validate()
             qobuzLog.info(
@@ -109,11 +109,11 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
             )
             return snapshot
         } catch {
-            let rejectedURL = paths.applicationSupportRoot.appendingPathComponent(
-                "download-session.rejected-\(UUID().uuidString).json"
-            )
             do {
-                try fileManager.moveItem(at: paths.sessionURL, to: rejectedURL)
+                let rejectedURL = try files.quarantine(
+                    .session,
+                    rejectedPrefix: "download-session.rejected"
+                )
                 qobuzLog.error(
                     "persistence.session",
                     "Rejected download session was quarantined; the app will start with a clean session",
@@ -138,8 +138,7 @@ struct NativeSessionStore: NativeSessionStoring, @unchecked Sendable {
 
     func save(_ snapshot: NativeSessionSnapshot) throws {
         try snapshot.validate()
-        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
-        try JSONEncoder.pretty.encode(snapshot).write(to: paths.sessionURL, options: .atomic)
+        try files.write(JSONEncoder.persistence.encode(snapshot), to: .session)
         qobuzLog.debug(
             "persistence.session",
             "Download session saved",

@@ -23,7 +23,10 @@ struct QobuzArchiveManifestDiscovery {
         for entry in contents where entry.metadata.kind == .regularFile {
             let ext = (entry.path.lastComponent! as NSString).pathExtension.lowercased()
             guard ["m3u", "m3u8"].contains(ext),
-                  let text = try? fileSystem.readString(entry.path) else { continue }
+                  let text = try? fileSystem.readString(
+                      entry.path,
+                      maximumBytes: LibraryArtifactLimits.playlist
+                  ) else { continue }
             if QobuzM3UPlaylist.referencesAnyLeafName(in: text, names: filenames) { return true }
         }
         return false

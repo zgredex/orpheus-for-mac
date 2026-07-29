@@ -25,6 +25,10 @@ public final class LibraryFileSystem: @unchecked Sendable {
         try root.withDirectory(path, create: true) { _ in }
     }
 
+    public func setRootPermissions(_ permissions: UInt16) throws {
+        try root.setPermissions(permissions)
+    }
+
     public func metadata(at path: LibraryRelativePath) throws -> LibraryFileMetadata? {
         if path.isRoot {
             return try root.withDirectory(path) { descriptor in
@@ -50,12 +54,39 @@ public final class LibraryFileSystem: @unchecked Sendable {
         }
     }
 
-    public func read(_ path: LibraryRelativePath) throws -> Data {
-        try withReadableHandle(at: path) { try $0.readToEnd() ?? Data() }
+    public func read(
+        _ path: LibraryRelativePath,
+        maximumBytes: Int = 128 * 1_024 * 1_024
+    ) throws -> Data {
+        guard maximumBytes >= 0, maximumBytes < Int.max else {
+            throw LibraryFileSystemError.unsafePath(path.rawValue)
+        }
+        return try withReadableHandle(at: path) { handle in
+            let metadata = try Self.regularFileMetadata(handle.fileDescriptor, path: path)
+            guard metadata.byteCount <= Int64(maximumBytes) else {
+                throw LibraryFileSystemError.tooLarge(
+                    path: path.rawValue,
+                    maximumBytes: maximumBytes,
+                    actualBytes: metadata.byteCount
+                )
+            }
+            let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
+            guard data.count <= maximumBytes else {
+                throw LibraryFileSystemError.tooLarge(
+                    path: path.rawValue,
+                    maximumBytes: maximumBytes,
+                    actualBytes: Int64(data.count)
+                )
+            }
+            return data
+        }
     }
 
-    public func readString(_ path: LibraryRelativePath) throws -> String {
-        guard let value = String(data: try read(path), encoding: .utf8) else {
+    public func readString(
+        _ path: LibraryRelativePath,
+        maximumBytes: Int = 128 * 1_024 * 1_024
+    ) throws -> String {
+        guard let value = String(data: try read(path, maximumBytes: maximumBytes), encoding: .utf8) else {
             throw LibraryFileSystemError.notRegularFile(path.rawValue)
         }
         return value
@@ -195,6 +226,31 @@ public final class LibraryFileSystem: @unchecked Sendable {
         }
     }
 
+    public func moveItem(at source: LibraryRelativePath, to destination: LibraryRelativePath) throws {
+        try root.withParent(of: source) { sourceParent, sourceLeaf in
+            guard try metadata(named: sourceLeaf, in: sourceParent, path: source) != nil else {
+                throw LibraryFileSystemError.missing(source.rawValue)
+            }
+            try root.withParent(of: destination, create: true) { destinationParent, destinationLeaf in
+                guard try metadata(named: destinationLeaf, in: destinationParent, path: destination) == nil else {
+                    throw LibraryFileSystemError.system(
+                        operation: "renameat-existing-destination",
+                        path: destination.rawValue,
+                        code: EEXIST
+                    )
+                }
+                let result = sourceLeaf.withCString { sourceName in
+                    destinationLeaf.withCString { destinationName in
+                        renameat(sourceParent, sourceName, destinationParent, destinationName)
+                    }
+                }
+                guard result == 0 else {
+                    throw mappedError(operation: "renameat-move", path: source.rawValue, code: errno)
+                }
+            }
+        }
+    }
+
     public func recursiveSnapshot(from path: LibraryRelativePath = .root) throws -> LibraryDirectorySnapshot {
         try enumerator.recursiveSnapshot(from: path)
     }
@@ -245,6 +301,13 @@ public final class LibraryFileSystem: @unchecked Sendable {
     }
 
     private static func requireRegularFile(_ descriptor: Int32, path: LibraryRelativePath) throws {
+        _ = try regularFileMetadata(descriptor, path: path)
+    }
+
+    private static func regularFileMetadata(
+        _ descriptor: Int32,
+        path: LibraryRelativePath
+    ) throws -> LibraryFileMetadata {
         var status = stat()
         guard fstat(descriptor, &status) == 0 else {
             throw mappedError(operation: "fstat", path: path.rawValue, code: errno)
@@ -252,6 +315,7 @@ public final class LibraryFileSystem: @unchecked Sendable {
         guard status.st_mode & S_IFMT == S_IFREG else {
             throw LibraryFileSystemError.notRegularFile(path.rawValue)
         }
+        return metadata(from: status)
     }
 
     private static func writeAll(_ data: Data, to descriptor: Int32, path: LibraryRelativePath) throws {

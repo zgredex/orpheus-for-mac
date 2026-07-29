@@ -1,7 +1,7 @@
 import Foundation
 import NativeQobuzCore
 
-enum NativeLinkReviewStatus: Codable, Equatable {
+enum NativeLinkReviewStatus: Codable, Equatable, Sendable {
     case pending
     case checking
     case available
@@ -57,7 +57,7 @@ enum NativeLinkReviewStatus: Codable, Equatable {
     }
 }
 
-struct NativeLinkInboxItem: Codable, Identifiable, Equatable {
+struct NativeLinkInboxItem: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let originalURL: String
     let request: QobuzRequest

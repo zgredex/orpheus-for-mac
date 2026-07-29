@@ -3,7 +3,7 @@ import Foundation
 final class QobuzHTTPTransport: @unchecked Sendable {
     private let baseURL: URL
     private let authToken: String
-    private let session: URLSession
+    private let dataLoader: BoundedURLSessionDataLoader
     private let retryPolicy: QobuzRetryPolicy
     private let retryScheduler: QobuzRetryScheduler
 
@@ -18,7 +18,7 @@ final class QobuzHTTPTransport: @unchecked Sendable {
     ) {
         self.baseURL = baseURL
         self.authToken = authToken
-        self.session = session
+        dataLoader = BoundedURLSessionDataLoader(session: session)
         self.retryPolicy = retryPolicy
         retryScheduler = QobuzRetryScheduler(
             policy: retryPolicy,
@@ -58,7 +58,10 @@ final class QobuzHTTPTransport: @unchecked Sendable {
                 "maxAttempts": String(retryPolicy.maxAttempts)
             ]) { _, new in new }
             do {
-                let (data, response) = try await session.data(for: request)
+                let (data, response) = try await dataLoader.data(
+                    for: request,
+                    maximumBytes: QobuzNetworkLimits.apiResponse
+                )
                 guard let http = response as? HTTPURLResponse else {
                     qobuzLog.error("api.response", "Qobuz returned a non-HTTP response", metadata: attemptMetadata)
                     throw NativeQobuzError.invalidResponse("Expected an HTTP response.")

@@ -6,7 +6,6 @@ import NativeQobuzCore
 /// warning/error events force all preceding records to stable storage.
 final class NativeLogSerialWriter: @unchecked Sendable {
     private let directoryURL: URL
-    private let fileManager: FileManager
     private let maximumFileBytes: Int64
     private let maximumArchives: Int
     private let queue = DispatchQueue(label: "com.orpheus.formac.diagnostics.writer", qos: .utility)
@@ -22,19 +21,14 @@ final class NativeLogSerialWriter: @unchecked Sendable {
     private var flushGeneration: UInt64 = 0
     private var isActive = false
     private var subscribers: [UUID: AsyncStream<QobuzLogEntry>.Continuation] = [:]
-
-    private var currentURL: URL {
-        directoryURL.appendingPathComponent("orpheus-current.jsonl")
-    }
+    private var directory: NativeLogDirectory?
 
     init(
         directoryURL: URL,
-        fileManager: FileManager,
         maximumFileBytes: Int64,
         maximumArchives: Int
     ) {
         self.directoryURL = directoryURL
-        self.fileManager = fileManager
         self.maximumFileBytes = maximumFileBytes
         self.maximumArchives = maximumArchives
     }
@@ -46,7 +40,7 @@ final class NativeLogSerialWriter: @unchecked Sendable {
     func activate() throws {
         try queue.sync {
             guard !isActive else { return }
-            try prepareDirectory()
+            directory = try NativeLogDirectory(directoryURL: directoryURL)
             try openCurrentFile()
             isActive = true
         }
@@ -83,6 +77,7 @@ final class NativeLogSerialWriter: @unchecked Sendable {
             try flushPending(synchronize: false)
             return try NativeLogTailReader(codec: codec).loadEntries(
                 files: try logFiles(),
+                directory: try requireDirectory(),
                 limit: limit
             )
         }
@@ -91,12 +86,12 @@ final class NativeLogSerialWriter: @unchecked Sendable {
     func copyLogFiles(to destination: URL) throws {
         try queue.sync {
             try flushPending(synchronize: true)
-            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
-            for source in try logFiles() {
-                let target = destination.appendingPathComponent(source.lastPathComponent)
-                if fileManager.fileExists(atPath: target.path) { try fileManager.removeItem(at: target) }
-                try fileManager.copyItem(at: source, to: target)
-            }
+            let copyLimit = max(safelyDoubled(maximumFileBytes), 64 * 1_024 * 1_024)
+            try requireDirectory().copy(
+                try logFiles(),
+                to: destination,
+                maximumFileBytes: copyLimit
+            )
         }
     }
 
@@ -107,7 +102,8 @@ final class NativeLogSerialWriter: @unchecked Sendable {
             flushGeneration &+= 1
             try handle?.close()
             handle = nil
-            for url in try logFiles() { try fileManager.removeItem(at: url) }
+            let directory = try requireDirectory()
+            for file in try logFiles() { try directory.remove(file) }
             try openCurrentFile()
         }
     }
@@ -165,46 +161,30 @@ final class NativeLogSerialWriter: @unchecked Sendable {
         try handle?.close()
         handle = nil
         let name = "orpheus-\(Self.filenameTimestamp())-\(UUID().uuidString.prefix(8)).jsonl"
-        try fileManager.moveItem(at: currentURL, to: directoryURL.appendingPathComponent(name))
-        let archives = try logFiles().filter { $0.lastPathComponent != currentURL.lastPathComponent }
+        let directory = try requireDirectory()
+        try directory.rotateCurrent(to: name)
+        let archives = try logFiles().filter { $0.path.lastComponent != "orpheus-current.jsonl" }
         if archives.count > maximumArchives {
-            for url in archives.prefix(archives.count - maximumArchives) {
-                try fileManager.removeItem(at: url)
+            for file in archives.prefix(archives.count - maximumArchives) {
+                try directory.remove(file)
             }
         }
         try openCurrentFile()
     }
 
     private func openCurrentFile() throws {
-        if !fileManager.fileExists(atPath: currentURL.path) {
-            guard fileManager.createFile(atPath: currentURL.path, contents: nil) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-        }
-        let newHandle = try FileHandle(forWritingTo: currentURL)
+        let newHandle = try requireDirectory().openCurrentFile()
         currentBytes = Int64(try newHandle.seekToEnd())
         handle = newHandle
     }
 
-    private func prepareDirectory() throws {
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
+    private func requireDirectory() throws -> NativeLogDirectory {
+        guard let directory else { throw CocoaError(.fileNoSuchFile) }
+        return directory
     }
 
-    private func logFiles() throws -> [URL] {
-        try fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        )
-        .filter { $0.pathExtension == "jsonl" }
-        .sorted {
-            let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                ?? .distantPast
-            let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                ?? .distantPast
-            return left == right ? $0.lastPathComponent < $1.lastPathComponent : left < right
-        }
+    private func logFiles() throws -> [NativeLogFile] {
+        try requireDirectory().files()
     }
 
     private func recoverAfterWriteFailure() {
@@ -225,5 +205,9 @@ final class NativeLogSerialWriter: @unchecked Sendable {
         Date.ISO8601FormatStyle(includingFractionalSeconds: false)
             .format(Date())
             .replacingOccurrences(of: ":", with: "-")
+    }
+
+    private func safelyDoubled(_ value: Int64) -> Int64 {
+        value > Int64.max / 2 ? Int64.max : value * 2
     }
 }

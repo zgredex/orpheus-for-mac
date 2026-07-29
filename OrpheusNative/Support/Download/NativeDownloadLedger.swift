@@ -56,13 +56,14 @@ final class NativeDownloadLedger: ObservableObject {
     func prepareActivity(
         for item: NativeQueueItem,
         quality: QobuzQuality,
-        repairFormat: QobuzAudioFormat?
+        repairFormat: QobuzAudioFormat?,
+        root: URL
     ) -> UUID {
         if let operation = state.operation(forQueueID: item.id),
            let activityID = operation.activityID,
            operation.status.canResume || operation.status.canRetry {
             let activity = NativeDownloadActivity(operation: operation)
-            let partial = partialLocator.artifact(for: activity)
+            let partial = partialLocator.artifact(for: activity, root: root)
             let isRetry = operation.status.canRetry
             mutateState { state in
                 state.mutateOperation(queueID: item.id) {
@@ -100,14 +101,14 @@ final class NativeDownloadLedger: ObservableObject {
         activities.first { $0.id == id }
     }
 
-    func partial(for activity: NativeDownloadActivity) -> NativePartialDownload? {
+    func partial(for activity: NativeDownloadActivity, root: URL) -> NativePartialDownload? {
         let status = status(for: activity)
         guard status.canResume || status.canRetry else { return nil }
-        return partialLocator.artifact(for: activity)
+        return partialLocator.artifact(for: activity, root: root)
     }
 
-    func partialRegardlessOfStatus(for activityID: UUID) -> NativePartialDownload? {
-        activity(id: activityID).flatMap(partialLocator.artifact(for:))
+    func partialRegardlessOfStatus(for activityID: UUID, root: URL) -> NativePartialDownload? {
+        activity(id: activityID).flatMap { partialLocator.artifact(for: $0, root: root) }
     }
 
     func removeActivity(_ activity: NativeDownloadActivity, queueStillExists: Bool) {

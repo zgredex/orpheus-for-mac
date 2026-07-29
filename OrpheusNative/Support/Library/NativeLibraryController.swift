@@ -161,20 +161,31 @@ final class NativeLibraryController: ObservableObject {
         }
     }
 
-    func indexDownloadedRoot(_ root: URL, activeRoot: URL) async throws {
+    func indexDownloadedRoot(
+        _ root: URL,
+        changedAudioURLs: [URL],
+        activeRoot: URL
+    ) async throws {
         cancelRefresh()
         isScanning = true
         defer { isScanning = false }
         let standardizedRoot = root.standardizedFileURL
         let reusable = snapshot?.rootPath == standardizedRoot.path ? snapshot : nil
         do {
-            let indexed = try await downloadedIndexer.index(root: standardizedRoot, reusing: reusable)
+            let indexed = try await downloadedIndexer.index(
+                root: standardizedRoot,
+                reusing: reusable,
+                changedAudioURLs: changedAudioURLs
+            )
             if standardizedRoot == activeRoot.standardizedFileURL { snapshot = indexed }
         } catch {
             qobuzLog.error(
                 "download.library.index",
                 "Downloaded output could not be committed to the Library index",
-                metadata: ["downloadRoot": standardizedRoot.path],
+                metadata: [
+                    "downloadRoot": standardizedRoot.path,
+                    "changedAudioCount": String(changedAudioURLs.count)
+                ],
                 error: error
             )
             throw error
@@ -326,10 +337,10 @@ final class NativeLibraryController: ObservableObject {
             in: root,
             allowingRoot: allowingRoot
         ),
-        FileManager.default.fileExists(atPath: target.path) else {
+        let existing = NativeSecureRevealResolver().existingItem(target, within: root) else {
             NSWorkspace.shared.activateFileViewerSelecting([root])
             return
         }
-        NSWorkspace.shared.activateFileViewerSelecting([target])
+        NSWorkspace.shared.activateFileViewerSelecting([existing])
     }
 }

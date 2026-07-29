@@ -12,11 +12,18 @@ OUTPUT_APP="$OUTPUT_DIR/Orpheus for Mac.app"
 OUTPUT_DMG="$OUTPUT_DIR/Orpheus-for-Mac-$VERSION.dmg"
 DMG_STAGE="$ROOT/Build/NativeDMGStage"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
-NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
+NOTARYTOOL_KEY="${NOTARYTOOL_KEY:-}"
+NOTARYTOOL_KEY_ID="${NOTARYTOOL_KEY_ID:-}"
+NOTARYTOOL_ISSUER="${NOTARYTOOL_ISSUER:-}"
 REQUIRE_NOTARIZATION="${REQUIRE_NOTARIZATION:-0}"
 
-if [ "$REQUIRE_NOTARIZATION" = "1" ] && { [ -z "$CODESIGN_IDENTITY" ] || [ -z "$NOTARYTOOL_PROFILE" ]; }; then
-    echo "Release notarization requires CODESIGN_IDENTITY and NOTARYTOOL_PROFILE" >&2
+if [ "$REQUIRE_NOTARIZATION" = "1" ] && {
+    [ -z "$CODESIGN_IDENTITY" ] ||
+    [ -z "$NOTARYTOOL_KEY" ] ||
+    [ -z "$NOTARYTOOL_KEY_ID" ] ||
+    [ -z "$NOTARYTOOL_ISSUER" ]
+}; then
+    echo "Release notarization requires CODESIGN_IDENTITY, NOTARYTOOL_KEY, NOTARYTOOL_KEY_ID, and NOTARYTOOL_ISSUER" >&2
     exit 1
 fi
 
@@ -86,12 +93,20 @@ DMG_NAME="$(basename "$OUTPUT_DMG")"
     shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
 )
 
-if [ -n "$NOTARYTOOL_PROFILE" ]; then
+if [ -n "$NOTARYTOOL_KEY" ] || [ -n "$NOTARYTOOL_KEY_ID" ] || [ -n "$NOTARYTOOL_ISSUER" ]; then
     if [ -z "$CODESIGN_IDENTITY" ]; then
-        echo "NOTARYTOOL_PROFILE was provided without CODESIGN_IDENTITY" >&2
+        echo "Notarization credentials were provided without CODESIGN_IDENTITY" >&2
         exit 1
     fi
-    xcrun notarytool submit "$OUTPUT_DMG" --keychain-profile "$NOTARYTOOL_PROFILE" --wait
+    if [ -z "$NOTARYTOOL_KEY" ] || [ -z "$NOTARYTOOL_KEY_ID" ] || [ -z "$NOTARYTOOL_ISSUER" ]; then
+        echo "NOTARYTOOL_KEY, NOTARYTOOL_KEY_ID, and NOTARYTOOL_ISSUER must be provided together" >&2
+        exit 1
+    fi
+    xcrun notarytool submit "$OUTPUT_DMG" \
+        --key "$NOTARYTOOL_KEY" \
+        --key-id "$NOTARYTOOL_KEY_ID" \
+        --issuer "$NOTARYTOOL_ISSUER" \
+        --wait
     xcrun stapler staple "$OUTPUT_DMG"
     xcrun stapler validate "$OUTPUT_DMG"
     spctl --assess --type open --context context:primary-signature --verbose=2 "$OUTPUT_DMG"

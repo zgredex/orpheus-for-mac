@@ -281,9 +281,12 @@ final class CollectionAssetTests: XCTestCase {
 private struct FixtureAssetFetcher: QobuzAssetFetching {
     let responses: [URL: QobuzAssetResponse]
 
-    func fetch(_ url: URL) async throws -> QobuzAssetResponse {
+    func fetch(_ url: URL, maximumBytes: Int) async throws -> QobuzAssetResponse {
         guard let response = responses[url] else {
             throw NativeQobuzError.unavailable("Unexpected asset URL: \(url)")
+        }
+        guard response.data.count <= maximumBytes else {
+            throw NativeQobuzError.invalidResponse("Fixture asset exceeds requested limit")
         }
         return response
     }

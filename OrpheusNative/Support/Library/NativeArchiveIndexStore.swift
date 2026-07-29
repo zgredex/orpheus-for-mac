@@ -12,24 +12,24 @@ protocol NativeArchiveIndexStoring: Sendable {
     func save(_ snapshot: QobuzArchiveSnapshot) throws
 }
 
-struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
+struct NativeArchiveIndexStore: NativeArchiveIndexStoring, Sendable {
     let paths: NativePaths
-    let fileManager: FileManager
+    private let files: NativeApplicationSupportFileStore
 
-    init(paths: NativePaths, fileManager: FileManager = .default) {
+    init(paths: NativePaths) {
         self.paths = paths
-        self.fileManager = fileManager
+        files = NativeApplicationSupportFileStore(rootURL: paths.applicationSupportRoot)
     }
 
     func load() throws -> NativeArchiveIndexLoadResult {
-        guard fileManager.fileExists(atPath: paths.archiveIndexURL.path) else {
-            qobuzLog.debug("persistence.archive", "No cached archive index exists")
-            return .missing
-        }
         do {
+            guard let data = try files.read(.archiveIndex) else {
+                qobuzLog.debug("persistence.archive", "No cached archive index exists")
+                return .missing
+            }
             let snapshot = try JSONDecoder().decode(
                 QobuzArchiveSnapshot.self,
-                from: Data(contentsOf: paths.archiveIndexURL)
+                from: data
             )
             qobuzLog.debug(
                 "persistence.archive",
@@ -44,8 +44,7 @@ struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
 
     func save(_ snapshot: QobuzArchiveSnapshot) throws {
         try snapshot.validate()
-        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
-        try JSONEncoder.pretty.encode(snapshot).write(to: paths.archiveIndexURL, options: .atomic)
+        try files.write(JSONEncoder.persistence.encode(snapshot), to: .archiveIndex)
         qobuzLog.info(
             "persistence.archive",
             "Archive index cache saved",
@@ -54,11 +53,11 @@ struct NativeArchiveIndexStore: NativeArchiveIndexStoring, @unchecked Sendable {
     }
 
     private func quarantineRejectedCache(cause: Error) throws -> NativeArchiveIndexLoadResult {
-        let rejectedURL = paths.applicationSupportRoot.appendingPathComponent(
-            "archive-index.rejected-\(UUID().uuidString).json"
-        )
         do {
-            try fileManager.moveItem(at: paths.archiveIndexURL, to: rejectedURL)
+            let rejectedURL = try files.quarantine(
+                .archiveIndex,
+                rejectedPrefix: "archive-index.rejected"
+            )
             qobuzLog.error(
                 "persistence.archive",
                 "Rejected archive cache was quarantined and will be rebuilt",

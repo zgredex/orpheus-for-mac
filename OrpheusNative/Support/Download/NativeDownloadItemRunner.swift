@@ -22,12 +22,17 @@ final class NativeDownloadItemRunner {
         engine: NativeQobuzDownloadEngine,
         quality: QobuzQuality,
         root: URL,
-        indexLibrary: @escaping @MainActor (URL) async throws -> Void,
+        indexLibrary: @escaping @MainActor (URL, [URL]) async throws -> Void,
         isTerminating: @escaping @MainActor () -> Bool,
         checkpoint: @escaping @MainActor () -> Void
     ) async {
         let repairFormat = item.repairTarget?.audioFormat
-        let activityID = ledger.prepareActivity(for: item, quality: quality, repairFormat: repairFormat)
+        let activityID = ledger.prepareActivity(
+            for: item,
+            quality: quality,
+            repairFormat: repairFormat,
+            root: root
+        )
         let operationMetadata = [
             "queueID": item.id.uuidString,
             "activityID": activityID.uuidString,
@@ -44,7 +49,7 @@ final class NativeDownloadItemRunner {
             "download.item",
             "Queue item download started",
             metadata: operationMetadata.merging([
-                "partialResumeBytes": ledger.partialRegardlessOfStatus(for: activityID)
+                "partialResumeBytes": ledger.partialRegardlessOfStatus(for: activityID, root: root)
                     .map { String($0.bytes) } ?? "0"
             ]) { _, new in new }
         )
@@ -75,6 +80,7 @@ final class NativeDownloadItemRunner {
                             if case .checkpoint = event { checkpoint() }
                         }
                     }
+                    let changedAudioURLs = ledger.activity(id: activityID)?.operation.outputURLs ?? []
                     ledger.transition(queueID: item.id, activityID: activityID, to: .indexingLibrary)
                     ledger.updateActivity(activityID) {
                         $0.recordCheckpoint(QobuzDownloadCheckpoint(phase: .indexingLibrary))
@@ -82,7 +88,7 @@ final class NativeDownloadItemRunner {
                         $0.bytesPerSecond = nil
                     }
                     checkpoint()
-                    try await indexLibrary(root)
+                    try await indexLibrary(root, changedAudioURLs)
                     ledger.markLibraryIndexed(queueID: item.id, activityID: activityID)
                     checkpoint()
                     qobuzLog.notice(
@@ -101,7 +107,7 @@ final class NativeDownloadItemRunner {
                     return
                 } catch let error as NativeQobuzError where error.requiresFreshSignedURL && !refreshedExpiredURL {
                     refreshedExpiredURL = true
-                    let partialExists = ledger.partialRegardlessOfStatus(for: activityID) != nil
+                    let partialExists = ledger.partialRegardlessOfStatus(for: activityID, root: root) != nil
                     qobuzLog.warning(
                         "download.recovery.url",
                         "Expired audio URL detected; reacquiring a fresh signed Qobuz URL",
@@ -118,7 +124,7 @@ final class NativeDownloadItemRunner {
                     continue
                 } catch let error as NativeQobuzError where error.isConnectivityLoss {
                     let generationAtFailure = connectivity.generation
-                    let partial = ledger.partialRegardlessOfStatus(for: activityID)
+                    let partial = ledger.partialRegardlessOfStatus(for: activityID, root: root)
                     qobuzLog.warning(
                         "download.recovery.network",
                         "Queue item is waiting for network recovery",
@@ -182,7 +188,10 @@ final class NativeDownloadItemRunner {
                         "Queue item download paused after a resumable failure",
                         metadata: [
                             "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
-                            "partialPath": ledger.partialRegardlessOfStatus(for: activityID)?.url.path ?? "none"
+                            "partialPath": ledger.partialRegardlessOfStatus(
+                                for: activityID,
+                                root: root
+                            )?.url.path ?? "none"
                         ],
                         error: error
                     )

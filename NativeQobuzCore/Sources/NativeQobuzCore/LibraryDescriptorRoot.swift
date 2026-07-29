@@ -14,11 +14,18 @@ final class LibraryDescriptorRoot: @unchecked Sendable {
     deinit { close(descriptor) }
 
     func duplicateRoot() throws -> Int32 {
-        let value = fcntl(descriptor, F_DUPFD_CLOEXEC, 0)
+        let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        let value = ".".withCString { openat(descriptor, $0, flags) }
         guard value >= 0 else {
-            throw LibraryFileSystemError.system(operation: "duplicate-root", path: ".", code: errno)
+            throw LibraryFileSystemError.system(operation: "openat-root-copy", path: ".", code: errno)
         }
         return value
+    }
+
+    func setPermissions(_ permissions: UInt16) throws {
+        guard fchmod(descriptor, mode_t(permissions)) == 0 else {
+            throw mappedError(operation: "fchmod-root", path: ".", code: errno)
+        }
     }
 
     func withDirectory<T>(
@@ -49,7 +56,7 @@ final class LibraryDescriptorRoot: @unchecked Sendable {
         do {
             for (index, component) in components.enumerated() {
                 let displayPath = components.prefix(index + 1).joined(separator: "/")
-                let child = try openDirectoryComponent(
+                let child = try Self.openDirectoryComponent(
                     component,
                     in: current,
                     displayPath: displayPath,
@@ -65,7 +72,7 @@ final class LibraryDescriptorRoot: @unchecked Sendable {
         }
     }
 
-    private func openDirectoryComponent(
+    private static func openDirectoryComponent(
         _ name: String,
         in parent: Int32,
         displayPath: String,
@@ -99,46 +106,27 @@ final class LibraryDescriptorRoot: @unchecked Sendable {
 
     private static func openRoot(_ rootURL: URL, createIfMissing: Bool) throws -> Int32 {
         let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-        let direct = rootURL.path.withCString { open($0, flags) }
-        if direct >= 0 { return direct }
-
-        let directError = errno
-        guard directError == ENOENT, createIfMissing else {
-            throw mappedError(operation: "open-root", path: rootURL.path, code: directError)
+        guard rootURL.path.hasPrefix("/") else {
+            throw LibraryFileSystemError.unsafePath(rootURL.path)
         }
-
-        var missing: [String] = []
-        var ancestor = rootURL
-        var ancestorDescriptor: Int32 = -1
-        while ancestor.path != "/" {
-            missing.insert(ancestor.lastPathComponent, at: 0)
-            ancestor.deleteLastPathComponent()
-            ancestorDescriptor = ancestor.path.withCString { open($0, flags) }
-            if ancestorDescriptor >= 0 { break }
-            let code = errno
-            guard code == ENOENT else {
-                throw mappedError(operation: "open-root-parent", path: ancestor.path, code: code)
-            }
+        let pathComponents = trustedSystemAliasNormalizedPath(rootURL.path)
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        var current = "/".withCString { open($0, flags) }
+        guard current >= 0 else {
+            throw mappedError(operation: "open-filesystem-root", path: "/", code: errno)
         }
-        if ancestorDescriptor < 0 {
-            ancestorDescriptor = "/".withCString { open($0, flags) }
-        }
-        guard ancestorDescriptor >= 0 else {
-            throw mappedError(operation: "open-root-parent", path: ancestor.path, code: errno)
-        }
-
-        var current = ancestorDescriptor
+        var traversed: [String] = []
         do {
-            for (index, component) in missing.enumerated() {
-                let displayPath = missing.prefix(index + 1).joined(separator: "/")
-                let created = component.withCString { mkdirat(current, $0, mode_t(0o755)) }
-                if created != 0, errno != EEXIST {
-                    throw mappedError(operation: "mkdirat-root", path: displayPath, code: errno)
-                }
-                let next = component.withCString { openat(current, $0, flags) }
-                guard next >= 0 else {
-                    throw mappedError(operation: "openat-root", path: displayPath, code: errno)
-                }
+            for component in pathComponents {
+                traversed.append(component)
+                let displayPath = "/" + traversed.joined(separator: "/")
+                let next = try openDirectoryComponent(
+                    component,
+                    in: current,
+                    displayPath: displayPath,
+                    create: createIfMissing
+                )
                 close(current)
                 current = next
             }
@@ -147,6 +135,12 @@ final class LibraryDescriptorRoot: @unchecked Sendable {
             close(current)
             throw error
         }
+    }
+
+    private static func trustedSystemAliasNormalizedPath(_ path: String) -> String {
+        if path == "/var" || path.hasPrefix("/var/") { return "/private" + path }
+        if path == "/tmp" || path.hasPrefix("/tmp/") { return "/private" + path }
+        return path
     }
 }
 

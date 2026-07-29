@@ -33,7 +33,10 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
         self.processNames = processNames
         self.maximumReports = max(maximumReports, 1)
         self.maximumAge = maximumAge
-        self.maximumReportBytes = maximumReportBytes
+        self.maximumReportBytes = max(
+            1,
+            min(maximumReportBytes, Int64(Int.max - 1))
+        )
         self.maximumScannedFiles = max(maximumScannedFiles, 1)
         self.now = now
         self.fileManager = fileManager
@@ -54,7 +57,10 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
         var exported = 0
         for candidate in selected {
             do {
-                let data = try Data(contentsOf: candidate.url, options: [.mappedIfSafe])
+                let data = try NativeBoundedFileReader.readComplete(
+                    candidate.url,
+                    maximumBytes: Int(maximumReportBytes)
+                )
                 let redacted = QobuzDiagnostics.redact(String(decoding: data, as: UTF8.self))
                 let target = uniqueDestination(
                     for: candidate.url.lastPathComponent,
@@ -87,7 +93,8 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
                     .isRegularFileKey,
                     .contentModificationDateKey,
                     .creationDateKey,
-                    .fileSizeKey
+                    .fileSizeKey,
+                    .isSymbolicLinkKey
                 ],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants],
                 errorHandler: { url, error in
@@ -112,9 +119,10 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
                         .isRegularFileKey,
                         .contentModificationDateKey,
                         .creationDateKey,
-                        .fileSizeKey
+                        .fileSizeKey,
+                        .isSymbolicLinkKey
                     ])
-                    guard values.isRegularFile == true else { continue }
+                    guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
                     let modifiedAt = values.contentModificationDate ?? values.creationDate ?? .distantPast
                     guard modifiedAt >= cutoff else { continue }
                     let size = Int64(values.fileSize ?? 0)
@@ -143,9 +151,7 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
     private func matchesApplication(_ url: URL) throws -> Bool {
         let filename = url.deletingPathExtension().lastPathComponent.localizedLowercase
         if processNames.contains(where: { filename.contains($0.localizedLowercase) }) { return true }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let prefix = try handle.read(upToCount: 256 * 1_024) ?? Data()
+        let prefix = try NativeBoundedFileReader.readPrefix(url, maximumBytes: 256 * 1_024)
         let text = String(decoding: prefix, as: UTF8.self).localizedLowercase
         return text.contains(bundleIdentifier.localizedLowercase)
             || processNames.contains(where: { text.contains($0.localizedLowercase) })

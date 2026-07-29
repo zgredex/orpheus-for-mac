@@ -3,17 +3,31 @@ import Foundation
 public protocol QobuzArchiveScanning: Sendable {
     func scan(root: URL) async throws -> QobuzArchiveSnapshot
     func scan(root: URL, reusing previous: QobuzArchiveSnapshot?) async throws -> QobuzArchiveSnapshot
+    func scan(
+        root: URL,
+        reusing previous: QobuzArchiveSnapshot?,
+        changedAudioURLs: [URL]
+    ) async throws -> QobuzArchiveSnapshot
 }
 
 public extension QobuzArchiveScanning {
     func scan(root: URL, reusing previous: QobuzArchiveSnapshot?) async throws -> QobuzArchiveSnapshot {
         try await scan(root: root)
     }
+
+    func scan(
+        root: URL,
+        reusing previous: QobuzArchiveSnapshot?,
+        changedAudioURLs: [URL]
+    ) async throws -> QobuzArchiveSnapshot {
+        try await scan(root: root, reusing: previous)
+    }
 }
 
 public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
     private let discovery = QobuzArchiveManifestDiscovery()
-    private let integrityEvaluator = QobuzArchiveIntegrityEvaluator()
+    private let inspector = QobuzArchiveManifestInspector()
+    private let incrementalScanner = QobuzArchiveIncrementalScanner()
 
     public init() {}
 
@@ -45,7 +59,7 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         }
 
         let enumeration = try discovery.manifestPaths(in: fileSystem)
-        var issues = enumeration.issues
+        var accumulator = QobuzArchiveScanAccumulator(tracks: [], issues: enumeration.issues)
         qobuzLog.info(
             "library.scan",
             "Provenance manifests enumerated",
@@ -57,49 +71,22 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
 
         let reusableTracks = previous?.rootPath == root.path ? (previous?.tracks ?? []) : []
         let previousByPath = Dictionary(reusableTracks.map { ($0.relativePath, $0) }, uniquingKeysWith: { first, _ in first })
-        var tracks: [QobuzArchiveTrack] = []
-        var reusedChecksums = 0
-        for manifestPath in enumeration.paths {
-            try Task.checkCancellation()
-            do {
-                let result = try inspectManifest(
-                    manifestPath,
-                    fileSystem: fileSystem,
-                    previousByPath: previousByPath,
-                    scanMetadata: scanMetadata
-                )
-                tracks.append(contentsOf: result.tracks)
-                issues.append(contentsOf: result.issues)
-                reusedChecksums += result.reusedChecksums
-            } catch let error where error.isQobuzCancellation {
-                qobuzLog.notice("library.scan", "Library integrity scan cancelled", metadata: scanMetadata)
-                throw NativeQobuzError.cancelled
-            } catch {
-                qobuzLog.error(
-                    "library.scan.manifest",
-                    "Provenance manifest could not be inspected",
-                    metadata: scanMetadata.merging(["manifestPath": manifestPath.rawValue]) { _, new in new },
-                    error: error
-                )
-                issues.append(QobuzArchiveIssue(
-                    relativePath: manifestPath.rawValue,
-                    message: error.localizedDescription
-                ))
-            }
-        }
-
-        tracks.sort { ($0.qobuzAlbumID, $0.relativePath) < ($1.qobuzAlbumID, $1.relativePath) }
-        let collections = loadCollections(
+        let inspectionContext = QobuzArchiveInspectionContext(
+            mode: .full,
+            inspector: inspector,
             fileSystem: fileSystem,
-            physicalTrackPaths: Set(tracks.map(\.relativePath)),
-            issues: &issues,
+            previousByPath: previousByPath,
             scanMetadata: scanMetadata
         )
-        let snapshot = QobuzArchiveSnapshot(
-            rootPath: root.path,
-            tracks: tracks,
-            issues: issues,
-            collections: collections
+        try accumulator.inspect(
+            enumeration.paths,
+            context: inspectionContext
+        )
+        let snapshot = try accumulator.snapshot(
+            root: root,
+            using: inspector,
+            fileSystem: fileSystem,
+            scanMetadata: scanMetadata
         )
         qobuzLog.notice(
             "library.scan",
@@ -110,129 +97,26 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
                 "problemCount": String(snapshot.problemCount),
                 "issueCount": String(snapshot.issues.count),
                 "collectionCount": String(snapshot.collections.count),
-                "reusedChecksumCount": String(reusedChecksums),
+                "reusedChecksumCount": String(accumulator.reusedChecksums),
                 "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
             ]) { _, new in new }
         )
         return snapshot
     }
 
-    private func inspectManifest(
-        _ manifestPath: LibraryRelativePath,
-        fileSystem: LibraryFileSystem,
-        previousByPath: [String: QobuzArchiveTrack],
-        scanMetadata: [String: String]
-    ) throws -> (tracks: [QobuzArchiveTrack], issues: [QobuzArchiveIssue], reusedChecksums: Int) {
-        qobuzLog.trace(
-            "library.scan.manifest",
-            "Reading provenance manifest",
-            metadata: scanMetadata.merging(["manifestPath": manifestPath.rawValue]) { _, new in new }
-        )
-        let manifest = try QobuzProvenanceManifestIO.load(from: manifestPath, in: fileSystem)
-        let folder = manifestPath.parent
-        let checksumPath = try folder.appending(QobuzChecksumManifest.filename)
-        let checksumEntries: [String: String]
-        do {
-            checksumEntries = try QobuzChecksumManifest.load(at: checksumPath, in: fileSystem)
-        } catch {
-            checksumEntries = [:]
-            qobuzLog.warning(
-                "library.scan.checksum",
-                "Checksum manifest could not be read",
-                metadata: scanMetadata.merging(["checksumPath": checksumPath.rawValue]) { _, new in new },
-                error: error
-            )
+    public func scan(
+        root: URL,
+        reusing previous: QobuzArchiveSnapshot?,
+        changedAudioURLs: [URL]
+    ) async throws -> QobuzArchiveSnapshot {
+        if let previous,
+           let incremental = try await incrementalScanner.scan(
+               root: root,
+               previous: previous,
+               changedAudioURLs: changedAudioURLs
+           ) {
+            return incremental
         }
-        let hasPlaylistManifest = discovery.playlistManifestReferencesFiles(
-            in: folder,
-            filenames: Set(manifest.files.keys),
-            fileSystem: fileSystem
-        )
-        var tracks: [QobuzArchiveTrack] = []
-        var issues: [QobuzArchiveIssue] = []
-        var reusedChecksums = 0
-        for filename in manifest.files.keys.sorted() {
-            try Task.checkCancellation()
-            guard QobuzPathSafety.isSafeLeafName(filename), let provenance = manifest.files[filename] else {
-                issues.append(QobuzArchiveIssue(
-                    relativePath: manifestPath.rawValue,
-                    message: "Ignored an unsafe provenance filename."
-                ))
-                continue
-            }
-            let audioPath = try folder.appending(filename)
-            let relativePath = audioPath.rawValue
-            let archiveKind = discovery.resolvedArchiveKind(
-                provenance.archiveKind,
-                relativePath: relativePath,
-                hasPlaylistManifest: hasPlaylistManifest
-            )
-            let evaluation = integrityEvaluator.evaluate(
-                audioPath: audioPath,
-                fileSystem: fileSystem,
-                provenance: provenance,
-                manifestChecksum: checksumEntries[filename],
-                previous: previousByPath[relativePath],
-                logMetadata: scanMetadata
-            )
-            if evaluation.reusedChecksum { reusedChecksums += 1 }
-            if let issueMessage = evaluation.issueMessage {
-                issues.append(QobuzArchiveIssue(relativePath: relativePath, message: issueMessage))
-            }
-            tracks.append(QobuzArchiveTrack(
-                relativePath: relativePath,
-                qobuzTrackID: provenance.qobuzTrackID,
-                qobuzAlbumID: provenance.qobuzAlbumID,
-                formatID: provenance.formatID,
-                bitDepth: provenance.bitDepth,
-                samplingRate: provenance.samplingRate,
-                expectedSHA256: provenance.sha256,
-                actualSHA256: evaluation.actualChecksum,
-                byteCount: evaluation.byteCount,
-                modificationDate: evaluation.modificationDate,
-                integrity: evaluation.integrity,
-                archiveKind: archiveKind,
-                isLibraryManaged: provenance.isLibraryManaged
-            ))
-            qobuzLog.trace(
-                "library.scan.track",
-                "Library audio integrity evaluated",
-                metadata: scanMetadata.merging([
-                    "relativePath": relativePath,
-                    "trackID": provenance.qobuzTrackID,
-                    "integrity": evaluation.integrity.rawValue,
-                    "byteCount": evaluation.byteCount.map(String.init) ?? "unknown"
-                ]) { _, new in new }
-            )
-        }
-        return (tracks, issues, reusedChecksums)
-    }
-
-    private func loadCollections(
-        fileSystem: LibraryFileSystem,
-        physicalTrackPaths: Set<String>,
-        issues: inout [QobuzArchiveIssue],
-        scanMetadata: [String: String]
-    ) -> [QobuzLibraryCollectionRecord] {
-        do {
-            let manifest = try QobuzLibraryManifestIO.load(in: fileSystem)
-            try QobuzArchiveSnapshotValidation.validateCollections(
-                manifest.collections,
-                physicalTrackPaths: physicalTrackPaths
-            )
-            return manifest.collections
-        } catch {
-            qobuzLog.error(
-                "library.scan.manifest",
-                "Library collection manifest could not be loaded",
-                metadata: scanMetadata,
-                error: error
-            )
-            issues.append(QobuzArchiveIssue(
-                relativePath: QobuzLibraryManifestIO.filename,
-                message: error.localizedDescription
-            ))
-            return []
-        }
+        return try await scan(root: root, reusing: previous)
     }
 }

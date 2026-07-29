@@ -19,7 +19,6 @@ final class NativeLogFileStore: NativeLogStoring, @unchecked Sendable {
 
     init(
         paths: NativePaths,
-        fileManager: FileManager = .default,
         maximumFileBytes: Int64 = 5 * 1_024 * 1_024,
         maximumArchives: Int = 8
     ) {
@@ -28,7 +27,6 @@ final class NativeLogFileStore: NativeLogStoring, @unchecked Sendable {
         self.maximumArchives = maximumArchives
         writer = NativeLogSerialWriter(
             directoryURL: paths.logsDirectory,
-            fileManager: fileManager,
             maximumFileBytes: maximumFileBytes,
             maximumArchives: maximumArchives
         )

@@ -319,7 +319,7 @@ struct NativeLogView: View {
         if let underlying = entry.underlyingErrors, !underlying.isEmpty {
             lines.append("underlyingErrors:\n" + underlying.joined(separator: "\n"))
         }
-        lines.append(contentsOf: entry.metadata.keys.sorted().map { "\($0)=\(entry.metadata[$0]!)" })
+        lines.append(contentsOf: entry.metadata.keys.sorted().compactMap { key in entry.metadata[key].map { "\(key)=\($0)" } })
         if let callStack = entry.callStack, !callStack.isEmpty {
             lines.append("callStack:\n" + callStack.joined(separator: "\n"))
         }

@@ -5,12 +5,11 @@ import NativeQobuzCore
 /// It is never encoded or mutated independently.
 struct NativeDownloadActivity: Identifiable, Equatable {
     let operation: NativeDownloadOperation
+    let id: UUID
 
-    var id: UUID {
-        guard let activityID = operation.activityID else {
-            preconditionFailure("An Activity projection requires an Activity-bound download operation.")
-        }
-        return activityID
+    init(operation: NativeDownloadOperation) {
+        self.operation = operation
+        id = operation.activityID ?? operation.queueID
     }
     var queueID: UUID { operation.queueID }
     var title: String { operation.title }

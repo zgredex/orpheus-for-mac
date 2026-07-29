@@ -426,6 +426,14 @@ final class NativeAdapterTests: XCTestCase {
 
         try Data().write(to: format7Partial)
         XCTAssertNil(failedViewModel.resumablePartial(for: format7Activity))
+
+        try FileManager.default.removeItem(at: format7Partial)
+        let outside = root.appendingPathComponent("outside.partial")
+        let sentinel = Data(repeating: 9, count: 1_024)
+        try sentinel.write(to: outside)
+        try FileManager.default.createSymbolicLink(at: format7Partial, withDestinationURL: outside)
+        XCTAssertNil(failedViewModel.resumablePartial(for: format7Activity))
+        XCTAssertEqual(try Data(contentsOf: outside), sentinel)
     }
 
     func testSessionCodingRejectsAnyPreviousSchema() throws {

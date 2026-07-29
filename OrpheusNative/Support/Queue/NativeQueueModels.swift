@@ -1,7 +1,7 @@
 import Foundation
 import NativeQobuzCore
 
-struct NativeQueueItem: Codable, Identifiable, Equatable {
+struct NativeQueueItem: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let request: QobuzRequest
     var title: String
@@ -59,7 +59,7 @@ struct NativeQueueItem: Codable, Identifiable, Equatable {
     }
 }
 
-struct NativeQueueTrack: Codable, Identifiable, Equatable {
+struct NativeQueueTrack: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let qobuzID: QobuzID
     let title: String
@@ -71,7 +71,7 @@ struct NativeQueueTrack: Codable, Identifiable, Equatable {
     var isAvailable: Bool { unavailableReason == nil }
 }
 
-struct NativeQueuePreflight: Equatable {
+struct NativeQueuePreflight: Equatable, Sendable {
     let total: Int?
     let available: Int?
     let selected: Int?

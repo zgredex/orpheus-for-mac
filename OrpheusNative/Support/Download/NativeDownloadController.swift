@@ -19,7 +19,9 @@ final class NativeDownloadController: ObservableObject {
     private var isTerminating = false
     private var onNotice: ((String) -> Void)?
     private var onRequireSettings: (() -> Void)?
-    private var onIndexLibrary: (URL) async throws -> Void = { _ in throw NativeQobuzError.unavailable("The Library index is unavailable.") }
+    private var onIndexLibrary: (URL, [URL]) async throws -> Void = { _, _ in
+        throw NativeQobuzError.unavailable("The Library index is unavailable.")
+    }
     private var onCheckpoint: (() -> Void)?
 
     init(
@@ -45,7 +47,7 @@ final class NativeDownloadController: ObservableObject {
     func configureCallbacks(
         onNotice: @escaping (String) -> Void,
         onRequireSettings: @escaping () -> Void,
-        onIndexLibrary: @escaping (URL) async throws -> Void,
+        onIndexLibrary: @escaping (URL, [URL]) async throws -> Void,
         onCheckpoint: @escaping () -> Void
     ) {
         self.onNotice = onNotice
@@ -287,22 +289,24 @@ final class NativeDownloadController: ObservableObject {
         )
     }
 
-    func resumablePartial(for activity: NativeDownloadActivity) -> NativePartialDownload? {
-        ledger.partial(for: activity)
+    func resumablePartial(for activity: NativeDownloadActivity, root: URL) -> NativePartialDownload? {
+        ledger.partial(for: activity, root: root)
     }
 
     func reveal(_ activity: NativeDownloadActivity, defaultRootPath: String) {
-        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: defaultRootPath, isDirectory: true).standardizedFileURL
+        let resolver = NativeSecureRevealResolver()
         let target: URL
-        if let output = activity.outputURL, fileManager.fileExists(atPath: output.path) {
-            target = output
-        } else if let partial = ledger.partialRegardlessOfStatus(for: activity.id) {
+        if let output = activity.outputURL,
+           let existing = resolver.existingItem(output, within: root) {
+            target = existing
+        } else if let partial = ledger.partialRegardlessOfStatus(for: activity.id, root: root) {
             target = partial.url
         } else if let output = activity.outputURL,
-                  fileManager.fileExists(atPath: output.deletingLastPathComponent().path) {
-            target = output.deletingLastPathComponent()
+                  let folder = resolver.existingItem(output.deletingLastPathComponent(), within: root) {
+            target = folder
         } else {
-            target = URL(fileURLWithPath: defaultRootPath, isDirectory: true)
+            target = root
         }
         NSWorkspace.shared.activateFileViewerSelecting([target])
     }

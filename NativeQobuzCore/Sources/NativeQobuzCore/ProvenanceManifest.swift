@@ -25,7 +25,7 @@ public enum QobuzProvenanceManifestIO {
         }
         let value = try JSONDecoder().decode(
             QobuzProvenanceManifest.self,
-            from: fileSystem.read(path)
+            from: fileSystem.read(path, maximumBytes: LibraryArtifactLimits.provenanceManifest)
         )
         guard value.version == QobuzProvenanceManifest.currentVersion else {
             throw NativeQobuzError.invalidResponse(

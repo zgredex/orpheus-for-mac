@@ -136,10 +136,10 @@ final class NativeViewModel: ObservableObject {
         downloads.configureCallbacks(
             onNotice: { [weak self] message in self?.notice = message },
             onRequireSettings: { [weak self] in self?.showSettings = true },
-            onIndexLibrary: { root in
-                try await library.indexDownloadedRoot(root, activeRoot: account.downloadRoot)
+            onIndexLibrary: { root, changedAudioURLs in
+                try await library.indexDownloadedRoot(root, changedAudioURLs: changedAudioURLs, activeRoot: account.downloadRoot)
             },
-            onCheckpoint: { [weak self] in self?.session.persistNow(reportErrors: false) }
+            onCheckpoint: { [weak self] in self?.session.persistCheckpoint() }
         )
         do {
             try diagnostics.activate()
@@ -544,7 +544,7 @@ final class NativeViewModel: ObservableObject {
     }
 
     func resumablePartial(for activity: NativeDownloadActivity) -> NativePartialDownload? {
-        downloads.resumablePartial(for: activity)
+        downloads.resumablePartial(for: activity, root: URL(fileURLWithPath: settings.downloadPath))
     }
 
     func repairArchiveTracks(_ tracks: [QobuzArchiveTrack]) {

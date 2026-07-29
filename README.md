@@ -43,11 +43,13 @@ Build the release app and DMG:
 scripts/build_native_release.sh
 ```
 
-Development output is ad-hoc signed. For a distributable release, install a Developer ID Application certificate and a `notarytool` Keychain profile, then run:
+Development output is ad-hoc signed. For a distributable release, install a Developer ID Application certificate and provide an App Store Connect API key file directly to `notarytool`:
 
 ```sh
 CODESIGN_IDENTITY='Developer ID Application: Example (TEAMID)' \
-NOTARYTOOL_PROFILE='orpheus-notary' \
+NOTARYTOOL_KEY='/secure/path/AuthKey_KEYID.p8' \
+NOTARYTOOL_KEY_ID='KEYID' \
+NOTARYTOOL_ISSUER='ISSUER-UUID' \
 REQUIRE_NOTARIZATION=1 \
 scripts/build_native_release.sh
 ```

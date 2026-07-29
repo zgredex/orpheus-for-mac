@@ -121,9 +121,121 @@ final class NativeHardeningTests: XCTestCase {
         XCTAssertEqual(try NativeArchiveIndexStore(paths: paths).load(), .restored(rebuilt))
     }
 
+    func testSessionCacheSymlinkIsQuarantinedWithoutReadingOrChangingTarget() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appendingPathComponent("Support")
+        let outside = root.appendingPathComponent("outside-session.json")
+        let paths = NativePaths(
+            applicationSupportRoot: support,
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try Data("private outside data".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(at: paths.sessionURL, withDestinationURL: outside)
+
+        XCTAssertNil(try NativeSessionStore(paths: paths).load())
+        XCTAssertEqual(try Data(contentsOf: outside), Data("private outside data".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.sessionURL.path))
+        let rejected = try FileManager.default.contentsOfDirectory(atPath: support.path)
+            .filter { $0.hasPrefix("download-session.rejected-") }
+        XCTAssertEqual(rejected.count, 1)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: support.appendingPathComponent(rejected[0]).path
+            ),
+            outside.path
+        )
+    }
+
+    func testOversizedArchiveCacheIsRejectedWithoutAllocatingItsDeclaredSize() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        try FileManager.default.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: paths.archiveIndexURL.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: paths.archiveIndexURL)
+        try handle.truncate(atOffset: UInt64(NativePersistentArtifact.archiveIndex.maximumBytes + 1))
+        try handle.close()
+
+        XCTAssertEqual(try NativeArchiveIndexStore(paths: paths).load(), .rejected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.archiveIndexURL.path))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: paths.applicationSupportRoot.path)
+                .filter { $0.hasPrefix("archive-index.rejected-") }
+                .count,
+            1
+        )
+    }
+
+    func testSessionWriterCoalescesPendingSnapshotsAndSkipsUnchangedFlush() throws {
+        let store = RecordingSessionStore(saveDelay: 0.05)
+        let writer = NativeSessionPersistenceWriter(store: store)
+        let first = sessionSnapshot(inboxCount: 1)
+        let second = sessionSnapshot(inboxCount: 2)
+        let final = sessionSnapshot(inboxCount: 3)
+        let started = Date()
+
+        writer.enqueue(first) { _ in }
+        writer.enqueue(second) { _ in }
+        writer.enqueue(final) { _ in }
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.03)
+        try writer.flush(final)
+        let writesAfterFlush = store.saveCount
+        try writer.flush(final)
+
+        XCTAssertEqual(store.snapshot, final)
+        XCTAssertLessThanOrEqual(writesAfterFlush, 2)
+        XCTAssertEqual(store.saveCount, writesAfterFlush)
+    }
+
+    private func sessionSnapshot(inboxCount: Int) -> NativeSessionSnapshot {
+        NativeSessionSnapshot(
+            queue: [],
+            operations: [],
+            selectedQueueID: nil,
+            linkInbox: (0..<inboxCount).map { index in
+                NativeLinkInboxItem(link: ParsedQobuzLink(
+                    original: "https://open.qobuz.com/album/\(index)",
+                    request: .album(QobuzID(String(index)))
+                ))
+            }
+        )
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("NativeHardeningTests-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
+private final class RecordingSessionStore: NativeSessionStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private let saveDelay: TimeInterval
+    private var stored: NativeSessionSnapshot?
+    private var writes = 0
+
+    init(saveDelay: TimeInterval) {
+        self.saveDelay = saveDelay
+    }
+
+    var snapshot: NativeSessionSnapshot? { lock.withLock { stored } }
+    var saveCount: Int { lock.withLock { writes } }
+
+    func load() throws -> NativeSessionSnapshot? {
+        snapshot
+    }
+
+    func save(_ snapshot: NativeSessionSnapshot) throws {
+        Thread.sleep(forTimeInterval: saveDelay)
+        lock.withLock {
+            stored = snapshot
+            writes += 1
+        }
     }
 }
 

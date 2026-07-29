@@ -10,7 +10,12 @@ final class NativeDownloadStateStoreTests: XCTestCase {
         let item = NativeQueueItem(request: .album(.init("album")), title: "Album")
         let ledger = NativeDownloadLedger()
         ledger.registerQueue(item.id)
-        let activityID = ledger.prepareActivity(for: item, quality: .hiRes, repairFormat: nil)
+        let activityID = ledger.prepareActivity(
+            for: item,
+            quality: .hiRes,
+            repairFormat: nil,
+            root: URL(fileURLWithPath: "/Library")
+        )
         let output = URL(fileURLWithPath: "/Library/Artist/Album/01. Track.flac")
         let asset = URL(fileURLWithPath: "/Library/Artist/Album/cover.jpg")
 

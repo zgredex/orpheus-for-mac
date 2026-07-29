@@ -102,3 +102,24 @@ final class MemorySessionStore: NativeSessionStoring, @unchecked Sendable {
         lock.withLock { stored = snapshot }
     }
 }
+
+struct StubSupplementalDiagnosticsCollector: NativeSupplementalDiagnosticsCollecting {
+    func collect(into bundleRoot: URL) -> NativeSupplementalDiagnosticSummary {
+        NativeSupplementalDiagnosticSummary(
+            generatedAt: Date(timeIntervalSince1970: 0),
+            currentProcessUnifiedLog: NativeDiagnosticArtifactStatus(
+                state: .empty,
+                itemCount: 0,
+                relativePath: nil,
+                messages: []
+            ),
+            crashReports: NativeDiagnosticArtifactStatus(
+                state: .empty,
+                itemCount: 0,
+                relativePath: nil,
+                messages: []
+            ),
+            systemWideUnifiedLogIncluded: false
+        )
+    }
+}

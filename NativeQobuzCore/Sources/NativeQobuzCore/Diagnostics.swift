@@ -290,7 +290,9 @@ public final class QobuzDiagnostics: @unchecked Sendable {
 
     private func emitToUnifiedLog(_ entry: QobuzLogEntry) {
         let logger = Logger(subsystem: subsystem, category: entry.category)
-        let details = entry.metadata.keys.sorted().map { "\($0)=\(entry.metadata[$0]!)" }.joined(separator: " ")
+        let details = entry.metadata.keys.sorted().compactMap { key in
+            entry.metadata[key].map { "\(key)=\($0)" }
+        }.joined(separator: " ")
         let metadataSuffix = details.isEmpty ? "" : " | \(details)"
         let errorSuffix = entry.errorDescription.map {
             " | error=\(entry.errorDomain ?? "unknown")[\(entry.errorCode ?? 0)] \($0)"

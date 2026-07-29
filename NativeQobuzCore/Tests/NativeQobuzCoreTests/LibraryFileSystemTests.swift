@@ -16,6 +16,85 @@ final class LibraryFileSystemTests: XCTestCase {
         XCTAssertEqual(try fileSystem.metadata(at: path)?.kind, .regularFile)
     }
 
+    func testBoundedReadRejectsOversizedRegularFileBeforeReturningData() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
+        let path = try LibraryRelativePath("manifest.json")
+        try fileSystem.writeAtomically(Data(repeating: 0x61, count: 17), to: path)
+
+        XCTAssertThrowsError(try fileSystem.read(path, maximumBytes: 16)) {
+            XCTAssertEqual(
+                $0 as? LibraryFileSystemError,
+                .tooLarge(path: path.rawValue, maximumBytes: 16, actualBytes: 17)
+            )
+        }
+    }
+
+    func testDescriptorRelativeMoveRenamesSymlinkItselfWithoutReadingTarget() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let target = fixture.outside.appendingPathComponent("sentinel.json")
+        try Data("outside".utf8).write(to: target)
+        let source = fixture.library.appendingPathComponent("cache.json")
+        try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+        let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
+
+        try fileSystem.moveItem(
+            at: LibraryRelativePath("cache.json"),
+            to: LibraryRelativePath("cache.rejected.json")
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: fixture.library.appendingPathComponent("cache.rejected.json").path
+            ),
+            target.path
+        )
+        XCTAssertEqual(try Data(contentsOf: target), Data("outside".utf8))
+    }
+
+    func testDirectoryEnumerationUsesAnIndependentCursorEveryTime() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
+        try fileSystem.writeAtomically(
+            Data("one".utf8),
+            to: LibraryRelativePath("first.json")
+        )
+        try fileSystem.writeAtomically(
+            Data("two".utf8),
+            to: LibraryRelativePath("second.json")
+        )
+
+        let first = try fileSystem.entries(in: .root)
+        let second = try fileSystem.entries(in: .root)
+
+        XCTAssertEqual(first.map(\.path), second.map(\.path))
+        XCTAssertEqual(second.count, 2)
+    }
+
+    func testConfiguredRootRejectsSymlinkInAnyAbsolutePathComponent() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let realRoot = fixture.outside.appendingPathComponent("RealLibrary", isDirectory: true)
+        try FileManager.default.createDirectory(at: realRoot, withIntermediateDirectories: true)
+        let linkedParent = fixture.root.appendingPathComponent("LinkedLibrary", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkedParent, withDestinationURL: realRoot)
+
+        XCTAssertThrowsError(
+            try LibraryFileSystem(rootURL: linkedParent.appendingPathComponent("Nested"))
+        ) {
+            guard case LibraryFileSystemError.symbolicLink = $0 else {
+                return XCTFail("Expected ancestor symbolic-link rejection, got \($0)")
+            }
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: realRoot.appendingPathComponent("Nested").path)
+        )
+    }
+
     func testArtistDirectorySymlinkIsRejectedWithoutTouchingTarget() throws {
         try assertDirectorySymlinkRejected(linkPath: "Artist", writePath: "Artist/Album/track.flac")
     }

@@ -9,10 +9,15 @@ struct NativeDownloadedLibraryIndexer: Sendable {
 
     func index(
         root: URL,
-        reusing snapshot: QobuzArchiveSnapshot?
+        reusing snapshot: QobuzArchiveSnapshot?,
+        changedAudioURLs: [URL]
     ) async throws -> QobuzArchiveSnapshot {
         let startedAt = Date()
-        let indexed = try await scanner.scan(root: root, reusing: snapshot)
+        let indexed = try await scanner.scan(
+            root: root,
+            reusing: snapshot,
+            changedAudioURLs: changedAudioURLs
+        )
         try archiveStore.save(indexed)
         qobuzLog.notice(
             "download.library.index",
@@ -21,6 +26,7 @@ struct NativeDownloadedLibraryIndexer: Sendable {
                 "downloadRoot": root.path,
                 "trackCount": String(indexed.tracks.count),
                 "problemCount": String(indexed.problemCount),
+                "changedAudioCount": String(changedAudioURLs.count),
                 "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))
             ]
         )

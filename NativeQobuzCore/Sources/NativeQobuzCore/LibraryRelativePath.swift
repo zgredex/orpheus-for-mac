@@ -1,7 +1,7 @@
 import Foundation
 
 public struct LibraryRelativePath: Hashable, Codable, Sendable, CustomStringConvertible {
-    public static let root = try! LibraryRelativePath(".")
+    public static let root = LibraryRelativePath(components: [])
 
     public let rawValue: String
 
@@ -93,6 +93,7 @@ public enum LibraryFileSystemError: Error, Equatable, LocalizedError, Sendable {
     case symbolicLink(String)
     case notDirectory(String)
     case notRegularFile(String)
+    case tooLarge(path: String, maximumBytes: Int, actualBytes: Int64)
     case system(operation: String, path: String, code: Int32)
 
     public var errorDescription: String? {
@@ -102,6 +103,8 @@ public enum LibraryFileSystemError: Error, Equatable, LocalizedError, Sendable {
         case .symbolicLink(let path): "Symbolic links are not allowed in the Library: \(path)"
         case .notDirectory(let path): "Expected a Library directory: \(path)"
         case .notRegularFile(let path): "Expected a regular Library file: \(path)"
+        case .tooLarge(let path, let maximumBytes, let actualBytes):
+            "Library file \(path) is \(actualBytes) bytes; the safe limit is \(maximumBytes) bytes."
         case .system(let operation, let path, let code):
             "Library filesystem operation \(operation) failed for \(path) (errno \(code))."
         }

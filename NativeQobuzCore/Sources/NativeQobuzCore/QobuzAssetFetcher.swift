@@ -14,23 +14,26 @@ public struct QobuzAssetResponse: Sendable {
 }
 
 public protocol QobuzAssetFetching: Sendable {
-    func fetch(_ url: URL) async throws -> QobuzAssetResponse
+    func fetch(_ url: URL, maximumBytes: Int) async throws -> QobuzAssetResponse
 }
 
 public struct URLSessionQobuzAssetFetcher: QobuzAssetFetching, Sendable {
-    private let session: URLSession
+    private let dataLoader: BoundedURLSessionDataLoader
 
     public init(session: URLSession = .shared) {
-        self.session = session
+        dataLoader = BoundedURLSessionDataLoader(session: session)
     }
 
-    public func fetch(_ url: URL) async throws -> QobuzAssetResponse {
+    public func fetch(_ url: URL, maximumBytes: Int) async throws -> QobuzAssetResponse {
         let assetID = UUID().uuidString
         let started = Date()
         let metadata = ["assetRequestID": assetID, "host": url.host ?? "unknown", "path": url.path]
         qobuzLog.info("asset.network", "Asset request started", metadata: metadata)
         do {
-            let (data, response) = try await session.data(from: url)
+            let (data, response) = try await dataLoader.data(
+                from: url,
+                maximumBytes: maximumBytes
+            )
             if let response = response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
                 qobuzLog.error(
                     "asset.network",

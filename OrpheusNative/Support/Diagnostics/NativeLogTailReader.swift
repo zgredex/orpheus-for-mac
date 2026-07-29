@@ -9,13 +9,17 @@ struct NativeLogTailReader {
         self.codec = codec
     }
 
-    func loadEntries(files: [URL], limit: Int) throws -> [QobuzLogEntry] {
+    func loadEntries(
+        files: [NativeLogFile],
+        directory: NativeLogDirectory,
+        limit: Int
+    ) throws -> [QobuzLogEntry] {
         let limit = max(limit, 1)
         var entries: [QobuzLogEntry] = []
         var corruptLines = 0
 
         for file in files.reversed() where entries.count < limit {
-            let lines = try tailLines(at: file, limit: limit - entries.count)
+            let lines = try tailLines(in: file, directory: directory, limit: limit - entries.count)
             var decoded: [QobuzLogEntry] = []
             for line in lines {
                 do { decoded.append(try codec.decodeLine(line)) }
@@ -30,38 +34,42 @@ struct NativeLogTailReader {
         return Array(entries.suffix(limit))
     }
 
-    private func tailLines(at url: URL, limit: Int) throws -> [Data] {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var position = try handle.seekToEnd()
-        var chunks: [Data] = []
-        var newlineCount = 0
+    private func tailLines(
+        in file: NativeLogFile,
+        directory: NativeLogDirectory,
+        limit: Int
+    ) throws -> [Data] {
+        try directory.withReadableHandle(for: file) { handle in
+            var position = try handle.seekToEnd()
+            var chunks: [Data] = []
+            var newlineCount = 0
 
-        while position > 0, newlineCount <= limit {
-            let count = min(UInt64(blockBytes), position)
-            position -= count
-            try handle.seek(toOffset: position)
-            let chunk = try handle.read(upToCount: Int(count)) ?? Data()
-            newlineCount += chunk.reduce(into: 0) { count, byte in
-                if byte == 0x0A { count += 1 }
+            while position > 0, newlineCount <= limit {
+                let count = min(UInt64(blockBytes), position)
+                position -= count
+                try handle.seek(toOffset: position)
+                let chunk = try handle.read(upToCount: Int(count)) ?? Data()
+                newlineCount += chunk.reduce(into: 0) { count, byte in
+                    if byte == 0x0A { count += 1 }
+                }
+                chunks.append(chunk)
             }
-            chunks.append(chunk)
-        }
 
-        var tail = Data()
-        for chunk in chunks.reversed() { tail.append(chunk) }
-        let bytes: [UInt8] = Array(tail)
-        let byteLines: [ArraySlice<UInt8>] = bytes.split(
-            separator: 0x0A,
-            omittingEmptySubsequences: true
-        )
-        var lines = byteLines.map { Data($0) }
-        if position > 0, !lines.isEmpty {
-            // The oldest bytes start in the middle of a record. Newer complete
-            // records remain intact and are the only records requested by a tail read.
-            lines.removeFirst()
+            var tail = Data()
+            for chunk in chunks.reversed() { tail.append(chunk) }
+            let bytes: [UInt8] = Array(tail)
+            let byteLines: [ArraySlice<UInt8>] = bytes.split(
+                separator: 0x0A,
+                omittingEmptySubsequences: true
+            )
+            var lines = byteLines.map { Data($0) }
+            if position > 0, !lines.isEmpty {
+                // The oldest bytes start in the middle of a record. Newer complete
+                // records remain intact and are the only records requested by a tail read.
+                lines.removeFirst()
+            }
+            return Array(lines.suffix(limit))
         }
-        return Array(lines.suffix(limit))
     }
 
     private func corruptRecord(count: Int) -> QobuzLogEntry {

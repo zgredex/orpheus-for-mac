@@ -81,6 +81,35 @@ if [ -n "$unexpected_renderers" ]; then
     failed=1
 fi
 
+forbidden_keychain="$(
+    rg -n -i 'SecItem|kSec[A-Z]|keychain' \
+        "$ROOT/NativeQobuzCore/Sources" \
+        "$ROOT/OrpheusNative" \
+        "$ROOT/scripts" \
+        "$ROOT/README.md" \
+        --glob '*.swift' \
+        --glob '*.sh' \
+        --glob '*.md' \
+        --glob '!verify_architecture.sh' \
+        || true
+)"
+if [ -n "$forbidden_keychain" ]; then
+    printf 'Apple Keychain use is forbidden by project policy:\n%s\n' "$forbidden_keychain" >&2
+    failed=1
+fi
+
+crash_primitives="$(
+    rg -n 'try!|fatalError[[:space:]]*\(|preconditionFailure[[:space:]]*\(|as!' \
+        "$ROOT/NativeQobuzCore/Sources/NativeQobuzCore" \
+        "$ROOT/OrpheusNative" \
+        --glob '*.swift' \
+        || true
+)"
+if [ -n "$crash_primitives" ]; then
+    printf 'Production crash primitives are forbidden:\n%s\n' "$crash_primitives" >&2
+    failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then exit 1; fi
 "$ROOT/scripts/ci/verify_duplication.py"
 printf 'Architecture guardrails passed.\n'

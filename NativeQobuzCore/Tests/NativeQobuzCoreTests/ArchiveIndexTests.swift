@@ -502,6 +502,50 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertEqual(verified.tracks.first?.integrity, .verified)
     }
 
+    func testDownloadCompletionRefreshInspectsOnlyChangedAudioFolders() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let changedFolder = root.appendingPathComponent("Artist/Changed", isDirectory: true)
+        let untouchedFolder = root.appendingPathComponent("Artist/Untouched", isDirectory: true)
+        try FileManager.default.createDirectory(at: changedFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: untouchedFolder, withIntermediateDirectories: true)
+        try writeManifest(
+            folder: changedFolder,
+            filename: "01. Changed.flac",
+            trackID: "changed",
+            albumID: "changed-album",
+            collection: .album(id: QobuzID("changed-album"), title: "Changed")
+        )
+        try writeManifest(
+            folder: untouchedFolder,
+            filename: "01. Untouched.flac",
+            trackID: "untouched",
+            albumID: "untouched-album",
+            collection: .album(id: QobuzID("untouched-album"), title: "Untouched")
+        )
+        let scanner = QobuzArchiveScanner()
+        let initial = try await scanner.scan(root: root)
+        try Data("{now-broken".utf8).write(
+            to: untouchedFolder.appendingPathComponent(QobuzProvenanceManifestIO.filename)
+        )
+
+        let incremental = try await scanner.scan(
+            root: root,
+            reusing: initial,
+            changedAudioURLs: [changedFolder.appendingPathComponent("01. Changed.flac")]
+        )
+        let full = try await scanner.scan(root: root)
+
+        XCTAssertEqual(Set(incremental.tracks.map(\.qobuzTrackID)), ["changed", "untouched"])
+        XCTAssertFalse(incremental.issues.contains {
+            $0.relativePath.hasPrefix("Artist/Untouched/")
+        })
+        XCTAssertEqual(full.tracks.map(\.qobuzTrackID), ["changed"])
+        XCTAssertTrue(full.issues.contains {
+            $0.relativePath.hasPrefix("Artist/Untouched/")
+        })
+    }
+
     private struct TestManifest: Encodable {
         let version = 1
         let files: [String: QobuzFileProvenance]

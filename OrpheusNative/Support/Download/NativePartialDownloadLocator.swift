@@ -2,21 +2,15 @@ import Foundation
 import NativeQobuzCore
 
 struct NativePartialDownloadLocator {
-    private let fileManager: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-    }
-
-    func artifact(for activity: NativeDownloadActivity) -> NativePartialDownload? {
+    func artifact(for activity: NativeDownloadActivity, root: URL) -> NativePartialDownload? {
         guard let output = activity.outputURL,
               let format = activity.audioFormat ?? activity.quality?.maximumFormat else { return nil }
         let url = QobuzDownloadArtifacts.partialURL(for: output, formatID: format.formatID)
-        guard fileManager.fileExists(atPath: url.path),
-              (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
-              let attributes = try? fileManager.attributesOfItem(atPath: url.path),
-              let value = attributes[.size] as? NSNumber,
-              value.int64Value > 0 else { return nil }
-        return NativePartialDownload(url: url, bytes: value.int64Value)
+        guard let fileSystem = try? LibraryFileSystem(rootURL: root, createIfMissing: false),
+              let path = try? fileSystem.relativePath(for: url),
+              let metadata = try? fileSystem.metadata(at: path),
+              metadata.kind == .regularFile,
+              metadata.byteCount > 0 else { return nil }
+        return NativePartialDownload(url: url, bytes: metadata.byteCount)
     }
 }

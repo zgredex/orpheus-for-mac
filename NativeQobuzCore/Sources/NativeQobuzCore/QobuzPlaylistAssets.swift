@@ -72,7 +72,10 @@ struct QobuzPlaylistAssets: @unchecked Sendable {
             if let existing = try existingArtwork(in: folderPath, fileSystem: fileSystem) {
                 created.append(fileSystem.displayURL(for: existing))
             } else {
-                let response = try await fetcher.fetch(source)
+                let response = try await fetcher.fetch(
+                    source,
+                    maximumBytes: QobuzNetworkLimits.artwork
+                )
                 let artwork = try EmbeddedArtwork.validated(data: response.data, mimeType: response.mimeType)
                 let destination = try folderPath.appending(artwork.externalFilename)
                 try fileSystem.writeAtomically(artwork.data, to: destination)

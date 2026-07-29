@@ -22,7 +22,7 @@ struct QobuzCollectionSidecarWriter: @unchecked Sendable {
                 created.append(fileSystem.displayURL(for: destination))
                 continue
             }
-            let response = try await fetcher.fetch(source)
+            let response = try await fetcher.fetch(source, maximumBytes: QobuzNetworkLimits.booklet)
             guard response.data.starts(with: Data("%PDF-".utf8)) else {
                 throw NativeQobuzError.invalidResponse("Qobuz booklet is not a PDF")
             }

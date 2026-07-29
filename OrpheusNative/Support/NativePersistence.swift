@@ -18,10 +18,14 @@ struct NativePaths: Sendable {
         self.defaultDownloadRoot = defaultDownloadRoot
     }
 
-    var settingsURL: URL { applicationSupportRoot.appendingPathComponent("settings.json") }
-    var archiveIndexURL: URL { applicationSupportRoot.appendingPathComponent("archive-index.json") }
-    var credentialsURL: URL { applicationSupportRoot.appendingPathComponent("credentials.json") }
-    var sessionURL: URL { applicationSupportRoot.appendingPathComponent("download-session.json") }
+    func url(for artifact: NativePersistentArtifact) -> URL {
+        applicationSupportRoot.appendingPathComponent(artifact.rawValue)
+    }
+
+    var settingsURL: URL { url(for: .settings) }
+    var archiveIndexURL: URL { url(for: .archiveIndex) }
+    var credentialsURL: URL { url(for: .credentials) }
+    var sessionURL: URL { url(for: .session) }
     var logsDirectory: URL { applicationSupportRoot.appendingPathComponent("Logs", isDirectory: true) }
 }
 
@@ -30,28 +34,21 @@ protocol NativeSettingsStoring: Sendable {
     func save(_ settings: NativeSettings) throws
 }
 
-struct NativeSettingsStore: NativeSettingsStoring, @unchecked Sendable {
+struct NativeSettingsStore: NativeSettingsStoring, Sendable {
     let paths: NativePaths
-    let fileManager: FileManager
+    private let files: NativeApplicationSupportFileStore
 
-    init(paths: NativePaths, fileManager: FileManager = .default) {
+    init(paths: NativePaths) {
         self.paths = paths
-        self.fileManager = fileManager
+        files = NativeApplicationSupportFileStore(rootURL: paths.applicationSupportRoot)
     }
 
     func load() throws -> NativeSettings {
-        guard fileManager.fileExists(atPath: paths.settingsURL.path) else {
-            let value = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
-            try save(value)
-            qobuzLog.notice(
-                "persistence.settings",
-                "Default settings created",
-                metadata: ["settingsPath": paths.settingsURL.path]
-            )
-            return value
-        }
         do {
-            let value = try JSONDecoder().decode(NativeSettings.self, from: Data(contentsOf: paths.settingsURL))
+            guard let data = try files.read(.settings) else {
+                return try createDefaultSettings(reason: "No settings file exists")
+            }
+            let value = try JSONDecoder().decode(NativeSettings.self, from: data)
             qobuzLog.debug(
                 "persistence.settings",
                 "Settings loaded",
@@ -61,18 +58,46 @@ struct NativeSettingsStore: NativeSettingsStoring, @unchecked Sendable {
         } catch {
             qobuzLog.error(
                 "persistence.settings",
-                "Settings could not be loaded",
+                "Settings could not be loaded and will be reset",
                 metadata: ["settingsPath": paths.settingsURL.path],
                 error: error
             )
-            throw error
+            do {
+                let rejectedURL = try files.quarantine(
+                    .settings,
+                    rejectedPrefix: "settings.rejected"
+                )
+                qobuzLog.notice(
+                    "persistence.settings",
+                    "Unreadable settings were quarantined",
+                    metadata: ["rejectedPath": rejectedURL.path]
+                )
+                return try createDefaultSettings(reason: "Unreadable settings were quarantined")
+            } catch let quarantineError {
+                qobuzLog.error(
+                    "persistence.settings",
+                    "Unreadable settings could not be quarantined",
+                    error: quarantineError
+                )
+                throw error
+            }
         }
     }
 
+    private func createDefaultSettings(reason: String) throws -> NativeSettings {
+        let value = NativeSettings(downloadPath: paths.defaultDownloadRoot.path, quality: .hiRes)
+        try save(value)
+        qobuzLog.notice(
+            "persistence.settings",
+            "Default settings created",
+            metadata: ["settingsPath": paths.settingsURL.path, "reason": reason]
+        )
+        return value
+    }
+
     func save(_ settings: NativeSettings) throws {
-        try fileManager.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
         let data = try JSONEncoder.pretty.encode(settings)
-        try data.write(to: paths.settingsURL, options: .atomic)
+        try files.write(data, to: .settings)
         qobuzLog.info(
             "persistence.settings",
             "Settings saved",
@@ -90,28 +115,28 @@ protocol NativeCredentialStoring: Sendable {
     func save(_ credentials: CredentialDraft) throws
 }
 
-struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
+struct FileCredentialStore: NativeCredentialStoring, Sendable {
     let paths: NativePaths
-    let fileManager: FileManager
+    private let files: NativeApplicationSupportFileStore
 
-    init(paths: NativePaths, fileManager: FileManager = .default) {
+    init(paths: NativePaths) {
         self.paths = paths
-        self.fileManager = fileManager
+        files = NativeApplicationSupportFileStore(rootURL: paths.applicationSupportRoot)
     }
 
     func load() throws -> CredentialDraft? {
-        guard fileManager.fileExists(atPath: paths.credentialsURL.path) else {
-            qobuzLog.info(
-                "persistence.credentials",
-                "No saved Qobuz credentials were found",
-                metadata: ["credentialsConfigured": "false"]
-            )
-            return nil
-        }
         do {
+            guard let data = try files.read(.credentials) else {
+                qobuzLog.info(
+                    "persistence.credentials",
+                    "No saved Qobuz credentials were found",
+                    metadata: ["credentialsConfigured": "false"]
+                )
+                return nil
+            }
             let value = try JSONDecoder().decode(
                 CredentialDraft.self,
-                from: Data(contentsOf: paths.credentialsURL)
+                from: data
             )
             qobuzLog.info(
                 "persistence.credentials",
@@ -122,20 +147,37 @@ struct FileCredentialStore: NativeCredentialStoring, @unchecked Sendable {
         } catch {
             qobuzLog.error(
                 "persistence.credentials",
-                "Qobuz credentials could not be loaded",
+                "Qobuz credential file could not be loaded and will be quarantined",
                 metadata: ["credentialsConfigured": "unknown"],
                 error: error
             )
-            throw error
+            do {
+                let rejectedURL = try files.quarantine(
+                    .credentials,
+                    rejectedPrefix: "credentials.rejected"
+                )
+                qobuzLog.notice(
+                    "persistence.credentials",
+                    "Unreadable Qobuz credential file was quarantined",
+                    metadata: [
+                        "credentialsConfigured": "false",
+                        "rejectedPath": rejectedURL.path
+                    ]
+                )
+                return nil
+            } catch let quarantineError {
+                qobuzLog.error(
+                    "persistence.credentials",
+                    "Unreadable Qobuz credential file could not be quarantined",
+                    error: quarantineError
+                )
+                throw error
+            }
         }
     }
 
     func save(_ credentials: CredentialDraft) throws {
-        try NativeSecureFileWriter.write(
-            JSONEncoder.pretty.encode(credentials),
-            to: paths.credentialsURL,
-            fileManager: fileManager
-        )
+        try files.write(JSONEncoder.pretty.encode(credentials), to: .credentials)
         qobuzLog.notice(
             "persistence.credentials",
             "Qobuz credentials saved with restricted file permissions",
@@ -148,6 +190,12 @@ extension JSONEncoder {
     static var pretty: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
+
+    static var persistence: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
         return encoder
     }
 }

@@ -73,7 +73,10 @@ public enum QobuzLibraryManifestIO {
             return QobuzLibraryManifest()
         }
         do {
-            let value = try JSONDecoder().decode(QobuzLibraryManifest.self, from: fileSystem.read(path))
+            let value = try JSONDecoder().decode(
+                QobuzLibraryManifest.self,
+                from: fileSystem.read(path, maximumBytes: LibraryArtifactLimits.libraryManifest)
+            )
             guard value.version == 1 else {
                 throw NativeQobuzError.invalidResponse("Unsupported library manifest version \(value.version).")
             }

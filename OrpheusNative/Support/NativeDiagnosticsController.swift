@@ -55,23 +55,29 @@ final class NativeDiagnosticsController: @unchecked Sendable {
             .format(Date())
             .replacingOccurrences(of: ":", with: "-")
         let destination = parent.appendingPathComponent("Orpheus-Diagnostics-\(stamp)", isDirectory: true)
-        let logs = destination.appendingPathComponent("Logs", isDirectory: true)
+        let staging = parent.appendingPathComponent(
+            ".Orpheus-Diagnostics-\(UUID().uuidString).partial",
+            isDirectory: true
+        )
+        let logs = staging.appendingPathComponent("Logs", isDirectory: true)
         let collector = supplementalCollector
         let persistentLogStore = logStore
 
         return try await Task.detached(priority: .userInitiated) {
             do {
-                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+                try Task.checkCancellation()
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 encoder.dateEncodingStrategy = .iso8601
                 try encoder.encode(report).write(
-                    to: destination.appendingPathComponent("system-info.json"),
+                    to: staging.appendingPathComponent("system-info.json"),
                     options: .atomic
                 )
-                let supplemental = collector.collect(into: destination)
+                try Task.checkCancellation()
+                let supplemental = collector.collect(into: staging)
                 try encoder.encode(supplemental).write(
-                    to: destination.appendingPathComponent("collection-status.json"),
+                    to: staging.appendingPathComponent("collection-status.json"),
                     options: .atomic
                 )
                 try Data(
@@ -85,7 +91,7 @@ final class NativeDiagnosticsController: @unchecked Sendable {
 
                     Crash reports can contain local file paths and macOS system details. Review the bundle before sharing it publicly.
                     """.utf8
-                ).write(to: destination.appendingPathComponent("README.txt"), options: .atomic)
+                ).write(to: staging.appendingPathComponent("README.txt"), options: .atomic)
                 qobuzLog.notice(
                     "diagnostics",
                     "Diagnostic export artifacts assembled",
@@ -96,7 +102,10 @@ final class NativeDiagnosticsController: @unchecked Sendable {
                         "crashReports": String(supplemental.crashReports.itemCount)
                     ]
                 )
+                try Task.checkCancellation()
                 try persistentLogStore.copyLogFiles(to: logs)
+                try Task.checkCancellation()
+                try FileManager.default.moveItem(at: staging, to: destination)
                 qobuzLog.notice(
                     "diagnostics",
                     "Diagnostic export completed",
@@ -108,14 +117,14 @@ final class NativeDiagnosticsController: @unchecked Sendable {
                 return destination
             } catch {
                 do {
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        try FileManager.default.removeItem(at: destination)
+                    if FileManager.default.fileExists(atPath: staging.path) {
+                        try FileManager.default.removeItem(at: staging)
                     }
                 } catch {
                     qobuzLog.warning(
                         "diagnostics",
-                        "Failed diagnostic export could not be removed",
-                        metadata: ["destination": destination.path],
+                        "Failed diagnostic export staging directory could not be removed",
+                        metadata: ["stagingPath": staging.path],
                         error: error
                     )
                 }

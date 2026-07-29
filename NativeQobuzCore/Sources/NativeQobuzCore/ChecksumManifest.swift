@@ -9,7 +9,10 @@ public enum QobuzChecksumManifest {
         in fileSystem: LibraryFileSystem
     ) throws -> [String: String] {
         guard try fileSystem.metadata(at: path) != nil else { return [:] }
-        return parse(try fileSystem.readString(path))
+        return parse(try fileSystem.readString(
+            path,
+            maximumBytes: LibraryArtifactLimits.checksumManifest
+        ))
     }
 
     static func load(at url: URL) throws -> [String: String] {
@@ -36,7 +39,9 @@ public enum QobuzChecksumManifest {
 
     public static func encode(_ entries: [String: String]) -> Data {
         let contents = entries.keys.sorted()
-            .map { "\(entries[$0]!)  \($0)" }
+            .compactMap { filename in
+                entries[filename].map { "\($0)  \(filename)" }
+            }
             .joined(separator: "\n") + "\n"
         return Data(contents.utf8)
     }

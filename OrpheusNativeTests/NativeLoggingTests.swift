@@ -79,8 +79,10 @@ final class NativeLoggingTests: XCTestCase {
         }
         try currentData.write(to: current)
 
+        let directory = try NativeLogDirectory(directoryURL: root)
         let entries = try NativeLogTailReader(codec: codec).loadEntries(
-            files: [archive, current],
+            files: try directory.files(),
+            directory: directory,
             limit: 3
         )
 
@@ -289,27 +291,6 @@ final class NativeLoggingTests: XCTestCase {
             result += String(decoding: try Data(contentsOf: url), as: UTF8.self)
         }
         return result
-    }
-}
-
-private struct StubSupplementalDiagnosticsCollector: NativeSupplementalDiagnosticsCollecting {
-    func collect(into bundleRoot: URL) -> NativeSupplementalDiagnosticSummary {
-        NativeSupplementalDiagnosticSummary(
-            generatedAt: Date(timeIntervalSince1970: 0),
-            currentProcessUnifiedLog: NativeDiagnosticArtifactStatus(
-                state: .empty,
-                itemCount: 0,
-                relativePath: nil,
-                messages: []
-            ),
-            crashReports: NativeDiagnosticArtifactStatus(
-                state: .empty,
-                itemCount: 0,
-                relativePath: nil,
-                messages: []
-            ),
-            systemWideUnifiedLogIncluded: false
-        )
     }
 }
 

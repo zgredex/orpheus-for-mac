@@ -17,7 +17,10 @@ struct QobuzLibraryPlaylistInference {
         guard entry.metadata.kind == .regularFile,
               let filename = entry.path.lastComponent,
               ["m3u", "m3u8"].contains((filename as NSString).pathExtension.lowercased()),
-              let contents = try? fileSystem.readString(entry.path) else { return nil }
+              let contents = try? fileSystem.readString(
+                  entry.path,
+                  maximumBytes: LibraryArtifactLimits.playlist
+              ) else { return nil }
         let folderPath = entry.path.parent
         let folderURL = fileSystem.displayURL(for: folderPath)
         let trackPaths = QobuzM3UPlaylist.resolvedRelativePaths(
@@ -56,7 +59,10 @@ struct QobuzLibraryPlaylistInference {
         guard let path = try? folder.appending("description.txt"),
               let metadata = try? fileSystem.metadata(at: path),
               metadata.kind == .regularFile,
-              let value = try? fileSystem.readString(path) else { return nil }
+              let value = try? fileSystem.readString(
+                  path,
+                  maximumBytes: LibraryArtifactLimits.description
+              ) else { return nil }
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

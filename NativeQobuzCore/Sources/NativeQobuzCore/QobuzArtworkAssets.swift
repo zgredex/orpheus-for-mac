@@ -9,7 +9,7 @@ struct QobuzArtworkAssets: @unchecked Sendable {
 
     func artwork(for album: QobuzAlbum) async throws -> EmbeddedArtwork? {
         guard let url = album.originalArtworkURL else { return nil }
-        let response = try await fetcher.fetch(url)
+        let response = try await fetcher.fetch(url, maximumBytes: QobuzNetworkLimits.artwork)
         return try EmbeddedArtwork.validated(data: response.data, mimeType: response.mimeType)
     }
 

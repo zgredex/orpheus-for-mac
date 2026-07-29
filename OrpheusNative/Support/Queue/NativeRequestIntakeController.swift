@@ -92,11 +92,22 @@ final class NativeRequestIntakeController {
 
     func importedText(from url: URL) throws -> String {
         do {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let data = try NativeBoundedFileReader.readComplete(
+                url,
+                maximumBytes: 2 * 1_024 * 1_024,
+                followSymbolicLinks: true
+            )
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw NativeQobuzError.invalidResponse("The imported link file is not valid UTF-8 text.")
+            }
             qobuzLog.notice(
                 "input.import",
                 "Link text file imported",
-                metadata: ["sourcePath": url.path, "characterCount": String(text.count)]
+                metadata: [
+                    "sourcePath": url.path,
+                    "characterCount": String(text.count),
+                    "sourceBytes": String(data.count)
+                ]
             )
             return text
         } catch {
