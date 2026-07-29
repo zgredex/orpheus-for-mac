@@ -75,7 +75,7 @@ struct SelectableAlbumRow: View {
     private var isSelected: Bool { selectedIDs.contains(album.id) && !queued }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.m) {
             Button(action: toggleSelection) {
                 Image(systemName: queued ? "checkmark.circle.fill" : isSelected ? "checkmark.square.fill" : "square")
                     .font(.body)
@@ -87,7 +87,7 @@ struct SelectableAlbumRow: View {
             .help(queued ? "Already in queue" : isSelected ? "Deselect album" : "Select album")
 
             Button(action: open) {
-                HStack(spacing: 10) {
+                HStack(spacing: DS.Space.m) {
                     ArtworkView(url: album.image?.bestURL, size: DS.Artwork.row)
                     VStack(alignment: .leading, spacing: DS.Space.xxs) {
                         Text(album.displayTitle)

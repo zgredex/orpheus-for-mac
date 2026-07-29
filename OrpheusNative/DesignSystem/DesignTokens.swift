@@ -25,6 +25,31 @@ enum DS {
         static let hero: CGFloat = 148
     }
 
+    /// Window and split-pane geometry is tuned around the effective workspace
+    /// of a 13-inch MacBook while retaining a useful compact resize range.
+    enum Window {
+        static let minimumWidth: CGFloat = 860
+        static let minimumHeight: CGFloat = 600
+        static let defaultWidth: CGFloat = 1_180
+        static let defaultHeight: CGFloat = 760
+    }
+
+    enum Pane {
+        static let queueMinimumWidth: CGFloat = 236
+        static let queueIdealWidth: CGFloat = 268
+        static let queueMaximumWidth: CGFloat = 300
+        static let workspaceMinimumWidth: CGFloat = 560
+    }
+
+    enum Sheet {
+        static let settingsWidth: CGFloat = 620
+        static let settingsHeight: CGFloat = 700
+        static let diagnosticsMinimumWidth: CGFloat = 860
+        static let diagnosticsIdealWidth: CGFloat = 1_060
+        static let diagnosticsMinimumHeight: CGFloat = 600
+        static let diagnosticsIdealHeight: CGFloat = 700
+    }
+
     enum Bar {
         static let inputHeight: CGFloat = 34
         static let paneHeaderHeight: CGFloat = 40
@@ -48,15 +73,25 @@ enum DS {
     enum ActivityPane {
         static let minimumHeight: CGFloat = 88
         static let emptyContentHeight: CGFloat = 62
-        static let rowHeight: CGFloat = 74
-        static let maximumVisibleRows = 3
+        static let rowHeight: CGFloat = 104
+        static let compactRowHeight: CGFloat = 116
+        static let accessibilityRowHeight: CGFloat = 132
+        static let maximumVisibleRows = 2
 
-        static func preferredHeight(activityCount: Int) -> CGFloat {
+        static func preferredHeight(
+            activityCount: Int,
+            compact: Bool = false,
+            accessibility: Bool = false
+        ) -> CGFloat {
             let contentHeight: CGFloat
             if activityCount <= 0 {
                 contentHeight = emptyContentHeight
             } else {
-                contentHeight = rowHeight * CGFloat(min(activityCount, maximumVisibleRows))
+                let visibleRows = min(activityCount, maximumVisibleRows)
+                let resolvedRowHeight = accessibility
+                    ? accessibilityRowHeight
+                    : (compact ? compactRowHeight : rowHeight)
+                contentHeight = resolvedRowHeight * CGFloat(visibleRows)
             }
             return Bar.paneHeaderHeight + 1 + contentHeight
         }
@@ -64,12 +99,26 @@ enum DS {
 
     /// Stable trailing columns shared by dense, full-width rows.
     enum Column {
-        static let searchStatus: CGFloat = 132
-        static let searchQuality: CGFloat = 140
+        static let categoryPicker: CGFloat = 440
+        static let librarySectionPicker: CGFloat = 560
+        static let searchStatus: CGFloat = 118
+        static let searchQuality: CGFloat = 128
         static let rowAction: CGFloat = 30
-        static let activityQuality: CGFloat = 132
-        static let activityTransfer: CGFloat = 112
-        static let activityActions: CGFloat = 154
+        static let activityQuality: CGFloat = 120
+        static let activityTransfer: CGFloat = 104
+        static let activityActions: CGFloat = 148
+        static let libraryIntegrity: CGFloat = 112
+        static let commandPathMaximum: CGFloat = 360
+    }
+
+    enum Row {
+        static let searchMinimumHeight: CGFloat = 56
+        static let searchRegularMinimumWidth: CGFloat = 650
+        static let trackRegularMinimumWidth: CGFloat = 620
+        static let queueHeaderRegularMinimumWidth: CGFloat = 300
+        static let activityRegularMinimumWidth: CGFloat = 760
+        static let activityPrimaryMinimumWidth: CGFloat = 220
+        static let libraryRegularMinimumWidth: CGFloat = 680
     }
 }
 

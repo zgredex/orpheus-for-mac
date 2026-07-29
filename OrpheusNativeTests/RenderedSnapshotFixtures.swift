@@ -90,7 +90,7 @@ enum RenderedSnapshotFixtures {
         )
     ]
 
-    static func recoveryViewModel() throws -> (viewModel: NativeViewModel, root: URL) {
+    static func recoveryViewModel(loadPreview: Bool = false) throws -> (viewModel: NativeViewModel, root: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RenderedRecovery-\(UUID().uuidString)", isDirectory: true)
         let downloadRoot = root.appendingPathComponent("Music", isDirectory: true)
@@ -144,11 +144,12 @@ enum RenderedSnapshotFixtures {
         )
         let viewModel = NativeViewModel(
             paths: paths,
-            credentialStore: MemoryCredentialStore(),
+            credentialStore: MemoryCredentialStore(credentials: loadPreview ? .complete : nil),
             archiveStore: MemoryArchiveStore(),
             sessionStore: MemorySessionStore(snapshot: session),
             connectivityMonitor: FakeConnectivityMonitor(),
-            powerActivityManager: FakePowerActivityManager()
+            powerActivityManager: FakePowerActivityManager(),
+            clientFactory: { _ in FakeQobuzService() }
         )
         viewModel.start()
         return (viewModel, root)
@@ -230,5 +231,22 @@ struct LibraryProblemsSnapshotView: View {
             onRevealTrack: { _ in },
             onRevealIssue: { _ in }
         )
+    }
+}
+
+struct LibraryWorkspaceSnapshotView: View {
+    let snapshot: QobuzArchiveSnapshot
+    @State private var section = NativeLibrarySection.problems
+
+    var body: some View {
+        VStack(spacing: 0) {
+            NativeLibrarySummaryBar(
+                snapshot: snapshot,
+                isScanning: false,
+                section: $section
+            )
+            Divider()
+            LibraryProblemsSnapshotView(snapshot: snapshot)
+        }
     }
 }

@@ -58,9 +58,9 @@ struct OrpheusNativeApp: App {
             NativeContentView()
                 .environmentObject(viewModel)
                 .frame(
-                    minWidth: 820,
+                    minWidth: DS.Window.minimumWidth,
                     maxWidth: .infinity,
-                    minHeight: 560,
+                    minHeight: DS.Window.minimumHeight,
                     maxHeight: .infinity
                 )
                 .task {
@@ -75,7 +75,7 @@ struct OrpheusNativeApp: App {
                     viewModel.handleOpenURL($0)
                 }
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: DS.Window.defaultWidth, height: DS.Window.defaultHeight)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") { viewModel.showSettings = true }

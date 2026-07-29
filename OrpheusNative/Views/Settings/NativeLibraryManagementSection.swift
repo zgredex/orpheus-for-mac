@@ -112,13 +112,27 @@ struct NativeLibraryManagementSection: View {
         detail: String,
         @ViewBuilder action: () -> Action
     ) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(title)
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Space.l) {
+                managementDescription(title: title, detail: detail)
+                Spacer(minLength: DS.Space.m)
+                action()
             }
-            Spacer()
-            action()
+            VStack(alignment: .leading, spacing: DS.Space.s) {
+                managementDescription(title: title, detail: detail)
+                action()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+
+    private func managementDescription(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(title)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

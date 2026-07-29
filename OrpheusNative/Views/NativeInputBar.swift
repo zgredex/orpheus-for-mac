@@ -28,7 +28,7 @@ struct NativeInputBar: View {
                 .disabled(vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .help("Add links or search")
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, DS.Space.m)
         .frame(height: DS.Bar.inputHeight)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.control))
         .overlay(

@@ -4,43 +4,11 @@ import SwiftUI
 
 struct NativeContentView: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(spacing: 0) {
-            NativeInputBar()
-                .padding(.horizontal, DS.Space.m)
-                .padding(.vertical, DS.Space.s)
-            Divider()
-            HSplitView {
-                NativeQueuePane()
-                    .frame(minWidth: 250, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
-                VSplitView {
-                    Group {
-                        if vm.isLibraryOpen { NativeLibraryView().transition(.opacity) }
-                        else if vm.browse.isOpen { NativeBrowseView().transition(.opacity) }
-                        else { NativePreviewView().transition(.opacity) }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
-                    .layoutPriority(1)
-                    .animation(.easeOut(duration: 0.15), value: vm.browse.isOpen)
-                    NativeActivityView()
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: DS.ActivityPane.minimumHeight,
-                            idealHeight: activityPaneHeight,
-                            maxHeight: activityPaneHeight
-                        )
-                        .layoutPriority(0)
-                }
-                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .layoutPriority(1)
-            Divider()
-            NativeCommandBar()
-                .padding(.horizontal, DS.Space.m)
-                .padding(.vertical, DS.Space.s)
-                .background(.bar)
+        GeometryReader { geometry in
+            content(activityPaneHeight: activityPaneHeight(totalWidth: geometry.size.width))
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
@@ -105,7 +73,60 @@ struct NativeContentView: View {
         }
     }
 
-    private var activityPaneHeight: CGFloat {
-        DS.ActivityPane.preferredHeight(activityCount: vm.activities.count)
+    private func content(activityPaneHeight: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            NativeInputBar()
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, DS.Space.s)
+            Divider()
+            HSplitView {
+                NativeQueuePane()
+                    .frame(
+                        minWidth: DS.Pane.queueMinimumWidth,
+                        idealWidth: DS.Pane.queueIdealWidth,
+                        maxWidth: DS.Pane.queueMaximumWidth,
+                        maxHeight: .infinity
+                    )
+                VSplitView {
+                    Group {
+                        if vm.isLibraryOpen { NativeLibraryView().transition(.opacity) }
+                        else if vm.browse.isOpen { NativeBrowseView().transition(.opacity) }
+                        else { NativePreviewView().transition(.opacity) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
+                    .layoutPriority(1)
+                    .animation(.easeOut(duration: 0.15), value: vm.browse.isOpen)
+                    NativeActivityView()
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: activityPaneHeight,
+                            idealHeight: activityPaneHeight,
+                            maxHeight: activityPaneHeight
+                        )
+                        .layoutPriority(0)
+                }
+                .frame(
+                    minWidth: DS.Pane.workspaceMinimumWidth,
+                    maxWidth: .infinity,
+                    maxHeight: .infinity
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+            Divider()
+            NativeCommandBar()
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, DS.Space.s)
+                .background(.bar)
+        }
+    }
+
+    private func activityPaneHeight(totalWidth: CGFloat) -> CGFloat {
+        let workspaceWidth = totalWidth - DS.Pane.queueMaximumWidth
+        return DS.ActivityPane.preferredHeight(
+            activityCount: vm.activities.count,
+            compact: workspaceWidth < DS.Row.activityRegularMinimumWidth,
+            accessibility: dynamicTypeSize.isAccessibilitySize
+        )
     }
 }

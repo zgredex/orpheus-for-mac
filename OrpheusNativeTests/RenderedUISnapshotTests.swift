@@ -60,7 +60,10 @@ final class RenderedUISnapshotTests: XCTestCase {
             content: activityPane
         )
 
-        let failed = try XCTUnwrap(fixture.viewModel.activities.first)
+        let failed = try XCTUnwrap(fixture.viewModel.activities.first {
+            if case .failed = fixture.viewModel.status(for: $0) { return true }
+            return false
+        })
         let expanded = List {
             ActivityRow(
                 activity: failed,
@@ -120,6 +123,70 @@ final class RenderedUISnapshotTests: XCTestCase {
             size: CGSize(width: 820, height: 440),
             meanTolerance: 0.045,
             content: view
+        )
+    }
+
+    func testLibraryWorkspaceSummaryAtCompactDesktopWidth() {
+        let view = LibraryWorkspaceSnapshotView(snapshot: RenderedSnapshotFixtures.libraryProblems)
+            .environment(\.colorScheme, .dark)
+            .environment(\.locale, Locale(identifier: "pl_PL"))
+            .dynamicTypeSize(.xLarge)
+        RenderedSnapshotHarness.assertSnapshot(
+            named: "library-workspace-summary-compact",
+            size: CGSize(width: 860, height: 700),
+            meanTolerance: 0.045,
+            content: view
+        )
+    }
+
+    func testCompleteWorkspaceAtThirteenInchAndCompactSizes() throws {
+        let fixture = try RenderedSnapshotFixtures.recoveryViewModel(loadPreview: true)
+        defer {
+            fixture.viewModel.prepareForTermination()
+            try? FileManager.default.removeItem(at: fixture.root)
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
+
+        let target = NativeContentView()
+            .environmentObject(fixture.viewModel)
+            .environment(\.colorScheme, .dark)
+            .environment(\.locale, Locale(identifier: "en_GB"))
+        RenderedSnapshotHarness.assertSnapshot(
+            named: "workspace-thirteen-inch-target",
+            size: CGSize(width: 1_180, height: 760),
+            meanTolerance: 0.04,
+            content: target
+        )
+
+        let compact = NativeContentView()
+            .environmentObject(fixture.viewModel)
+            .environment(\.colorScheme, .dark)
+            .environment(\.locale, Locale(identifier: "pl_PL"))
+            .dynamicTypeSize(.xLarge)
+        RenderedSnapshotHarness.assertSnapshot(
+            named: "workspace-compact-large-text",
+            size: CGSize(width: 900, height: 680),
+            meanTolerance: 0.045,
+            content: compact
+        )
+    }
+
+    func testSettingsManagementLayoutAtSheetSize() throws {
+        let fixture = try RenderedSnapshotFixtures.recoveryViewModel()
+        defer {
+            fixture.viewModel.prepareForTermination()
+            try? FileManager.default.removeItem(at: fixture.root)
+        }
+
+        let settings = NativeSettingsView(draft: fixture.viewModel.settingsDraft)
+            .environmentObject(fixture.viewModel)
+            .environment(\.colorScheme, .dark)
+            .environment(\.locale, Locale(identifier: "de_DE"))
+        RenderedSnapshotHarness.assertSnapshot(
+            named: "settings-library-management",
+            size: CGSize(width: DS.Sheet.settingsWidth, height: DS.Sheet.settingsHeight),
+            meanTolerance: 0.045,
+            content: settings
         )
     }
 }

@@ -84,10 +84,11 @@ struct NativeSettingsView: View {
                             || isAdoptingLibrary
                             || vm.libraryManagement.isWorking
                     )
-            }.padding(.top, 14)
+            }
+            .padding(.top, DS.Space.l)
         }
         .padding(DS.Space.xl)
-        .frame(width: 540)
+        .frame(width: DS.Sheet.settingsWidth, height: DS.Sheet.settingsHeight)
     }
 
     private func chooseFolder() {
@@ -99,13 +100,12 @@ struct NativeSettingsView: View {
 
     @ViewBuilder private func adoptionSummary(_ plan: QobuzLibraryAdoptionPlan) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            HStack(spacing: DS.Space.m) {
-                Label("\(plan.snapshot.tracks.count) files", systemImage: "music.note")
-                Label("\(plan.snapshot.verifiedCount) verified", systemImage: "checkmark.seal")
-                    .foregroundStyle(plan.snapshot.problemCount == 0 ? .green : .secondary)
-                if plan.snapshot.problemCount > 0 {
-                    Label("\(plan.snapshot.problemCount) problems", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DS.Space.m) {
+                    adoptionMetrics(plan)
+                }
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    adoptionMetrics(plan)
                 }
             }
             .font(.caption)
@@ -132,6 +132,16 @@ struct NativeSettingsView: View {
             }
         }
         .padding(.vertical, DS.Space.xs)
+    }
+
+    @ViewBuilder private func adoptionMetrics(_ plan: QobuzLibraryAdoptionPlan) -> some View {
+        Label("\(plan.snapshot.tracks.count) files", systemImage: "music.note")
+        Label("\(plan.snapshot.verifiedCount) verified", systemImage: "checkmark.seal")
+            .foregroundStyle(plan.snapshot.problemCount == 0 ? .green : .secondary)
+        if plan.snapshot.problemCount > 0 {
+            Label("\(plan.snapshot.problemCount) problems", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
     }
 
     private func adoptionActionTitle(_ action: QobuzLibraryManifestAction) -> String {

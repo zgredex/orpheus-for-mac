@@ -2,102 +2,31 @@ import SwiftUI
 
 struct ActivityRow: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let activity: NativeDownloadActivity
     let status: NativeDownloadStatus
     @Binding var showsDetails: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: DS.Space.m) {
-                StatusGlyph(style: status.activityStyle)
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: DS.Space.xs) {
-                    HStack(spacing: DS.Space.s) {
-                        Text(activity.title)
-                            .font(.rowTitle)
-                            .foregroundStyle(status == .completed ? .secondary : .primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                        if hasDetails {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.18)) { showsDetails.toggle() }
-                            } label: {
-                                HStack(spacing: DS.Space.xxs) {
-                                    Image(systemName: detailIcon)
-                                    Text(detailSummary)
-                                    Image(systemName: showsDetails ? "chevron.up" : "chevron.down")
-                                }
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(detailTint)
-                                .fixedSize(horizontal: true, vertical: false)
-                            }
-                            .buttonStyle(.plain)
-                            .help(showsDetails ? "Hide details" : "Show delivery, error, and warning details")
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    if status != .completed {
-                        ProgressView(value: activity.progress)
-                            .tint(isFailed ? .red : .accentColor)
-                            .animation(.linear(duration: 0.25), value: activity.progress)
-                    }
-                    Text(phaseText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let partial = vm.resumablePartial(for: activity) {
-                        Label(
-                            "\(Format.bytes(partial.bytes)) partial file will be resumed",
-                            systemImage: "arrow.clockwise.circle.fill"
-                        )
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.orange)
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    compactRow
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        regularRow
+                            .frame(minWidth: DS.Row.activityRegularMinimumWidth)
+                        compactRow
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
-
-                VStack(alignment: .trailing, spacing: DS.Space.xs) {
-                    if let quality = activity.quality {
-                        QualityBadge(kind: .target(quality))
-                    } else if let format = activity.audioFormat {
-                        QualityBadge(kind: .exact(format))
-                    } else {
-                        Color.clear.frame(height: 18)
-                    }
-                    if activity.totalTracks > 0 {
-                        Text("\(activity.completedTracks)/\(activity.totalTracks) tracks")
-                            .monospacedDigit()
-                    } else {
-                        Color.clear.frame(height: 1)
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(width: DS.Column.activityQuality, alignment: .trailing)
-
-                VStack(alignment: .trailing, spacing: DS.Space.xs) {
-                    Text(transferPrimaryText)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                    Text(transferSecondaryText)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                .frame(width: DS.Column.activityTransfer, alignment: .trailing)
-
-                actionButtons
-                    .frame(width: DS.Column.activityActions, alignment: .trailing)
             }
-            .frame(minHeight: 58)
 
             if showsDetails, hasDetails {
-                detailContent
+                ActivityDetailView(
+                    error: detailError,
+                    warnings: activity.warnings,
+                    notices: activity.informationalNotices
+                )
                     .padding(.leading, 20 + DS.Space.m)
                     .padding(.top, DS.Space.s)
                     .padding(.bottom, DS.Space.xs)
@@ -105,6 +34,171 @@ struct ActivityRow: View {
             }
         }
         .animation(.default, value: status)
+    }
+
+    private var regularRow: some View {
+        HStack(spacing: DS.Space.m) {
+            statusGlyph
+            primaryContent
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: DS.Row.activityPrimaryMinimumWidth)
+                .layoutPriority(1)
+            qualityContent
+                .frame(width: DS.Column.activityQuality, alignment: .trailing)
+            transferContent
+                .frame(width: DS.Column.activityTransfer, alignment: .trailing)
+            actionButtons
+                .frame(width: DS.Column.activityActions, alignment: .trailing)
+        }
+        .frame(minHeight: 58)
+    }
+
+    private var compactRow: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            HStack(alignment: .top, spacing: DS.Space.m) {
+                statusGlyph
+                primaryContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                actionButtons
+            }
+            HStack(alignment: .bottom, spacing: DS.Space.m) {
+                compactQualityContent
+                Spacer(minLength: DS.Space.m)
+                compactTransferContent
+            }
+            .padding(.leading, 20 + DS.Space.m)
+        }
+        .padding(.vertical, DS.Space.xs)
+    }
+
+    private var statusGlyph: some View {
+        StatusGlyph(style: status.activityStyle)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: 20)
+    }
+
+    private var primaryContent: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            titleAndDetails
+            if status != .completed {
+                ProgressView(value: activity.progress)
+                    .tint(isFailed ? .red : .accentColor)
+                    .animation(.linear(duration: 0.25), value: activity.progress)
+            }
+            Text(phaseText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let partial = vm.resumablePartial(for: activity) {
+                Label(
+                    "\(Format.bytes(partial.bytes)) partial file will be resumed",
+                    systemImage: "arrow.clockwise.circle.fill"
+                )
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+            }
+        }
+    }
+
+    private var titleAndDetails: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: DS.Space.s) {
+                title
+                detailButton
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                title
+                detailButton
+            }
+        }
+    }
+
+    private var title: some View {
+        Text(activity.title)
+            .font(.rowTitle)
+            .foregroundStyle(status == .completed ? .secondary : .primary)
+            .lineLimit(1)
+            .layoutPriority(1)
+    }
+
+    @ViewBuilder private var detailButton: some View {
+        if hasDetails {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { showsDetails.toggle() }
+            } label: {
+                HStack(spacing: DS.Space.xxs) {
+                    Image(systemName: detailIcon)
+                    Text(detailSummary)
+                    Image(systemName: showsDetails ? "chevron.up" : "chevron.down")
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(detailTint)
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .buttonStyle(.plain)
+            .help(showsDetails ? "Hide details" : "Show delivery, error, and warning details")
+        }
+    }
+
+    private var qualityContent: some View {
+        VStack(alignment: .trailing, spacing: DS.Space.xs) {
+            if let quality = activity.quality {
+                QualityBadge(kind: .target(quality))
+            } else if let format = activity.audioFormat {
+                QualityBadge(kind: .exact(format))
+            } else {
+                Color.clear.frame(height: 18)
+            }
+            if activity.totalTracks > 0 {
+                Text("\(activity.completedTracks)/\(activity.totalTracks) tracks")
+                    .monospacedDigit()
+            } else {
+                Color.clear.frame(height: 1)
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+
+    private var compactQualityContent: some View {
+        HStack(spacing: DS.Space.s) {
+            if let quality = activity.quality {
+                QualityBadge(kind: .target(quality))
+            } else if let format = activity.audioFormat {
+                QualityBadge(kind: .exact(format))
+            }
+            if activity.totalTracks > 0 {
+                Text("\(activity.completedTracks)/\(activity.totalTracks) tracks")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    private var transferContent: some View {
+        VStack(alignment: .trailing, spacing: DS.Space.xs) {
+            Text(transferPrimaryText)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Text(transferSecondaryText)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    private var compactTransferContent: some View {
+        Text("\(transferPrimaryText) · \(transferSecondaryText)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .monospacedDigit()
     }
 
     private var actionButtons: some View {
@@ -144,58 +238,6 @@ struct ActivityRow: View {
         }
     }
 
-    private var detailContent: some View {
-        VStack(alignment: .leading, spacing: DS.Space.s) {
-            if let error = detailError {
-                detailSection(
-                    title: "Error",
-                    systemImage: "exclamationmark.circle.fill",
-                    tint: .red,
-                    messages: [error]
-                )
-            }
-            if !activity.warnings.isEmpty {
-                detailSection(
-                    title: activity.warnings.count == 1 ? "Warning" : "Warnings",
-                    systemImage: "exclamationmark.triangle.fill",
-                    tint: .orange,
-                    messages: activity.warnings
-                )
-            }
-            if !activity.informationalNotices.isEmpty {
-                detailSection(
-                    title: activity.informationalNotices.count == 1 ? "Delivery detail" : "Delivery details",
-                    systemImage: "info.circle.fill",
-                    tint: .blue,
-                    messages: activity.informationalNotices
-                )
-            }
-        }
-        .padding(DS.Space.s)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
-    }
-
-    private func detailSection(
-        title: String,
-        systemImage: String,
-        tint: Color,
-        messages: [String]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.xs) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(tint)
-            ForEach(messages.indices, id: \.self) { index in
-                Text(messages[index])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     private var isFailed: Bool {
         if case .failed = status { return true }
         return false
@@ -232,7 +274,9 @@ struct ActivityRow: View {
     }
 
     private var phaseText: String {
-        if isFailed { return "Failed · Expand for details" }
+        if isFailed {
+            return showsDetails ? activity.phase : "Failed · Expand for details"
+        }
         if status == .waitingForNetwork { return activity.phase }
         if status == .paused, detailError != nil { return "Paused · Ready to resume" }
         if status == .downloading, let current = activity.currentTrack {

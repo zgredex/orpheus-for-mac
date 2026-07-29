@@ -44,7 +44,7 @@ struct PreviewScaffold<HeaderAccessory: View, Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             previewHeader
-            .padding(18)
+                .padding(DS.Space.l)
             Divider()
             content
         }
@@ -99,7 +99,7 @@ struct PreviewScaffold<HeaderAccessory: View, Content: View>: View {
     }
 
     private var headerDetails: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
             Text(header.title).font(.title2.weight(.semibold)).lineLimit(2)
             if let subtitle = header.subtitle {
                 if let onSubtitleTap = header.onSubtitleTap {

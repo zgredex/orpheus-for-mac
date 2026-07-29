@@ -7,8 +7,8 @@ struct NativeBrowseView: View {
     var body: some View {
         VStack(spacing: 0) {
             NativeBrowseHeader(page: vm.browse.path.last)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+                .padding(.horizontal, DS.Space.l)
+                .padding(.vertical, DS.Space.m)
             Divider()
             browseContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

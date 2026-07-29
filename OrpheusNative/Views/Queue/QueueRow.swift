@@ -3,6 +3,7 @@ import SwiftUI
 
 struct QueueRow: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let item: NativeQueueItem
     let status: NativeDownloadStatus
@@ -29,42 +30,102 @@ struct QueueRow: View {
     }
 
     private var header: some View {
-        HStack(spacing: DS.Space.s) {
-            Button(action: toggleExpanded) {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .frame(width: 12)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                compactHeader
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    regularHeader
+                        .frame(minWidth: DS.Row.queueHeaderRegularMinimumWidth)
+                    compactHeader
+                }
             }
-            .buttonStyle(.plain)
-            .help(isExpanded ? "Collapse download plan" : "Inspect download plan")
+        }
+    }
 
-            ArtworkView(url: item.artworkURL, size: DS.Artwork.queue, placeholderSymbol: icon)
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(item.title).font(.rowTitle).lineLimit(1)
-                HStack(spacing: DS.Space.xs) {
-                    Text(headerSubtitle)
-                        .font(.rowSubtitle)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+    private var regularHeader: some View {
+        HStack(spacing: DS.Space.s) {
+            disclosure
+            artwork
+            identity(showLibraryStatus: true)
+                .layoutPriority(1)
+            Spacer(minLength: DS.Space.xs)
+            qualityBadge
+            statusGlyph
+        }
+        .frame(minHeight: 38)
+    }
+
+    private var compactHeader: some View {
+        HStack(alignment: .top, spacing: DS.Space.s) {
+            disclosure
+                .padding(.top, DS.Space.s)
+            artwork
+                .padding(.top, DS.Space.xs)
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                identity(showLibraryStatus: false)
+                HStack(spacing: DS.Space.s) {
+                    qualityBadge
                     if let libraryStatus {
                         LibraryStatusLabel(status: libraryStatus, compact: true)
                     }
                 }
             }
-            Spacer(minLength: DS.Space.xs)
-            if let format = item.repairTarget?.audioFormat {
-                QualityBadge(kind: .exact(format))
-            } else {
-                QualityBadge(kind: .target(targetQuality))
-            }
-            if let style = status.queueStyle {
-                StatusGlyph(style: style)
-                    .contentTransition(.symbolEffect(.replace))
+            .layoutPriority(1)
+            Spacer(minLength: 0)
+            statusGlyph
+                .padding(.top, DS.Space.s)
+        }
+        .padding(.vertical, DS.Space.xxs)
+    }
+
+    private var disclosure: some View {
+        Button(action: toggleExpanded) {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 12)
+        }
+        .buttonStyle(.plain)
+        .help(isExpanded ? "Collapse download plan" : "Inspect download plan")
+    }
+
+    private var artwork: some View {
+        ArtworkView(url: item.artworkURL, size: DS.Artwork.queue, placeholderSymbol: icon)
+    }
+
+    private func identity(showLibraryStatus: Bool) -> some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(item.title)
+                .font(.rowTitle)
+                .lineLimit(1)
+            HStack(spacing: DS.Space.xs) {
+                Text(headerSubtitle)
+                    .font(.rowSubtitle)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if showLibraryStatus, let libraryStatus {
+                    LibraryStatusLabel(status: libraryStatus, compact: true)
+                }
             }
         }
-        .frame(minHeight: 38)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var qualityBadge: some View {
+        if let format = item.repairTarget?.audioFormat {
+            QualityBadge(kind: .exact(format))
+        } else {
+            QualityBadge(kind: .target(targetQuality))
+        }
+    }
+
+    @ViewBuilder private var statusGlyph: some View {
+        if let style = status.queueStyle {
+            StatusGlyph(style: style)
+                .contentTransition(.symbolEffect(.replace))
+        }
     }
 
     private var inspector: some View {

@@ -203,10 +203,6 @@ enum RenderedSnapshotHarness {
         named name: String
     ) {
         let configured = ProcessInfo.processInfo.environment["ORPHEUS_UI_SNAPSHOT_REFERENCE_OUTPUT"]
-        let sourceReference = sourceReferenceDirectory.appendingPathComponent("\(name).json")
-        guard configured?.isEmpty == false || !FileManager.default.fileExists(atPath: sourceReference.path) else {
-            return
-        }
         let directory = configured.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
             ?? repositoryRoot.appendingPathComponent("Build/CI/UIReferenceCandidates", isDirectory: true)
         let encoder = JSONEncoder()

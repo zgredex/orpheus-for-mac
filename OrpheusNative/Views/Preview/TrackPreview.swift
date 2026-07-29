@@ -33,7 +33,7 @@ struct TrackPreview: View {
                 }
                 Spacer()
             }
-            .padding(18)
+            .padding(DS.Space.l)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

@@ -6,16 +6,18 @@ struct NativeLibraryEntryRow: View {
     let onReveal: () -> Void
 
     var body: some View {
-        HStack(spacing: DS.Space.m) {
-            Image(systemName: NativeLibraryPresentation.icon(for: entry.kind))
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(entry.title).fontWeight(.medium).lineLimit(1)
-                Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        NativeLibraryResponsiveRow {
+            HStack(spacing: DS.Space.m) {
+                Image(systemName: NativeLibraryPresentation.icon(for: entry.kind))
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(entry.title).fontWeight(.medium).lineLimit(1)
+                    Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
-            Spacer(minLength: DS.Space.m)
+        } metadata: {
             QualityBadge(kind: NativeLibraryPresentation.qualityKind(for: entry))
             Text(entry.byteCount.map {
                 ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
@@ -24,6 +26,7 @@ struct NativeLibraryEntryRow: View {
             .foregroundStyle(.secondary)
             .frame(minWidth: 64, alignment: .trailing)
             NativeLibraryEntryIntegrityLabel(entry: entry)
+        } action: {
             Button(action: onReveal) { Image(systemName: "folder") }
                 .buttonStyle(.borderless)
                 .help("Show in Finder")
@@ -38,14 +41,17 @@ struct NativeLibraryStandaloneTrackRow: View {
     let onReveal: () -> Void
 
     var body: some View {
-        HStack(spacing: DS.Space.m) {
-            Image(systemName: "music.note").foregroundStyle(.secondary).frame(width: 24)
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(entry.title).fontWeight(.medium).lineLimit(1)
-                Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        NativeLibraryResponsiveRow {
+            HStack(spacing: DS.Space.m) {
+                Image(systemName: "music.note").foregroundStyle(.secondary).frame(width: 24)
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(entry.title).fontWeight(.medium).lineLimit(1)
+                    Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
-            Spacer(minLength: DS.Space.m)
+        } metadata: {
             NativeLibraryTrackMetadata(track: track)
+        } action: {
             Button(action: onReveal) { Image(systemName: "magnifyingglass") }
                 .buttonStyle(.borderless)
                 .help("Show in Finder")
@@ -59,7 +65,7 @@ struct NativeLibraryTrackRow: View {
     let onReveal: () -> Void
 
     var body: some View {
-        HStack(spacing: DS.Space.m) {
+        NativeLibraryResponsiveRow {
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text(URL(fileURLWithPath: track.relativePath).lastPathComponent).lineLimit(1)
                 Text("Qobuz \(track.qobuzTrackID)")
@@ -67,8 +73,9 @@ struct NativeLibraryTrackRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: DS.Space.m)
+        } metadata: {
             NativeLibraryTrackMetadata(track: track)
+        } action: {
             Button(action: onReveal) { Image(systemName: "magnifyingglass") }
                 .buttonStyle(.borderless)
                 .help("Show in Finder")

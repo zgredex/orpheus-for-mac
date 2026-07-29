@@ -53,10 +53,15 @@ struct NativeLogView: View {
             }
 
             Divider()
-            detail
+            NativeLogDetailView(entry: selectedEntry, onCopy: copy)
                 .frame(minHeight: 150, idealHeight: 200, maxHeight: 260)
         }
-        .frame(minWidth: 900, idealWidth: 1_080, minHeight: 620, idealHeight: 720)
+        .frame(
+            minWidth: DS.Sheet.diagnosticsMinimumWidth,
+            idealWidth: DS.Sheet.diagnosticsIdealWidth,
+            minHeight: DS.Sheet.diagnosticsMinimumHeight,
+            idealHeight: DS.Sheet.diagnosticsIdealHeight
+        )
         .searchable(text: $query, placement: .toolbar, prompt: "Search message, metadata, source, or error")
         .toolbar {
             ToolbarItemGroup {
@@ -106,23 +111,20 @@ struct NativeLogView: View {
                 diagnosticCount(.error, title: "Errors")
                 diagnosticCount(.critical, title: "Critical")
             }
-            HStack(spacing: DS.Space.m) {
-                Picker("Minimum level", selection: $minimumLevel) {
-                    ForEach(QobuzLogLevel.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DS.Space.m) {
+                    filterControls
+                    Spacer(minLength: DS.Space.m)
+                    diagnosticsPath
                 }
-                .frame(width: 190)
-                Picker("Subsystem", selection: $category) {
-                    Text("All").tag("All")
-                    ForEach(categories, id: \.self) { Text($0).tag($0) }
+                VStack(alignment: .leading, spacing: DS.Space.s) {
+                    HStack(spacing: DS.Space.m) {
+                        filterControls
+                        Spacer(minLength: 0)
+                    }
+                    diagnosticsPath
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(width: 230)
-                Spacer()
-                Text(vm.diagnostics.directoryURL.path)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(vm.diagnostics.directoryURL.path)
             }
             if let loadError {
                 Label(loadError, systemImage: "exclamationmark.triangle.fill")
@@ -137,95 +139,25 @@ struct NativeLogView: View {
         .padding(DS.Space.l)
     }
 
-    @ViewBuilder private var detail: some View {
-        if let selectedEntry {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Space.s) {
-                    HStack(alignment: .firstTextBaseline) {
-                        LogLevelLabel(level: selectedEntry.level)
-                        Text(selectedEntry.message).font(.headline).textSelection(.enabled)
-                        Spacer()
-                        Button("Copy", systemImage: "doc.on.doc") { copy(selectedEntry) }
-                    }
-                    if let error = selectedEntry.errorDescription {
-                        LabeledContent("Error") {
-                            Text("\(selectedEntry.errorType ?? "Error"): \(error)")
-                                .foregroundStyle(.red)
-                                .textSelection(.enabled)
-                        }
-                    }
-                    if let domain = selectedEntry.errorDomain, let code = selectedEntry.errorCode {
-                        LabeledContent("Error identity") {
-                            Text("\(domain) [\(code)]")
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                        }
-                    }
-                    if let reason = selectedEntry.errorFailureReason {
-                        LabeledContent("Failure reason") { Text(reason).textSelection(.enabled) }
-                    }
-                    if let suggestion = selectedEntry.errorRecoverySuggestion {
-                        LabeledContent("Recovery suggestion") { Text(suggestion).textSelection(.enabled) }
-                    }
-                    if let underlying = selectedEntry.underlyingErrors, !underlying.isEmpty {
-                        LabeledContent("Underlying errors") {
-                            Text(underlying.joined(separator: "\n"))
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                        }
-                    }
-                    LabeledContent("Timestamp") {
-                        Text(Date.ISO8601FormatStyle(includingFractionalSeconds: true).format(selectedEntry.timestamp))
-                            .font(.body.monospacedDigit())
-                            .textSelection(.enabled)
-                    }
-                    LabeledContent("Source") {
-                        Text("\(selectedEntry.sourceFile):\(selectedEntry.sourceLine) · \(selectedEntry.sourceFunction)")
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                    }
-                    LabeledContent("Execution") {
-                        Text("session \(selectedEntry.sessionID.uuidString) · \(selectedEntry.thread) · uptime \(selectedEntry.uptime.formatted(.number.precision(.fractionLength(3))))s")
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                    }
-                    if !selectedEntry.metadata.isEmpty {
-                        Divider()
-                        Grid(alignment: .leading, horizontalSpacing: DS.Space.m, verticalSpacing: DS.Space.xs) {
-                            ForEach(selectedEntry.metadata.keys.sorted(), id: \.self) { key in
-                                GridRow {
-                                    Text(key).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                    Text(selectedEntry.metadata[key] ?? "")
-                                        .font(.caption.monospaced())
-                                        .textSelection(.enabled)
-                                }
-                            }
-                        }
-                    }
-                    if let callStack = selectedEntry.callStack, !callStack.isEmpty {
-                        Divider()
-                        DisclosureGroup("Call stack (\(callStack.count) frames)") {
-                            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                                ForEach(Array(callStack.enumerated()), id: \.offset) { index, frame in
-                                    Text("\(index)  \(frame)")
-                                        .font(.caption.monospaced())
-                                        .textSelection(.enabled)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, DS.Space.xs)
-                        }
-                    }
-                }
-                .padding(DS.Space.l)
-            }
-        } else {
-            ContentUnavailableView(
-                "Select a diagnostic event",
-                systemImage: "doc.text.magnifyingglass",
-                description: Text("Exact source location, metadata, correlation identifiers, and errors appear here.")
-            )
+    @ViewBuilder private var filterControls: some View {
+        Picker("Minimum level", selection: $minimumLevel) {
+            ForEach(QobuzLogLevel.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
         }
+        .frame(width: 190)
+        Picker("Subsystem", selection: $category) {
+            Text("All").tag("All")
+            ForEach(categories, id: \.self) { Text($0).tag($0) }
+        }
+        .frame(width: 230)
+    }
+
+    private var diagnosticsPath: some View {
+        Text(vm.diagnostics.directoryURL.path)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(vm.diagnostics.directoryURL.path)
     }
 
     private var filteredEntries: [QobuzLogEntry] {
@@ -326,32 +258,5 @@ struct NativeLogView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
         message = "Copied diagnostic event."
-    }
-}
-
-private struct LogLevelLabel: View {
-    let level: QobuzLogLevel
-
-    var body: some View {
-        Text(level.rawValue.uppercased())
-            .font(.caption2.weight(.bold).monospaced())
-            .foregroundStyle(level.color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(level.color.opacity(0.12), in: Capsule())
-    }
-}
-
-private extension QobuzLogLevel {
-    var color: Color {
-        switch self {
-        case .trace: .secondary
-        case .debug: .gray
-        case .info: .blue
-        case .notice: .green
-        case .warning: .orange
-        case .error: .red
-        case .critical: .purple
-        }
     }
 }

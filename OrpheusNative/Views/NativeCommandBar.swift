@@ -3,23 +3,57 @@ import SwiftUI
 
 struct NativeCommandBar: View {
     @EnvironmentObject private var vm: NativeViewModel
+
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: vm.revealDownloadRoot) {
-                Text(vm.settings.downloadPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-            .buttonStyle(.plain)
-            .help(vm.settings.downloadPath)
-            Spacer()
-            Button("Cancel", systemImage: "xmark.circle", action: vm.cancelDownloads).disabled(!vm.canCancel)
+        ViewThatFits(in: .horizontal) {
+            commandRow(compact: false)
+            commandRow(compact: true)
+        }
+    }
+
+    private func commandRow(compact: Bool) -> some View {
+        HStack(spacing: DS.Space.m) {
+            downloadLocation
+            Spacer(minLength: DS.Space.m)
+            Button("Cancel", systemImage: "xmark.circle", action: vm.cancelDownloads)
+                .labelStyle(NativeCommandLabelStyle(compact: compact))
+                .disabled(!vm.canCancel)
+                .help("Cancel active downloads")
             Button("Download Next", systemImage: "text.line.first.and.arrowtriangle.forward", action: vm.downloadNext)
+                .labelStyle(NativeCommandLabelStyle(compact: compact))
                 .disabled(!vm.canDownloadNext)
                 .help("Download only the first ready item in queue order")
             Button(selectedTitle, systemImage: selectedIcon, action: vm.downloadSelected)
+                .labelStyle(NativeCommandLabelStyle(compact: compact))
                 .disabled(!vm.canDownloadSelected)
-            Button("Download All", systemImage: "arrow.down.circle.fill", action: vm.downloadAll)
-                .buttonStyle(.borderedProminent).disabled(!vm.canDownloadAll)
+                .help(selectedTitle)
+            Button(compact ? "All" : "Download All", systemImage: "arrow.down.circle.fill", action: vm.downloadAll)
+                .buttonStyle(.borderedProminent)
+                .disabled(!vm.canDownloadAll)
+                .help("Download every ready queue item")
         }
+    }
+
+    private var downloadLocation: some View {
+        Button(action: vm.revealDownloadRoot) {
+            Label {
+                Text(vm.settings.downloadPath)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } icon: {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(
+            minWidth: 100,
+            maxWidth: DS.Column.commandPathMaximum,
+            alignment: .leading
+        )
+        .help(vm.settings.downloadPath)
     }
 
     private var selectedTitle: String {
@@ -33,5 +67,22 @@ struct NativeCommandBar: View {
     private var selectedIsPaused: Bool {
         guard let item = vm.selectedQueueItem else { return false }
         return vm.status(for: item) == .paused
+    }
+}
+
+private struct NativeCommandLabelStyle: LabelStyle {
+    let compact: Bool
+
+    @ViewBuilder
+    func makeBody(configuration: Configuration) -> some View {
+        if compact {
+            configuration.icon
+        } else {
+            Label {
+                configuration.title
+            } icon: {
+                configuration.icon
+            }
+        }
     }
 }

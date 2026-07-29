@@ -38,7 +38,7 @@ struct NativeBrowseHeader: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: DS.Space.m) {
                 categoryPicker
-                    .frame(width: 430)
+                    .frame(width: DS.Column.categoryPicker)
                     .clipped()
                 Spacer(minLength: DS.Space.m)
                 categoryStatus

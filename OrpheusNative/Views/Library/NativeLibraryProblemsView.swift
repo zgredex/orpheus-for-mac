@@ -115,48 +115,72 @@ private struct NativeLibraryProblemFileRow: View {
     let onReveal: () -> Void
 
     var body: some View {
-        let presentation = NativeLibraryPresentation.integrityPresentation(problem.track.integrity)
-        HStack(spacing: DS.Space.m) {
-            Image(systemName: problem.systemImage)
-                .font(.title3)
-                .foregroundStyle(presentation.color)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(URL(fileURLWithPath: problem.track.relativePath).lastPathComponent)
-                    .font(.rowTitle)
-                    .lineLimit(1)
-                Text(problem.track.relativePath)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(problem.reasonDetail)
-                    .font(.caption2)
-                    .foregroundStyle(presentation.color)
-                    .lineLimit(2)
+        NativeLibraryResponsiveRow {
+            HStack(spacing: DS.Space.m) {
+                problemIcon
+                problemDescription
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
-            QualityBadge(kind: .archive(problem.track))
-            VStack(alignment: .trailing, spacing: DS.Space.xs) {
-                NativeLibraryIntegrityLabel(integrity: problem.track.integrity)
-                Label(
-                    problem.isAutomaticallyRepairable ? "Repairable" : "Manual action",
-                    systemImage: problem.isAutomaticallyRepairable
-                        ? "wrench.and.screwdriver.fill"
-                        : "hand.raised.fill"
-                )
-                .font(.caption2)
-                .foregroundStyle(problem.isAutomaticallyRepairable ? .green : .orange)
-                .help(problem.repairabilityDetail)
+        } metadata: {
+            HStack(spacing: DS.Space.m) {
+                QualityBadge(kind: .archive(problem.track))
+                integrityBlock
+                    .frame(width: DS.Column.libraryIntegrity, alignment: .trailing)
             }
-            .frame(width: 112, alignment: .trailing)
-            Button(action: onReveal) { Image(systemName: "magnifyingglass") }
-                .buttonStyle(.borderless)
-                .help("Show expected location in Finder")
+        } action: {
+            revealButton
         }
         .frame(minHeight: 62)
         .help("\(problem.reasonTitle): \(problem.reasonDetail)\n\(problem.repairabilityDetail)")
+    }
+
+    private var problemIcon: some View {
+        Image(systemName: problem.systemImage)
+            .font(.title3)
+            .foregroundStyle(presentation.color)
+            .frame(width: 24)
+    }
+
+    private var problemDescription: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(URL(fileURLWithPath: problem.track.relativePath).lastPathComponent)
+                .font(.rowTitle)
+                .lineLimit(1)
+            Text(problem.track.relativePath)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(problem.reasonDetail)
+                .font(.caption2)
+                .foregroundStyle(presentation.color)
+                .lineLimit(2)
+        }
+    }
+
+    private var integrityBlock: some View {
+        VStack(alignment: .trailing, spacing: DS.Space.xs) {
+            NativeLibraryIntegrityLabel(integrity: problem.track.integrity)
+            Label(
+                problem.isAutomaticallyRepairable ? "Repairable" : "Manual action",
+                systemImage: problem.isAutomaticallyRepairable
+                    ? "wrench.and.screwdriver.fill"
+                    : "hand.raised.fill"
+            )
+            .font(.caption2)
+            .foregroundStyle(problem.isAutomaticallyRepairable ? .green : .orange)
+            .fixedSize()
+            .help(problem.repairabilityDetail)
+        }
+    }
+
+    private var revealButton: some View {
+        Button(action: onReveal) { Image(systemName: "magnifyingglass") }
+            .buttonStyle(.borderless)
+            .help("Show expected location in Finder")
+    }
+
+    private var presentation: (label: String, icon: String, color: Color) {
+        NativeLibraryPresentation.integrityPresentation(problem.track.integrity)
     }
 }
 
@@ -165,28 +189,50 @@ private struct NativeLibraryIndexProblemRow: View {
     let onReveal: () -> Void
 
     var body: some View {
-        HStack(spacing: DS.Space.m) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.title3)
-                .foregroundStyle(.orange)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(problem.relativePath == "." ? "Library index" : problem.relativePath)
-                    .font(.rowTitle)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(problem.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        NativeLibraryResponsiveRow {
+            HStack(spacing: DS.Space.m) {
+                problemIcon
+                problemDescription
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
-            Label("Manual action", systemImage: "hand.raised.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
-            Button(action: onReveal) { Image(systemName: "magnifyingglass") }
-                .buttonStyle(.borderless)
-                .help("Show related location in Finder")
+        } metadata: {
+            manualLabel
+        } action: {
+            revealButton
         }
         .frame(minHeight: 54)
         .help(problem.message)
+    }
+
+    private var problemIcon: some View {
+        Image(systemName: "doc.text.magnifyingglass")
+            .font(.title3)
+            .foregroundStyle(.orange)
+            .frame(width: 24)
+    }
+
+    private var problemDescription: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+            Text(problem.relativePath == "." ? "Library index" : problem.relativePath)
+                .font(.rowTitle)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(problem.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    private var manualLabel: some View {
+        Label("Manual action", systemImage: "hand.raised.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var revealButton: some View {
+        Button(action: onReveal) { Image(systemName: "magnifyingglass") }
+            .buttonStyle(.borderless)
+            .help("Show related location in Finder")
     }
 }
