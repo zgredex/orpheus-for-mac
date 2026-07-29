@@ -3,6 +3,9 @@ import SwiftUI
 
 struct QueueRow: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var account: NativeAccountController
+    @EnvironmentObject private var library: NativeLibraryController
+    @EnvironmentObject private var downloads: NativeDownloadController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let item: NativeQueueItem
@@ -147,10 +150,10 @@ struct QueueRow: View {
                     Spacer()
                     Button("All") { vm.selectAllQueueTracks(in: item.id) }
                         .buttonStyle(.borderless)
-                        .disabled(vm.isDownloading || item.selectedTrackIDs == nil)
+                        .disabled(downloads.isDownloading || item.selectedTrackIDs == nil)
                     Button("None") { vm.clearQueueTrackSelection(in: item.id) }
                         .buttonStyle(.borderless)
-                        .disabled(vm.isDownloading || item.effectiveSelectedTrackIDs.isEmpty)
+                        .disabled(downloads.isDownloading || item.effectiveSelectedTrackIDs.isEmpty)
                 }
 
                 ScrollView {
@@ -193,7 +196,7 @@ struct QueueRow: View {
                 vm.setQueueQuality(nil, for: item.id)
             } label: {
                 Label(
-                    "Default · \(vm.settings.quality.displayName)",
+                    "Default · \(account.settings.quality.displayName)",
                     systemImage: item.downloadQuality == nil ? "checkmark" : "arrow.uturn.backward"
                 )
             }
@@ -220,7 +223,7 @@ struct QueueRow: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(vm.isDownloading || item.repairTarget != nil)
+        .disabled(downloads.isDownloading || item.repairTarget != nil)
         .help(item.repairTarget == nil
             ? "Override the default quality for this queue item"
             : "Repairs use the quality recorded in the Library archive")
@@ -236,7 +239,7 @@ struct QueueRow: View {
                     .foregroundStyle(selected ? Color.accentColor : .secondary)
             }
             .buttonStyle(.plain)
-            .disabled(vm.isDownloading || !track.isAvailable)
+            .disabled(downloads.isDownloading || !track.isAvailable)
             .help(track.unavailableReason ?? (selected ? "Exclude this track" : "Include this track"))
 
             Text("\(track.position)")

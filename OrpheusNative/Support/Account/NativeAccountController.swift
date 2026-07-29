@@ -47,9 +47,16 @@ final class NativeAccountController: ObservableObject {
         return "\(flag) \(accountRegion.uppercased())"
     }
 
-    func load() throws {
-        let loadedSettings = try settingsStore.load()
-        let loadedCredentials = try credentialStore.load() ?? CredentialDraft()
+    func load() async throws {
+        let settingsStore = settingsStore
+        let credentialStore = credentialStore
+        let loaded = try await Task.detached(priority: .userInitiated) {
+            let settings = try settingsStore.load()
+            let credentials = try credentialStore.load() ?? CredentialDraft()
+            return (settings, credentials)
+        }.value
+        let loadedSettings = loaded.0
+        let loadedCredentials = loaded.1
         settings = loadedSettings
         credentials = loadedCredentials
         configureClient()

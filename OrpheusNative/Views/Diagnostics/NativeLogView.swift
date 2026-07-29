@@ -4,7 +4,7 @@ import SwiftUI
 struct NativeLogView: View {
     @EnvironmentObject private var vm: NativeViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var entries: [QobuzLogEntry] = []
+    @State private var logIndex = NativeLogQueryIndex(limit: 5_000)
     @State private var selectedID: UUID?
     @State private var minimumLevel: QobuzLogLevel = .trace
     @State private var category = "All"
@@ -45,7 +45,7 @@ struct NativeLogView: View {
                 .width(min: 125, ideal: 165, max: 230)
             }
             .contextMenu(forSelectionType: UUID.self) { values in
-                if let id = values.first, let entry = entries.first(where: { $0.id == id }) {
+                if let id = values.first, let entry = logIndex.entry(id: id) {
                     Button("Copy Event", systemImage: "doc.on.doc") { copy(entry) }
                 }
             } primaryAction: { values in
@@ -86,7 +86,7 @@ struct NativeLogView: View {
             let stream = vm.diagnostics.entryStream()
             refresh()
             for await entry in stream {
-                if autoRefresh { entries.appendDiagnostic(entry, limit: 5_000) }
+                if autoRefresh { logIndex.append(entry) }
             }
         }
         .onChange(of: autoRefresh) { _, enabled in if enabled { refresh() } }
@@ -103,7 +103,7 @@ struct NativeLogView: View {
             HStack(alignment: .firstTextBaseline) {
                 Label("Diagnostics", systemImage: "waveform.path.ecg.rectangle")
                     .font(.title2.weight(.semibold))
-                Text("\(filteredEntries.count) of \(entries.count) events")
+                Text("\(filteredEntries.count) of \(logIndex.count) events")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -161,36 +161,23 @@ struct NativeLogView: View {
     }
 
     private var filteredEntries: [QobuzLogEntry] {
-        entries.filter { entry in
-            guard entry.level >= minimumLevel else { return false }
-            guard category == "All" || entry.category == category else { return false }
-            guard !query.isEmpty else { return true }
-            let needle = query.localizedLowercase
-            return entry.message.localizedLowercase.contains(needle)
-                || entry.category.localizedLowercase.contains(needle)
-                || entry.sourceFile.localizedLowercase.contains(needle)
-                || (entry.errorDescription?.localizedLowercase.contains(needle) ?? false)
-                || (entry.errorDomain?.localizedLowercase.contains(needle) ?? false)
-                || (entry.errorFailureReason?.localizedLowercase.contains(needle) ?? false)
-                || (entry.errorRecoverySuggestion?.localizedLowercase.contains(needle) ?? false)
-                || (entry.underlyingErrors?.joined(separator: " ").localizedLowercase.contains(needle) ?? false)
-                || (entry.callStack?.joined(separator: " ").localizedLowercase.contains(needle) ?? false)
-                || entry.metadata.contains { key, value in
-                    key.localizedLowercase.contains(needle) || value.localizedLowercase.contains(needle)
-                }
-        }
+        logIndex.filtered(
+            minimumLevel: minimumLevel,
+            category: category,
+            query: query
+        )
     }
 
     private var selectedEntry: QobuzLogEntry? {
-        selectedID.flatMap { id in entries.first { $0.id == id } }
+        selectedID.flatMap(logIndex.entry(id:))
     }
 
     private var categories: [String] {
-        Set(entries.map(\.category)).sorted()
+        logIndex.categories
     }
 
     private func diagnosticCount(_ level: QobuzLogLevel, title: String) -> some View {
-        let count = entries.count { $0.level == level }
+        let count = logIndex.count(for: level)
         return Text("\(count) \(title)")
             .font(.caption.monospacedDigit())
             .foregroundStyle(level.color)
@@ -198,9 +185,9 @@ struct NativeLogView: View {
 
     private func refresh() {
         do {
-            entries = try vm.diagnostics.entries(limit: 5_000)
+            logIndex.replace(with: try vm.diagnostics.entries(limit: 5_000))
             loadError = nil
-            if let selectedID, !entries.contains(where: { $0.id == selectedID }) { self.selectedID = nil }
+            if let selectedID, logIndex.entry(id: selectedID) == nil { self.selectedID = nil }
         } catch {
             loadError = error.localizedDescription
         }

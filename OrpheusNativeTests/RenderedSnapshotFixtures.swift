@@ -90,7 +90,9 @@ enum RenderedSnapshotFixtures {
         )
     ]
 
-    static func recoveryViewModel(loadPreview: Bool = false) throws -> (viewModel: NativeViewModel, root: URL) {
+    static func recoveryViewModel(
+        loadPreview: Bool = false
+    ) async throws -> (viewModel: NativeViewModel, root: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("RenderedRecovery-\(UUID().uuidString)", isDirectory: true)
         let downloadRoot = root.appendingPathComponent("Music", isDirectory: true)
@@ -151,7 +153,7 @@ enum RenderedSnapshotFixtures {
             powerActivityManager: FakePowerActivityManager(),
             clientFactory: { _ in FakeQobuzService() }
         )
-        viewModel.start()
+        await viewModel.start()
         return (viewModel, root)
     }
 

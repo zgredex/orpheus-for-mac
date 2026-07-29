@@ -56,7 +56,7 @@ struct OrpheusNativeApp: App {
     var body: some Scene {
         WindowGroup {
             NativeContentView()
-                .environmentObject(viewModel)
+                .nativeApplicationEnvironment(viewModel)
                 .frame(
                     minWidth: DS.Window.minimumWidth,
                     maxWidth: .infinity,
@@ -64,7 +64,7 @@ struct OrpheusNativeApp: App {
                     maxHeight: .infinity
                 )
                 .task {
-                    if !NativeProcessContext.isRunningUnitTests { viewModel.start() }
+                    if !NativeProcessContext.isRunningUnitTests { await viewModel.start() }
                 }
                 .onOpenURL {
                     qobuzLog.info(

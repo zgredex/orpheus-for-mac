@@ -49,7 +49,7 @@ final class NativeDownloadItemRunner {
             "download.item",
             "Queue item download started",
             metadata: operationMetadata.merging([
-                "partialResumeBytes": ledger.partialRegardlessOfStatus(for: activityID, root: root)
+                "partialResumeBytes": ledger.partialRegardlessOfStatus(for: activityID)
                     .map { String($0.bytes) } ?? "0"
             ]) { _, new in new }
         )
@@ -102,12 +102,13 @@ final class NativeDownloadItemRunner {
                         queueID: item.id,
                         activityID: activityID,
                         startedAt: startedAt,
-                        isTerminating: isTerminating()
+                        isTerminating: isTerminating(),
+                        root: root
                     )
                     return
                 } catch let error as NativeQobuzError where error.requiresFreshSignedURL && !refreshedExpiredURL {
                     refreshedExpiredURL = true
-                    let partialExists = ledger.partialRegardlessOfStatus(for: activityID, root: root) != nil
+                    let partialExists = ledger.refreshPartial(for: activityID, root: root) != nil
                     qobuzLog.warning(
                         "download.recovery.url",
                         "Expired audio URL detected; reacquiring a fresh signed Qobuz URL",
@@ -124,7 +125,7 @@ final class NativeDownloadItemRunner {
                     continue
                 } catch let error as NativeQobuzError where error.isConnectivityLoss {
                     let generationAtFailure = connectivity.generation
-                    let partial = ledger.partialRegardlessOfStatus(for: activityID, root: root)
+                    let partial = ledger.refreshPartial(for: activityID, root: root)
                     qobuzLog.warning(
                         "download.recovery.network",
                         "Queue item is waiting for network recovery",
@@ -164,7 +165,8 @@ final class NativeDownloadItemRunner {
                                 queueID: item.id,
                                 activityID: activityID,
                                 startedAt: startedAt,
-                                isTerminating: isTerminating()
+                                isTerminating: isTerminating(),
+                                root: root
                             )
                             return
                         }
@@ -183,15 +185,13 @@ final class NativeDownloadItemRunner {
                     }
                     continue
                 } catch let error as NativeQobuzError where error.canResumeTransfer {
+                    let partial = ledger.refreshPartial(for: activityID, root: root)
                     qobuzLog.warning(
                         "download.item",
                         "Queue item download paused after a resumable failure",
                         metadata: [
                             "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
-                            "partialPath": ledger.partialRegardlessOfStatus(
-                                for: activityID,
-                                root: root
-                            )?.url.path ?? "none"
+                            "partialPath": partial?.url.path ?? "none"
                         ],
                         error: error
                     )
@@ -204,6 +204,7 @@ final class NativeDownloadItemRunner {
                     checkpoint()
                     return
                 } catch {
+                    _ = ledger.refreshPartial(for: activityID, root: root)
                     qobuzLog.error(
                         "download.item",
                         "Queue item download failed",
@@ -228,7 +229,8 @@ final class NativeDownloadItemRunner {
                 queueID: item.id,
                 activityID: activityID,
                 startedAt: startedAt,
-                isTerminating: isTerminating()
+                isTerminating: isTerminating(),
+                root: root
             )
         }
     }
@@ -237,8 +239,10 @@ final class NativeDownloadItemRunner {
         queueID: UUID,
         activityID: UUID,
         startedAt: Date,
-        isTerminating: Bool
+        isTerminating: Bool,
+        root: URL
     ) {
+        _ = ledger.refreshPartial(for: activityID, root: root)
         qobuzLog.notice(
             "download.item",
             isTerminating ? "Queue item paused for app termination" : "Queue item download cancelled",

@@ -1,21 +1,17 @@
 import Combine
 
 @MainActor
-final class NativeDomainObservationRelay {
-    private let onChange: () -> Void
+final class NativeSessionObservationRelay {
     private let onPersistenceChange: () -> Void
     private var observations = Set<AnyCancellable>()
 
-    init(onChange: @escaping () -> Void, onPersistenceChange: @escaping () -> Void) {
-        self.onChange = onChange
+    init(onPersistenceChange: @escaping () -> Void) {
         self.onPersistenceChange = onPersistenceChange
     }
 
-    func observe<Object: ObservableObject>(_ object: Object, persistsSession: Bool = false) {
+    func observe<Object: ObservableObject>(_ object: Object) {
         object.objectWillChange.sink { [weak self] _ in
-            guard let self else { return }
-            onChange()
-            if persistsSession { onPersistenceChange() }
+            self?.onPersistenceChange()
         }
         .store(in: &observations)
     }

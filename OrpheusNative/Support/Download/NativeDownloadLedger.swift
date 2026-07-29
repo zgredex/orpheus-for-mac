@@ -4,7 +4,7 @@ import NativeQobuzCore
 
 @MainActor
 final class NativeDownloadLedger: ObservableObject {
-    @Published private var state = NativeDownloadStateStore()
+    private var state = NativeDownloadStateStore()
 
     private var lastProgressUpdate: [UUID: Date] = [:]
     private let partialLocator: NativePartialDownloadLocator
@@ -16,11 +16,17 @@ final class NativeDownloadLedger: ObservableObject {
     var operations: [NativeDownloadOperation] { state.operations }
     var activities: [NativeDownloadActivity] { state.activities }
 
-    func restore(operations: [NativeDownloadOperation]) {
+    func restore(operations: [NativeDownloadOperation], root: URL) {
         var restoredState = NativeDownloadStateStore(operations: operations)
         _ = restoredState.normalizeAfterInterruption()
+        for operation in restoredState.operations {
+            restoredState.mutateOperation(queueID: operation.queueID) {
+                $0.resumablePartial = partialLocator.artifact(for: $0, root: root)
+            }
+        }
         state = restoredState
         lastProgressUpdate.removeAll()
+        objectWillChange.send()
     }
 
     func status(forQueueID queueID: UUID) -> NativeDownloadStatus {
@@ -62,8 +68,7 @@ final class NativeDownloadLedger: ObservableObject {
         if let operation = state.operation(forQueueID: item.id),
            let activityID = operation.activityID,
            operation.status.canResume || operation.status.canRetry {
-            let activity = NativeDownloadActivity(operation: operation)
-            let partial = partialLocator.artifact(for: activity, root: root)
+            let partial = partialLocator.artifact(for: operation, root: root)
             let isRetry = operation.status.canRetry
             mutateState { state in
                 state.mutateOperation(queueID: item.id) {
@@ -75,6 +80,7 @@ final class NativeDownloadLedger: ObservableObject {
                             ? (isRetry ? "Retrying" : "Resuming")
                             : "Resuming existing partial file"
                     )
+                    $0.resumablePartial = partial
                 }
                 state.transition(queueID: item.id, activityID: activityID, to: .queued)
             }
@@ -98,17 +104,25 @@ final class NativeDownloadLedger: ObservableObject {
     }
 
     func activity(id: UUID) -> NativeDownloadActivity? {
-        activities.first { $0.id == id }
+        state.operation(forActivityID: id).map(NativeDownloadActivity.init(operation:))
     }
 
-    func partial(for activity: NativeDownloadActivity, root: URL) -> NativePartialDownload? {
+    func partial(for activity: NativeDownloadActivity) -> NativePartialDownload? {
         let status = status(for: activity)
         guard status.canResume || status.canRetry else { return nil }
-        return partialLocator.artifact(for: activity, root: root)
+        return state.operation(forActivityID: activity.id)?.resumablePartial
     }
 
-    func partialRegardlessOfStatus(for activityID: UUID, root: URL) -> NativePartialDownload? {
-        activity(id: activityID).flatMap { partialLocator.artifact(for: $0, root: root) }
+    func partialRegardlessOfStatus(for activityID: UUID) -> NativePartialDownload? {
+        state.operation(forActivityID: activityID)?.resumablePartial
+    }
+
+    @discardableResult
+    func refreshPartial(for activityID: UUID, root: URL) -> NativePartialDownload? {
+        guard let operation = state.operation(forActivityID: activityID) else { return nil }
+        let partial = partialLocator.artifact(for: operation, root: root)
+        updateActivity(activityID) { $0.resumablePartial = partial }
+        return partial
     }
 
     func removeActivity(_ activity: NativeDownloadActivity, queueStillExists: Bool) {
@@ -174,6 +188,7 @@ final class NativeDownloadLedger: ObservableObject {
                 activity.recordOutput(destination)
                 activity.audioFormat = format
                 activity.bytesPerSecond = nil
+                activity.resumablePartial = nil
             case .progress(let progress):
                 activity.progress = progress.overallFraction
                 activity.completedTracks = progress.completedTracks
@@ -203,12 +218,13 @@ final class NativeDownloadLedger: ObservableObject {
                 activity.phase = "Indexing Library"
                 activity.progress = 1
                 activity.bytesPerSecond = nil
+                activity.resumablePartial = nil
             }
         }
     }
 
     func updateActivity(_ id: UUID, mutate: (inout NativeDownloadOperation) -> Void) {
-        guard let queueID = state.operations.first(where: { $0.activityID == id })?.queueID else { return }
+        guard let queueID = state.operation(forActivityID: id)?.queueID else { return }
         mutateState { $0.mutateOperation(queueID: queueID, mutate) }
     }
 
@@ -258,8 +274,8 @@ final class NativeDownloadLedger: ObservableObject {
     }
 
     private func mutateState(_ mutate: (inout NativeDownloadStateStore) -> Void) {
-        var updated = state
-        mutate(&updated)
-        if updated != state { state = updated }
+        let previousRevision = state.revision
+        mutate(&state)
+        if state.revision != previousRevision { objectWillChange.send() }
     }
 }

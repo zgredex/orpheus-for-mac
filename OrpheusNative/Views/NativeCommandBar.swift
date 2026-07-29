@@ -3,6 +3,9 @@ import SwiftUI
 
 struct NativeCommandBar: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var account: NativeAccountController
+    @EnvironmentObject private var queue: NativeQueueController
+    @EnvironmentObject private var downloads: NativeDownloadController
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -37,7 +40,7 @@ struct NativeCommandBar: View {
     private var downloadLocation: some View {
         Button(action: vm.revealDownloadRoot) {
             Label {
-                Text(vm.settings.downloadPath)
+                Text(account.settings.downloadPath)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -53,7 +56,7 @@ struct NativeCommandBar: View {
             maxWidth: DS.Column.commandPathMaximum,
             alignment: .leading
         )
-        .help(vm.settings.downloadPath)
+        .help(account.settings.downloadPath)
     }
 
     private var selectedTitle: String {
@@ -65,8 +68,8 @@ struct NativeCommandBar: View {
     }
 
     private var selectedIsPaused: Bool {
-        guard let item = vm.selectedQueueItem else { return false }
-        return vm.status(for: item) == .paused
+        guard let item = queue.selectedItem else { return false }
+        return downloads.status(for: item) == .paused
     }
 }
 

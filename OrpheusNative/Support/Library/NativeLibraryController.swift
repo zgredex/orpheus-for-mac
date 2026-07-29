@@ -7,12 +7,6 @@ struct NativePendingLibraryAdoption {
     let result: QobuzLibraryAdoptionResult
 }
 
-enum NativeLibraryCacheLoadStatus: Equatable {
-    case restored
-    case missing
-    case rejected
-}
-
 @MainActor
 final class NativeLibraryController: ObservableObject {
     @Published private(set) var isOpen = false
@@ -22,8 +16,10 @@ final class NativeLibraryController: ObservableObject {
     private let archiveStore: any NativeArchiveIndexStoring
     private let scanner: any QobuzArchiveScanning
     private let adopter: any QobuzLibraryAdopting
+    private let cacheRestorer: NativeLibraryCacheRestorer
     private let downloadedIndexer: NativeDownloadedLibraryIndexer
     private let revealer = NativeLibraryRevealController()
+    private var cacheLoadTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var refreshID: UUID?
 
@@ -35,6 +31,7 @@ final class NativeLibraryController: ObservableObject {
         self.archiveStore = archiveStore
         self.scanner = scanner
         self.adopter = adopter
+        cacheRestorer = NativeLibraryCacheRestorer(archiveStore: archiveStore)
         downloadedIndexer = NativeDownloadedLibraryIndexer(
             archiveStore: archiveStore,
             scanner: scanner
@@ -42,44 +39,29 @@ final class NativeLibraryController: ObservableObject {
     }
 
     @discardableResult
-    func loadCache(for root: URL) -> NativeLibraryCacheLoadStatus {
-        let rootPath = root.standardizedFileURL.path
-        do {
-            switch try archiveStore.load() {
-            case .restored(let cached) where cached.rootPath == rootPath:
-                snapshot = cached
-                qobuzLog.debug(
-                    "library.cache",
-                    "Archive cache restored",
-                    metadata: [
-                        "trackCount": String(cached.tracks.count),
-                        "problemCount": String(cached.problemCount)
-                    ]
-                )
-                return .restored
-            case .restored:
-                snapshot = nil
-                qobuzLog.debug("library.cache", "Archive cache did not match the current download root")
-                return .missing
-            case .missing:
-                snapshot = nil
-                return .missing
-            case .rejected:
-                snapshot = nil
-                return .rejected
-            }
-        } catch {
-            snapshot = nil
-            qobuzLog.warning("library.cache", "Archive cache could not be restored", error: error)
-            return .missing
-        }
+    func loadCache(for root: URL) async -> NativeLibraryCacheLoadStatus {
+        let restoration = await cacheRestorer.restore(for: root)
+        snapshot = restoration.snapshot
+        return restoration.status
     }
 
     func open(root: URL, onFailure: @escaping @MainActor (String) -> Void) {
         isOpen = true
         qobuzLog.notice("library.ui", "Library opened", metadata: ["downloadRoot": root.path])
-        if snapshot == nil { loadCache(for: root) }
-        refresh(root: root, onFailure: onFailure)
+        if snapshot == nil {
+            cacheLoadTask?.cancel()
+            isScanning = true
+            cacheLoadTask = Task { [weak self] in
+                guard let self else { return }
+                defer { cacheLoadTask = nil }
+                _ = await loadCache(for: root)
+                guard !Task.isCancelled, isOpen else { return }
+                cacheLoadTask = nil
+                refresh(root: root, onFailure: onFailure)
+            }
+        } else {
+            refresh(root: root, onFailure: onFailure)
+        }
     }
 
     func close() {
@@ -90,10 +72,14 @@ final class NativeLibraryController: ObservableObject {
 
     func invalidate() {
         cancelRefresh()
+        cacheLoadTask?.cancel()
+        cacheLoadTask = nil
         snapshot = nil
     }
 
     func cancelRefresh() {
+        cacheLoadTask?.cancel()
+        cacheLoadTask = nil
         refreshTask?.cancel()
         refreshTask = nil
         refreshID = nil

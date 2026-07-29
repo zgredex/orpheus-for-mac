@@ -50,11 +50,23 @@ jobs:
           path: Build/CI/UISnapshots/
           if-no-files-found: error
 
+  performance-budgets:
+    needs: verify
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen ripgrep
+      - name: Enforce Library, download-state, and diagnostics budgets
+        run: scripts/ci/test_performance.sh
+
   release-portability:
     if: github.event_name != 'pull_request'
     needs:
       - verify
       - ui-snapshots
+      - performance-budgets
     runs-on: macos-15
     timeout-minutes: 45
     steps:

@@ -24,6 +24,11 @@ struct QobuzArchiveIncrementalScanner {
             "scanMode": "incremental",
             "changedFolderCount": String(folders.count)
         ]
+        let interval = QobuzPerformanceSignposts.begin(
+            "LibraryScan",
+            metadata: "mode=incremental folders=\(folders.count)"
+        )
+        defer { QobuzPerformanceSignposts.end(interval, metadata: "mode=incremental") }
         qobuzLog.notice(
             "library.scan.incremental",
             "Targeted Library index refresh started",

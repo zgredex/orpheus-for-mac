@@ -32,8 +32,7 @@ final class QobuzDownloadOperationState: @unchecked Sendable {
     private(set) var outputs: [QobuzDownloadOutput] = []
     private(set) var verifiedOutputs: [QobuzVerifiedDownloadOutput] = []
     var reusableAudio: [String: URL]
-    var artworkCache: [QobuzID: EmbeddedArtwork] = [:]
-    var albumsWithoutArtwork = Set<QobuzID>()
+    let artworkCache = QobuzArtworkMemoryCache()
 
     init(reusableAudio: [String: URL]) {
         self.reusableAudio = reusableAudio

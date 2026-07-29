@@ -7,6 +7,7 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
     public let tracks: [QobuzArchiveTrack]
     public let issues: [QobuzArchiveIssue]
     public let collections: [QobuzLibraryCollectionRecord]
+    public let index: QobuzArchiveLookupIndex
 
     public init(
         version: Int = 1,
@@ -22,6 +23,11 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
         self.tracks = tracks
         self.issues = issues
         self.collections = collections
+        index = QobuzArchiveLookupIndex(
+            tracks: tracks,
+            issues: issues,
+            collections: collections
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -36,28 +42,34 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
         tracks = try container.decode([QobuzArchiveTrack].self, forKey: .tracks)
         issues = try container.decodeIfPresent([QobuzArchiveIssue].self, forKey: .issues) ?? []
         collections = try container.decodeIfPresent([QobuzLibraryCollectionRecord].self, forKey: .collections) ?? []
+        index = QobuzArchiveLookupIndex(
+            tracks: tracks,
+            issues: issues,
+            collections: collections
+        )
         try validate()
     }
 
-    public var library: QobuzArchiveLibrary { QobuzArchiveLibrary(tracks: tracks, collections: collections) }
-    public var albumCount: Int { library.count(of: .album) }
-    public var standaloneTrackCount: Int { library.count(of: .track) }
-    public var playlistCount: Int { library.count(of: .playlist) }
-    public var unclassifiedCount: Int { library.count(of: .unclassified) }
-    public var verifiedCount: Int { tracks.count { $0.integrity == .verified } }
-    public var problemCount: Int {
-        let trackProblemPaths = Set(tracks.filter { $0.integrity != .verified }.map(\.relativePath))
-        let standaloneIssues = issues.count { !trackProblemPaths.contains($0.relativePath) }
-        return trackProblemPaths.count + standaloneIssues
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(rootPath, forKey: .rootPath)
+        try container.encode(scannedAt, forKey: .scannedAt)
+        try container.encode(tracks, forKey: .tracks)
+        try container.encode(issues, forKey: .issues)
+        try container.encode(collections, forKey: .collections)
     }
 
+    public var library: QobuzArchiveLibrary { index.library }
+    public var albumCount: Int { index.count(of: .album) }
+    public var standaloneTrackCount: Int { index.count(of: .track) }
+    public var playlistCount: Int { index.count(of: .playlist) }
+    public var unclassifiedCount: Int { index.count(of: .unclassified) }
+    public var verifiedCount: Int { index.verifiedCount }
+    public var problemCount: Int { index.problemCount }
+
     public func coverage(trackIDs: [QobuzID], albumID: QobuzID? = nil) -> QobuzArchiveCoverage {
-        let expectedIDs = Set(trackIDs.map(\.rawValue))
-        let candidates = tracks.filter { track in
-            expectedIDs.contains(track.qobuzTrackID)
-                && albumID.map { track.qobuzAlbumID == $0.rawValue } != false
-        }
-        return Self.coverage(for: candidates, expectedCount: expectedIDs.count)
+        index.coverage(trackIDs: trackIDs, albumID: albumID)
     }
 
     public func coverage(trackID: QobuzID, albumID: QobuzID? = nil) -> QobuzArchiveCoverage {
@@ -65,24 +77,6 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
     }
 
     public func coverage(albumID: QobuzID) -> QobuzArchiveCoverage {
-        Self.coverage(
-            for: tracks.filter { $0.qobuzAlbumID == albumID.rawValue },
-            expectedCount: nil
-        )
-    }
-
-    private static func coverage(
-        for candidates: [QobuzArchiveTrack],
-        expectedCount: Int?
-    ) -> QobuzArchiveCoverage {
-        let groups = Dictionary(grouping: candidates, by: \.qobuzTrackID)
-        let verified = groups.values.count { records in records.contains { $0.integrity == .verified } }
-        let problems = groups.values.count { records in records.contains { $0.integrity != .verified } }
-        return QobuzArchiveCoverage(
-            matchedCount: groups.count,
-            verifiedCount: verified,
-            problemCount: problems,
-            expectedCount: expectedCount
-        )
+        index.coverage(albumID: albumID)
     }
 }

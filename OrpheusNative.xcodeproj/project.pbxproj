@@ -63,6 +63,7 @@
 		2E769A1C81D472E3D0F2FCC8 /* NativeDownloadOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F3D2CDE3338BA340D20AE4 /* NativeDownloadOrchestrator.swift */; };
 		2EEFB974685BF99FE4EAB429 /* NativeLogSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007E2F28C14EBD42F426B8AB /* NativeLogSecurityTests.swift */; };
 		3056A6AEA33E5FEBA247F1A1 /* NativeLinkInboxModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */; };
+		327D17D2AC14DBA8C904BF55 /* NativeLogQueryIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B134F71786A9D5A82CB03AE1 /* NativeLogQueryIndex.swift */; };
 		35192E4A39D0D642758ACA3C /* NativeLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FC20CA7C9EFAA04ABBD7D2 /* NativeLogging.swift */; };
 		35293EC701BE11B56041795A /* NativeQueueController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4F8C7FB0F0BC43B1BD57A8 /* NativeQueueController.swift */; };
 		35A42EF087D707B18258ACA6 /* NativeCrashReportExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA582B78EB044D0BB1DE4747 /* NativeCrashReportExporter.swift */; };
@@ -94,7 +95,9 @@
 		4A6AE3D6EC56FE0BC3A9C1EA /* LabelPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6EB097B50DA94628D894D48 /* LabelPreview.swift */; };
 		4CB4DA13EF807DBFAD3B2236 /* LibraryStatusLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE024F611CD6E3FA65CA675A /* LibraryStatusLabel.swift */; };
 		4D60D253C23468EE4541692D /* NativeDownloadLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 865F0B88B9C6E354244E6439 /* NativeDownloadLedger.swift */; };
+		4D9A9E05A64115E609EB665B /* NativeLogQueryIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B134F71786A9D5A82CB03AE1 /* NativeLogQueryIndex.swift */; };
 		4DC64F6A267DE1270791DFD0 /* LinkInboxSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */; };
+		4E2E1B093E8CCBBF66A86327 /* NativePerformanceBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC386C5BEA8FB275F2D6DB61 /* NativePerformanceBudgetTests.swift */; };
 		4FBA96A2379A11D8403B8D6C /* NativeLibraryManagementController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2149E78F9B26F398BD3AA4 /* NativeLibraryManagementController.swift */; };
 		4FE28CDCFBDCC88B5110781E /* PlaylistPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1301444BE5BFB3512E9484 /* PlaylistPreview.swift */; };
 		51ED66CCDD59E98C60C64B99 /* NativeInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F84910388BFB4F7DEBB16B /* NativeInputBar.swift */; };
@@ -108,6 +111,7 @@
 		57E761A8251DDDDFEB91CF8B /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
 		586A981F30D8993655793031 /* NativePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923659614A8B428EF4C2ADE2 /* NativePersistence.swift */; };
 		5A70E1054AA7B001A8C22431 /* NativeDownloadActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 360781DA5AD9C6B45F2D002B /* NativeDownloadActivity.swift */; };
+		5A78A112B2F51AD36A5BF0EF /* NativeLibraryCacheRestorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034CCD1453A2A4E23BF7C900 /* NativeLibraryCacheRestorer.swift */; };
 		5AC0704CF7A4650B3F76BF8B /* NativeLibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */; };
 		5B38E4D1DDE1AC6C3B3006EC /* NativeLibraryManagementSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901998CBD46944B08F423638 /* NativeLibraryManagementSection.swift */; };
 		5C2AC8D7A317969465F84529 /* NativeAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A65459F1F88915E30A939C /* NativeAdapterTests.swift */; };
@@ -137,6 +141,7 @@
 		7EB69FA2050C4B598B2E93F3 /* NativeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */; };
 		81B14C124A2B05976479F6E3 /* StatusStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7633B86BA2BFAB97FFB41551 /* StatusStyle.swift */; };
 		81B2534154422BC859247373 /* SearchResultsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA88442A935015C025CE423 /* SearchResultsList.swift */; };
+		8293B6C4654CBC2083AABD7E /* NativeApplicationEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0517A8B61D6BF154308C6981 /* NativeApplicationEnvironment.swift */; };
 		8380D937B21AF37172512E51 /* NativeLibraryManagementController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD2149E78F9B26F398BD3AA4 /* NativeLibraryManagementController.swift */; };
 		83C228999EA50D9BEEB900A3 /* NativeArchiveIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A0A8AC373FE4F6E43B4774 /* NativeArchiveIndexStore.swift */; };
 		83D9E8311103A54CF9CAF71B /* NativeProcessContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B3CAF159ED625BDC46EF028 /* NativeProcessContextTests.swift */; };
@@ -158,7 +163,6 @@
 		8CF802727D1A70405C8D801A /* workspace-thirteen-inch-target.json in Resources */ = {isa = PBXBuildFile; fileRef = BFFB9BBD73A3A299794ABB80 /* workspace-thirteen-inch-target.json */; };
 		8E18C20E2E93459FEB927D28 /* NativeSettingsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BFB3B9A1FFD6D8D3008CBCD /* NativeSettingsModels.swift */; };
 		8F65278DB92E852EF3188ABB /* NativeCatalogSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F4D979A0A59883F63207D3 /* NativeCatalogSearchController.swift */; };
-		90738BD4D2713EA68ACE51B0 /* QobuzLogEntryCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB71A4FDDB59FC77808F460F /* QobuzLogEntryCollection.swift */; };
 		910D7E80D16B65B88B811AFD /* NativeCatalogAvailabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */; };
 		91A4CA87864B92753A7CDCE3 /* NativeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5395DFDBDF53075B138ECDA7 /* NativeViewModel.swift */; };
 		922DDC3455590447D9E1199D /* NativeLibraryManagementSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901998CBD46944B08F423638 /* NativeLibraryManagementSection.swift */; };
@@ -186,6 +190,7 @@
 		A7A9183A28BA8F3ED4B0902C /* EditorialContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96C777437F88709C97FD469 /* EditorialContent.swift */; };
 		A9C92A5A9B245D268F71BC28 /* NativeLibraryResponsiveRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A681C45C657FB6478AB3DD20 /* NativeLibraryResponsiveRow.swift */; };
 		AA57F69E8F15A0F5F6D00C73 /* NativeSessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4687A6AFD49B7DEC9242E85 /* NativeSessionPersistence.swift */; };
+		AA811CC98829FBFD515E3269 /* NativeApplicationEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0517A8B61D6BF154308C6981 /* NativeApplicationEnvironment.swift */; };
 		AA8F90A459DD72D1AE5CD0F8 /* NativeBrowseHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F3C7C0E203BD67635565484 /* NativeBrowseHeader.swift */; };
 		AA9AA89B629EAA5F24C694C9 /* NativeLibraryProblemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EE49B9A1C120E5F3C76AC3F /* NativeLibraryProblemsView.swift */; };
 		AE24BFE6597A8429531C9268 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
@@ -230,7 +235,6 @@
 		CEA664AFBB0245BF0A661122 /* NativeLibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BF74884EE43DC865587155 /* NativeLibraryPresentation.swift */; };
 		CEAA82F4CF551B82FAB03DCA /* NativeLibrarySummaryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA34FDF881F4F29D2B540F /* NativeLibrarySummaryBar.swift */; };
 		D1561F1F7889FDC16900B961 /* NativeQueueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C82460BBAFD1AE94FD97BD /* NativeQueueModels.swift */; };
-		D1B0A67D2D86DC03615FFD9B /* QobuzLogEntryCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB71A4FDDB59FC77808F460F /* QobuzLogEntryCollection.swift */; };
 		D1C4D0D769F132B8890219C0 /* AddToQueueButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57563958E39251BB8E57A83 /* AddToQueueButton.swift */; };
 		D2959C4A6FC1E5C049D6CD9B /* NativeUnifiedLogExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 456E8DD8D0742A9835D955C2 /* NativeUnifiedLogExporter.swift */; };
 		D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8368534A06F69BCBD2B3D4A9 /* PreviewSamples.swift */; };
@@ -257,7 +261,9 @@
 		EA954016777F38A2E91A3316 /* EditorialTextFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81F3296DBFA84D9AEF4CC927 /* EditorialTextFormatterTests.swift */; };
 		EAAD0AF94461F0BDFB417814 /* NativeAppLifecycleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */; };
 		EBC9E6B91963101D64EDCD33 /* TrackListRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177F6887E92A0662B72B4E1A /* TrackListRow.swift */; };
+		EBF1E30361783B6160631F4D /* NativeLogQueryIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C3BDA0E650AD465106DD1C2 /* NativeLogQueryIndexTests.swift */; };
 		F37243C9C5EA36688ED116EE /* NativeBrowseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54ABFC83A8C2C7938C40EDBA /* NativeBrowseModels.swift */; };
+		F42A66ABA4BE98C4AFB02300 /* NativeLibraryCacheRestorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034CCD1453A2A4E23BF7C900 /* NativeLibraryCacheRestorer.swift */; };
 		F43ACE49B2E272391C5390D3 /* CollectionPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C98826DBF67A0674794E05 /* CollectionPreview.swift */; };
 		F4C0B0021A1432FE31CD9F90 /* NativeLogTailReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABC4B8F6486F410CD6E762FB /* NativeLogTailReader.swift */; };
 		F58D248E8FB018D6833BB9CE /* FileDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003989D257DBD4DDB426B074 /* FileDialogs.swift */; };
@@ -266,9 +272,11 @@
 		F79F86D2DC8AA3A87D9ED78D /* NativeLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F894D18FBA27D31C3D298D /* NativeLogView.swift */; };
 		F7AEF455FD8A8342B08D502E /* PreviewLibraryStatusStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C57086C15A8442EF27E5D1 /* PreviewLibraryStatusStrip.swift */; };
 		F80CF433ABEAEF58F08870E4 /* NativeUnifiedLogExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 456E8DD8D0742A9835D955C2 /* NativeUnifiedLogExporter.swift */; };
+		F941F45AA6C2E4E7D66997AA /* NativeLogQueryIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C3BDA0E650AD465106DD1C2 /* NativeLogQueryIndexTests.swift */; };
 		F990DDE7FA8AC883E6104DCD /* NativeDownloadedLibraryIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D84D07574AD1930B051C26 /* NativeDownloadedLibraryIndexer.swift */; };
 		FAC76A43063CBE6506D538FA /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4C3E12E51E345C1E8B92DC /* ArtworkView.swift */; };
 		FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40D28F3F550CBABAEC1CD16 /* NativeAccountController.swift */; };
+		FB71D096AFCC7EB0139F9BBA /* NativePerformanceBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC386C5BEA8FB275F2D6DB61 /* NativePerformanceBudgetTests.swift */; };
 		FBB47FE6DAA5BE9D8932D493 /* NativeDomainObservationRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76584BE0204F6A6B2FFFFD3B /* NativeDomainObservationRelay.swift */; };
 		FBB7C6BB796EC13A1BAF245D /* ArtistPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624429738F2CC0D9F469EE1C /* ArtistPreview.swift */; };
 		FCFEB1D2D5FAF854FF34B879 /* NativeSupplementalDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE64A3DC9CFECC56127334 /* NativeSupplementalDiagnostics.swift */; };
@@ -294,6 +302,8 @@
 		003989D257DBD4DDB426B074 /* FileDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDialogs.swift; sourceTree = "<group>"; };
 		007E2F28C14EBD42F426B8AB /* NativeLogSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogSecurityTests.swift; sourceTree = "<group>"; };
 		02A9D97AF52CB3196ED92FEA /* NativeLinkInboxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLinkInboxModels.swift; sourceTree = "<group>"; };
+		034CCD1453A2A4E23BF7C900 /* NativeLibraryCacheRestorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryCacheRestorer.swift; sourceTree = "<group>"; };
+		0517A8B61D6BF154308C6981 /* NativeApplicationEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeApplicationEnvironment.swift; sourceTree = "<group>"; };
 		0705669E15A714623F9D53B4 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		0819CF82188206C63DA08DE3 /* NativeProcessContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProcessContext.swift; sourceTree = "<group>"; };
 		0C5EC98CEBF8C1214908CA1E /* NativeCatalogAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCatalogAvailabilityPolicy.swift; sourceTree = "<group>"; };
@@ -350,6 +360,7 @@
 		7633B86BA2BFAB97FFB41551 /* StatusStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusStyle.swift; sourceTree = "<group>"; };
 		76584BE0204F6A6B2FFFFD3B /* NativeDomainObservationRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDomainObservationRelay.swift; sourceTree = "<group>"; };
 		7A3AE3BF79AC58159CBD9005 /* NativeDownloadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadController.swift; sourceTree = "<group>"; };
+		7C3BDA0E650AD465106DD1C2 /* NativeLogQueryIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogQueryIndexTests.swift; sourceTree = "<group>"; };
 		7C704CBAA3ABC9E4046C387C /* NativeCommandBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommandBar.swift; sourceTree = "<group>"; };
 		7C777A24256601BF7F4089C7 /* NativeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseView.swift; sourceTree = "<group>"; };
 		7CF9CE7AB59289B455575E2A /* NativeBrowseNavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseNavigationController.swift; sourceTree = "<group>"; };
@@ -383,6 +394,7 @@
 		AC888651F6CAE28EA87EA7DF /* NativeDownloadOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadOperation.swift; sourceTree = "<group>"; };
 		AFED95E0F6DD743562588D11 /* NativeLibraryArchiveRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryArchiveRows.swift; sourceTree = "<group>"; };
 		B10A14C40B3A1482C04D2095 /* NativeDiagnosticSnapshotBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiagnosticSnapshotBuilder.swift; sourceTree = "<group>"; };
+		B134F71786A9D5A82CB03AE1 /* NativeLogQueryIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLogQueryIndex.swift; sourceTree = "<group>"; };
 		B25441EE9C06E2C40A682D63 /* NativeDownloadRecoveryAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadRecoveryAction.swift; sourceTree = "<group>"; };
 		B3D453705AFB21557619B77B /* QueueRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueRow.swift; sourceTree = "<group>"; };
 		B446F850811D18DCFE2CEC97 /* settings-library-management.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "settings-library-management.json"; sourceTree = "<group>"; };
@@ -400,7 +412,7 @@
 		C4B3E1B16FD1227D035AA2B9 /* NativeContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeContentView.swift; sourceTree = "<group>"; };
 		C7E1E9077D1BEB69B541636E /* AlbumPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumPreview.swift; sourceTree = "<group>"; };
 		CAA5AE66E12FE918B96F275A /* RenderedSnapshotFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderedSnapshotFixtures.swift; sourceTree = "<group>"; };
-		CB71A4FDDB59FC77808F460F /* QobuzLogEntryCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QobuzLogEntryCollection.swift; sourceTree = "<group>"; };
+		CC386C5BEA8FB275F2D6DB61 /* NativePerformanceBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePerformanceBudgetTests.swift; sourceTree = "<group>"; };
 		CDC912D9AD8927E793E15B92 /* NativeBrowseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBrowseController.swift; sourceTree = "<group>"; };
 		CF04937CB4C4F2819B128DF9 /* LinkInboxSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkInboxSection.swift; sourceTree = "<group>"; };
 		CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryController.swift; sourceTree = "<group>"; };
@@ -466,9 +478,9 @@
 			children = (
 				FDEC6F9AAB6991A9FE61DA8E /* NativeLogCodec.swift */,
 				3236F1B9F8FD9F356FEDF289 /* NativeLogDirectory.swift */,
+				B134F71786A9D5A82CB03AE1 /* NativeLogQueryIndex.swift */,
 				8018D9249943EE483B447B27 /* NativeLogSerialWriter.swift */,
 				ABC4B8F6486F410CD6E762FB /* NativeLogTailReader.swift */,
-				CB71A4FDDB59FC77808F460F /* QobuzLogEntryCollection.swift */,
 			);
 			path = Diagnostics;
 			sourceTree = "<group>";
@@ -535,6 +547,7 @@
 			children = (
 				50A0A8AC373FE4F6E43B4774 /* NativeArchiveIndexStore.swift */,
 				B4D84D07574AD1930B051C26 /* NativeDownloadedLibraryIndexer.swift */,
+				034CCD1453A2A4E23BF7C900 /* NativeLibraryCacheRestorer.swift */,
 				CFC99465307B8BE92A8A52B2 /* NativeLibraryController.swift */,
 				FD2149E78F9B26F398BD3AA4 /* NativeLibraryManagementController.swift */,
 				E2590AB055407F6EB3B83B08 /* NativeLibraryModels.swift */,
@@ -604,7 +617,9 @@
 				DA986A2A917D8F063500CCA0 /* NativeDownloadStateStoreTests.swift */,
 				F46425A495CF2949A8A3F56A /* NativeHardeningTests.swift */,
 				99536D23BDAF3AD8F187C289 /* NativeLoggingTests.swift */,
+				7C3BDA0E650AD465106DD1C2 /* NativeLogQueryIndexTests.swift */,
 				007E2F28C14EBD42F426B8AB /* NativeLogSecurityTests.swift */,
+				CC386C5BEA8FB275F2D6DB61 /* NativePerformanceBudgetTests.swift */,
 				5F7EACCD37E2C01AE908A844 /* NativePersistenceHardeningTests.swift */,
 				1B3CAF159ED625BDC46EF028 /* NativeProcessContextTests.swift */,
 				1382D8ABAD094223F16C26F2 /* NativeTestDoubles.swift */,
@@ -737,6 +752,7 @@
 				DB7F396DBCA963176977A9DE /* EditorialTextFormatter.swift */,
 				003989D257DBD4DDB426B074 /* FileDialogs.swift */,
 				0705669E15A714623F9D53B4 /* Formatters.swift */,
+				0517A8B61D6BF154308C6981 /* NativeApplicationEnvironment.swift */,
 				F5A665EFAD4F7FA5D6F8376C /* NativeApplicationSupportFileStore.swift */,
 				BC7BDB5598BB95679EB51585 /* NativeAppLifecycleController.swift */,
 				F6B6DB3DFD4D2C906276B340 /* NativeBoundedFileReader.swift */,
@@ -971,8 +987,10 @@
 				C9C7298A6460C2883CF3C54B /* NativeDiagnosticsExportTests.swift in Sources */,
 				D8B66A1C2A5B145AD8FA727F /* NativeDownloadStateStoreTests.swift in Sources */,
 				3EE6C42CECA1C7F73941656A /* NativeHardeningTests.swift in Sources */,
+				F941F45AA6C2E4E7D66997AA /* NativeLogQueryIndexTests.swift in Sources */,
 				C77D187A949648716ED680EB /* NativeLogSecurityTests.swift in Sources */,
 				6F47EECC1DAC3005D3A4F7FD /* NativeLoggingTests.swift in Sources */,
+				4E2E1B093E8CCBBF66A86327 /* NativePerformanceBudgetTests.swift in Sources */,
 				646DF51AA01DAFCCA05CB85E /* NativePersistenceHardeningTests.swift in Sources */,
 				544386A950C21FED25D9C2AE /* NativeProcessContextTests.swift in Sources */,
 				7E1B98FD52F25B269856FD15 /* NativeTestDoubles.swift in Sources */,
@@ -1016,6 +1034,7 @@
 				CE3677485E1F29C8D5D6CBAA /* NativeAdapterTestDoubles.swift in Sources */,
 				132A77EBE277F5578AE143DB /* NativeAdapterTests.swift in Sources */,
 				EAAD0AF94461F0BDFB417814 /* NativeAppLifecycleController.swift in Sources */,
+				8293B6C4654CBC2083AABD7E /* NativeApplicationEnvironment.swift in Sources */,
 				0ECBE52591325E5999037A11 /* NativeApplicationSupportFileStore.swift in Sources */,
 				9423ACEDCFBA3902026FCAE2 /* NativeArchiveIndexStore.swift in Sources */,
 				25DC397BFBF04CCACFB42178 /* NativeBoundedFileReader.swift in Sources */,
@@ -1051,6 +1070,7 @@
 				456034E89451A8DF2A22FC87 /* NativeHardeningTests.swift in Sources */,
 				51ED66CCDD59E98C60C64B99 /* NativeInputBar.swift in Sources */,
 				6D2FECF642CEEB7A4442C4B1 /* NativeLibraryArchiveRows.swift in Sources */,
+				F42A66ABA4BE98C4AFB02300 /* NativeLibraryCacheRestorer.swift in Sources */,
 				40764A96AF301A3643287424 /* NativeLibraryCategoryView.swift in Sources */,
 				CBBE1ED3514F20E6A3205CDF /* NativeLibraryController.swift in Sources */,
 				4FBA96A2379A11D8403B8D6C /* NativeLibraryManagementController.swift in Sources */,
@@ -1067,6 +1087,8 @@
 				76E00A0435D70ECE91F06F96 /* NativeLogCodec.swift in Sources */,
 				E1DFCE422ED0426CEB1B0D99 /* NativeLogDetailView.swift in Sources */,
 				CAD54DA7DBFD5DDB19067405 /* NativeLogDirectory.swift in Sources */,
+				327D17D2AC14DBA8C904BF55 /* NativeLogQueryIndex.swift in Sources */,
+				EBF1E30361783B6160631F4D /* NativeLogQueryIndexTests.swift in Sources */,
 				2EEFB974685BF99FE4EAB429 /* NativeLogSecurityTests.swift in Sources */,
 				BCC1DB0341A03BA5904A397C /* NativeLogSerialWriter.swift in Sources */,
 				46CA007005A312DE56D49290 /* NativeLogTailReader.swift in Sources */,
@@ -1074,6 +1096,7 @@
 				35192E4A39D0D642758ACA3C /* NativeLogging.swift in Sources */,
 				86087E51AC543EC6589B6360 /* NativeLoggingTests.swift in Sources */,
 				2AD691E9AD8E44ED720AAE12 /* NativePartialDownloadLocator.swift in Sources */,
+				FB71D096AFCC7EB0139F9BBA /* NativePerformanceBudgetTests.swift in Sources */,
 				09C8551474A0325FB260E3DF /* NativePersistence.swift in Sources */,
 				126BBB9610148F6FA3D9428F /* NativePersistenceHardeningTests.swift in Sources */,
 				78056E546332944A96DD182D /* NativePreviewController.swift in Sources */,
@@ -1104,7 +1127,6 @@
 				3D9CC8783CE27B48D5D0C2FE /* PreviewLibraryStatusStrip.swift in Sources */,
 				D8816534D9714662FE2AB8B1 /* PreviewSamples.swift in Sources */,
 				D7AAC52CD736F61AF50FD1AF /* PreviewScaffold.swift in Sources */,
-				D1B0A67D2D86DC03615FFD9B /* QobuzLogEntryCollection.swift in Sources */,
 				77CC44EEACDF2E9C9FFCFC6A /* QualityBadge.swift in Sources */,
 				947D0090EC312CE661302ADC /* QueueRow.swift in Sources */,
 				89A4B40481C325CF2A95FC1F /* RegionBadge.swift in Sources */,
@@ -1145,6 +1167,7 @@
 				FB5E5B35E0767F1AB31F70D2 /* NativeAccountController.swift in Sources */,
 				1D9BBAEC775BF03CBC2E70A4 /* NativeActivityView.swift in Sources */,
 				13BF0FBF4716AE1DBFF062F9 /* NativeAppLifecycleController.swift in Sources */,
+				AA811CC98829FBFD515E3269 /* NativeApplicationEnvironment.swift in Sources */,
 				53BF25EB5E703C8CC50186C7 /* NativeApplicationSupportFileStore.swift in Sources */,
 				83C228999EA50D9BEEB900A3 /* NativeArchiveIndexStore.swift in Sources */,
 				7E4FCE2660B6A510D9C5073C /* NativeBoundedFileReader.swift in Sources */,
@@ -1177,6 +1200,7 @@
 				00CC422F6BDE278A284F3D4B /* NativeDownloadedLibraryIndexer.swift in Sources */,
 				0F9F2F2707FD8934B09E5F8F /* NativeInputBar.swift in Sources */,
 				8638F6D2DD73C12E99D15ABA /* NativeLibraryArchiveRows.swift in Sources */,
+				5A78A112B2F51AD36A5BF0EF /* NativeLibraryCacheRestorer.swift in Sources */,
 				D6B10B98C315E5C80AEC24CE /* NativeLibraryCategoryView.swift in Sources */,
 				5650A334BCCCD3E5DCBF1262 /* NativeLibraryController.swift in Sources */,
 				8380D937B21AF37172512E51 /* NativeLibraryManagementController.swift in Sources */,
@@ -1193,6 +1217,7 @@
 				7660B0D7DB6A433E55A8476A /* NativeLogCodec.swift in Sources */,
 				6DEDE0279489621DB32DD0BF /* NativeLogDetailView.swift in Sources */,
 				11751C08E166E1893E7FC81E /* NativeLogDirectory.swift in Sources */,
+				4D9A9E05A64115E609EB665B /* NativeLogQueryIndex.swift in Sources */,
 				DCF6774CB290535AD4E9CEA1 /* NativeLogSerialWriter.swift in Sources */,
 				F4C0B0021A1432FE31CD9F90 /* NativeLogTailReader.swift in Sources */,
 				3C9615092FED111AB2786DE3 /* NativeLogView.swift in Sources */,
@@ -1225,7 +1250,6 @@
 				F7AEF455FD8A8342B08D502E /* PreviewLibraryStatusStrip.swift in Sources */,
 				D3EDE1A3ABB6BD3A319DE516 /* PreviewSamples.swift in Sources */,
 				740BCE4DD6E55B4CA542B5E2 /* PreviewScaffold.swift in Sources */,
-				90738BD4D2713EA68ACE51B0 /* QobuzLogEntryCollection.swift in Sources */,
 				3CAF01CFE188948221B62CE5 /* QualityBadge.swift in Sources */,
 				BCE3D04D3C33FC0243F9018A /* QueueRow.swift in Sources */,
 				C34F69A22D6F42AB5A427F53 /* RegionBadge.swift in Sources */,

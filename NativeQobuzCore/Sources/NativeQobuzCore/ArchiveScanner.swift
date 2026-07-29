@@ -43,6 +43,11 @@ public struct QobuzArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {
         let scanID = UUID().uuidString
         let started = Date()
         let scanMetadata = ["libraryScanID": scanID, "downloadRoot": root.path]
+        let interval = QobuzPerformanceSignposts.begin(
+            "LibraryScan",
+            metadata: "mode=full root=\(root.path)"
+        )
+        defer { QobuzPerformanceSignposts.end(interval, metadata: "mode=full") }
         qobuzLog.notice("library.scan", "Library integrity scan started", metadata: scanMetadata)
         let fileSystem: LibraryFileSystem
         do {

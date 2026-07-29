@@ -3,6 +3,9 @@ import SwiftUI
 
 struct NativeLibraryView: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var library: NativeLibraryController
+    @EnvironmentObject private var libraryManagement: NativeLibraryManagementController
+    @EnvironmentObject private var downloads: NativeDownloadController
     @State private var section: NativeLibrarySection = .albums
     @State private var selection = Set<QobuzArchiveTrack.ID>()
     @State private var showRepairAllConfirmation = false
@@ -11,10 +14,10 @@ struct NativeLibraryView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if let snapshot = vm.archiveSnapshot {
+            if let snapshot = library.snapshot {
                 NativeLibrarySummaryBar(
                     snapshot: snapshot,
-                    isScanning: vm.isArchiveScanning,
+                    isScanning: library.isScanning,
                     section: $section
                 )
                 Divider()
@@ -25,7 +28,7 @@ struct NativeLibraryView: View {
                         synchronize(with: snapshot)
                     }
                     .onChange(of: section) { _, _ in selection.removeAll() }
-            } else if vm.isArchiveScanning {
+            } else if library.isScanning {
                 ProgressView("Reading provenance and verifying checksums...")
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,13 +58,13 @@ struct NativeLibraryView: View {
         HStack(spacing: DS.Space.s) {
             Image(systemName: "books.vertical").foregroundStyle(.secondary)
             Text("Library").fontWeight(.semibold)
-            if vm.isArchiveScanning { ProgressView().controlSize(.small) }
+            if library.isScanning { ProgressView().controlSize(.small) }
             Spacer()
             Button(action: { vm.refreshArchive(fullVerification: true) }) {
                 Image(systemName: "checkmark.shield")
             }
             .buttonStyle(.borderless)
-            .disabled(vm.isArchiveScanning || vm.isDownloading)
+            .disabled(library.isScanning || downloads.isDownloading)
             .help("Verify Library")
             if section != .problems {
                 Button {
@@ -70,13 +73,13 @@ struct NativeLibraryView: View {
                     Image(systemName: "wrench.and.screwdriver")
                 }
                 .buttonStyle(.borderless)
-                .disabled(selectedRepairTracks.isEmpty || vm.isDownloading || vm.isArchiveScanning)
+                .disabled(selectedRepairTracks.isEmpty || downloads.isDownloading || library.isScanning)
                 .help(selectedRepairTracks.isEmpty ? "Select files that need attention" : "Repair Selected")
                 Menu {
                     Button("Repair All Problems", systemImage: "wrench.and.screwdriver") {
                         showRepairAllConfirmation = true
                     }
-                    .disabled(repairableTracks.isEmpty || vm.isDownloading || vm.isArchiveScanning)
+                    .disabled(repairableTracks.isEmpty || downloads.isDownloading || library.isScanning)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -90,7 +93,7 @@ struct NativeLibraryView: View {
                 Image(systemName: "externaldrive.badge.timemachine")
             }
             .buttonStyle(.borderless)
-            .disabled(vm.isDownloading || vm.libraryManagement.isWorking)
+            .disabled(downloads.isDownloading || libraryManagement.isWorking)
             .help("Relocate, Prune, or Delete Library")
             Button(action: vm.closeLibrary) { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
@@ -105,8 +108,8 @@ struct NativeLibraryView: View {
         if section == .problems {
             NativeLibraryProblemsView(
                 snapshot: snapshot,
-                isScanning: vm.isArchiveScanning,
-                isDownloading: vm.isDownloading,
+                isScanning: library.isScanning,
+                isDownloading: downloads.isDownloading,
                 selection: $selection,
                 onRepair: vm.repairArchiveTracks,
                 onRepairAll: { showRepairAllConfirmation = true },
@@ -125,7 +128,7 @@ struct NativeLibraryView: View {
     }
 
     private var repairableTracks: [QobuzArchiveTrack] {
-        vm.archiveSnapshot?.tracks.filter {
+        library.snapshot?.tracks.filter {
             $0.integrity != .verified && $0.audioFormat != nil
         } ?? []
     }

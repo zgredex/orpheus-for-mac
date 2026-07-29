@@ -59,6 +59,7 @@ enum PreviewSamples {
 }
 
 #Preview("Queue rows") {
+    let viewModel = NativeViewModel(paths: NativePaths())
     List(Array(PreviewSamples.queueItems.enumerated()), id: \.element.id) { offset, item in
         QueueRow(
             item: item,
@@ -72,10 +73,11 @@ enum PreviewSamples {
     }
         .listStyle(.sidebar)
         .frame(width: 300, height: 200)
-        .environmentObject(NativeViewModel(paths: NativePaths()))
+        .nativeApplicationEnvironment(viewModel)
 }
 
 #Preview("Activity row") {
+    let viewModel = NativeViewModel(paths: NativePaths())
     List {
         ActivityRow(
             activity: PreviewSamples.activity,
@@ -83,7 +85,7 @@ enum PreviewSamples {
             showsDetails: .constant(false)
         )
     }
-        .environmentObject(NativeViewModel(paths: NativePaths()))
+        .nativeApplicationEnvironment(viewModel)
         .frame(width: 520, height: 120)
 }
 

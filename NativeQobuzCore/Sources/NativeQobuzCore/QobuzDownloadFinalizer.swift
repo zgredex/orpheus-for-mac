@@ -14,6 +14,16 @@ struct QobuzDownloadFinalizer: Sendable {
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
     ) async throws {
+        let interval = QobuzPerformanceSignposts.begin(
+            "DownloadFinalization",
+            metadata: "tracks=\(state.outputs.count) repair=\(configuration.repairTarget != nil)"
+        )
+        defer {
+            QobuzPerformanceSignposts.end(
+                interval,
+                metadata: "tracks=\(state.outputs.count)"
+            )
+        }
         continuation.yield(.checkpoint(QobuzDownloadCheckpoint(phase: .writingCollectionAssets)))
         try await writeBooklets(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()

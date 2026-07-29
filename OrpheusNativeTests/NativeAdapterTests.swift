@@ -24,7 +24,7 @@ final class NativeAdapterTests: XCTestCase {
         )
     }
 
-    func testConnectivityMonitorLifecycleUpdatesViewModelAndStopsAtTermination() {
+    func testConnectivityMonitorLifecycleUpdatesViewModelAndStopsAtTermination() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
@@ -37,7 +37,7 @@ final class NativeAdapterTests: XCTestCase {
             powerActivityManager: FakePowerActivityManager()
         )
 
-        viewModel.start()
+        await viewModel.start()
         XCTAssertEqual(monitor.startCount, 1)
         XCTAssertEqual(viewModel.connectivityState, .unknown)
 
@@ -305,7 +305,7 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertTrue(paths.sessionURL.path.hasPrefix(paths.applicationSupportRoot.path))
     }
 
-    func testQueuePlanControlsUpdateSelectionQualityOrderAndPersistence() throws {
+    func testQueuePlanControlsUpdateSelectionQualityOrderAndPersistence() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
@@ -329,7 +329,7 @@ final class NativeAdapterTests: XCTestCase {
             archiveStore: MemoryArchiveStore(),
             sessionStore: sessionStore
         )
-        viewModel.start()
+        await viewModel.start()
 
         viewModel.toggleQueueTrack(QobuzID("one"), in: first.id)
         XCTAssertEqual(viewModel.queue.first?.selectedTrackIDs, [QobuzID("two")])
@@ -352,7 +352,7 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertNil(sessionStore.snapshot?.queue.first?.selectedTrackIDs)
     }
 
-    func testActivityFindsOnlyRecoverableNonemptyPartialFiles() throws {
+    func testActivityFindsOnlyRecoverableNonemptyPartialFiles() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(
@@ -388,7 +388,7 @@ final class NativeAdapterTests: XCTestCase {
             credentialStore: MemoryCredentialStore(),
             sessionStore: sessionStore
         )
-        viewModel.start()
+        await viewModel.start()
 
         XCTAssertEqual(
             viewModel.resumablePartial(for: activity),
@@ -403,12 +403,18 @@ final class NativeAdapterTests: XCTestCase {
         operation.quality = nil
         operation.audioFormat = .hiRes96
         let format7Activity = NativeDownloadActivity(operation: operation)
+        let format7ViewModel = await restoredViewModel(
+            status: .paused,
+            item: item,
+            activity: format7Activity,
+            paths: paths
+        )
         XCTAssertEqual(
-            viewModel.resumablePartial(for: format7Activity),
+            format7ViewModel.resumablePartial(for: format7Activity),
             NativePartialDownload(url: format7Partial, bytes: 2_048)
         )
 
-        let completedViewModel = restoredViewModel(
+        let completedViewModel = await restoredViewModel(
             status: .completed,
             item: item,
             activity: format7Activity,
@@ -416,7 +422,7 @@ final class NativeAdapterTests: XCTestCase {
         )
         XCTAssertNil(completedViewModel.resumablePartial(for: format7Activity))
 
-        let failedViewModel = restoredViewModel(
+        let failedViewModel = await restoredViewModel(
             status: .failed("Network unavailable"),
             item: item,
             activity: format7Activity,
@@ -444,7 +450,7 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(NativeSessionSnapshot.self, from: data))
     }
 
-    func testViewModelRestoresInterruptedDownloadAsPaused() {
+    func testViewModelRestoresInterruptedDownloadAsPaused() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
@@ -468,7 +474,7 @@ final class NativeAdapterTests: XCTestCase {
             sessionStore: sessionStore
         )
 
-        viewModel.start()
+        await viewModel.start()
 
         XCTAssertEqual(viewModel.queue.first.map(viewModel.status(for:)), .paused)
         XCTAssertEqual(viewModel.queue.first?.downloadQuality, .lossless)
@@ -505,7 +511,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.addText("https://www.qobuz.com/fr-fr/album/30/30")
 
         XCTAssertTrue(viewModel.queue.isEmpty)
@@ -533,7 +539,7 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(viewModel.queue.first?.artworkURL, URL(string: "https://example.com/30.jpg"))
     }
 
-    func testBrowserHandoffOpensPercentEncodedQobuzURLInBrowse() throws {
+    func testBrowserHandoffOpensPercentEncodedQobuzURLInBrowse() async throws {
         for scheme in ["orpheus-for-mac", "orpheus-native"] {
             let fixture = NativeViewModelTestFixture(credentials: .complete)
             let viewModel = fixture.viewModel
@@ -544,7 +550,7 @@ final class NativeAdapterTests: XCTestCase {
                 URLQueryItem(name: "url", value: "https://www.qobuz.com/fr-fr/album/30/30")
             ]
 
-            viewModel.start()
+            await viewModel.start()
             viewModel.handleOpenURL(try XCTUnwrap(components.url))
 
             XCTAssertEqual(viewModel.browse.path.last?.destination, .album(QobuzID("30")), scheme)
@@ -556,7 +562,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.addText("https://open.qobuz.com/album/a\nhttps://play.qobuz.com/album/b")
 
         for _ in 0..<100 where viewModel.linkInbox.contains(where: {
@@ -579,7 +585,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.addText(
             "https://open.qobuz.com/album/a\nhttps://open.qobuz.com/album/missing-region"
         )
@@ -603,7 +609,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.addText("https://www.qobuz.com/us-en/label/example/download-streaming-albums/4587")
         for _ in 0..<100 where viewModel.browse.path.last?.content == .loading {
             try await Task.sleep(for: .milliseconds(10))
@@ -645,7 +651,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.search("adele")
         viewModel.browse.category = .tracks
 
@@ -669,7 +675,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete, service: service)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.search("Sting")
         for _ in 0..<100 where viewModel.browse.isLoading {
             try await Task.sleep(for: .milliseconds(10))
@@ -696,7 +702,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete, service: service)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.openArtist(QobuzID("adele"))
         for _ in 0..<100 where viewModel.browse.path.last?.content == .loading {
             try await Task.sleep(for: .milliseconds(10))
@@ -743,7 +749,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.search("adele")
         viewModel.openAlbum(QobuzID("30"))
         XCTAssertEqual(viewModel.browse.path.count, 1)
@@ -772,7 +778,7 @@ final class NativeAdapterTests: XCTestCase {
         let fixture = NativeViewModelTestFixture(credentials: .complete)
         let viewModel = fixture.viewModel
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.addRequest(.artist(QobuzID("adele")), title: "Adele")
 
         for _ in 0..<100 where viewModel.preview == .loading {
@@ -830,7 +836,7 @@ final class NativeAdapterTests: XCTestCase {
             archiveStore: archiveStore,
             archiveScanner: archiveScanner
         )
-        viewModel.start()
+        await viewModel.start()
 
         viewModel.openLibrary()
         for _ in 0..<100 where viewModel.isArchiveScanning {
@@ -874,7 +880,7 @@ final class NativeAdapterTests: XCTestCase {
             clientFactory: { _ in FakeQobuzService() }
         )
 
-        viewModel.start()
+        await viewModel.start()
         let summary = QobuzAlbumSummary(id: QobuzID("30"), title: "30")
         XCTAssertEqual(viewModel.library.status(for: summary), .indexed(verified: 1, problems: 0))
 
@@ -888,7 +894,7 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(viewModel.library.status(for: item), .verified)
     }
 
-    func testCachedArchiveForAnotherDownloadRootIsIgnored() {
+    func testCachedArchiveForAnotherDownloadRootIsIgnored() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let paths = NativePaths(applicationSupportRoot: root, defaultDownloadRoot: root.appendingPathComponent("Music"))
         let snapshot = QobuzArchiveSnapshot(
@@ -902,7 +908,7 @@ final class NativeAdapterTests: XCTestCase {
             archiveStore: MemoryArchiveStore(snapshot: snapshot)
         )
 
-        viewModel.start()
+        await viewModel.start()
 
         XCTAssertNil(viewModel.archiveSnapshot)
         XCTAssertNil(viewModel.library.status(for: QobuzAlbumSummary(id: QobuzID("album-id"), title: "Album")))
@@ -954,7 +960,7 @@ final class NativeAdapterTests: XCTestCase {
         item: NativeQueueItem,
         activity: NativeDownloadActivity,
         paths: NativePaths
-    ) -> NativeViewModel {
+    ) async -> NativeViewModel {
         var operation = activity.operation
         operation.status = status
         let sessionStore = MemorySessionStore(snapshot: singleItemSession(item: item, operation: operation))
@@ -964,7 +970,7 @@ final class NativeAdapterTests: XCTestCase {
             credentialStore: MemoryCredentialStore(),
             sessionStore: sessionStore
         )
-        viewModel.start()
+        await viewModel.start()
         return viewModel
     }
 

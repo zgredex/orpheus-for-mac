@@ -42,7 +42,7 @@ final class NativeAppLifecycleController {
         onValidateAccount: @escaping () -> Void,
         onNotice: @escaping (String) -> Void,
         onRequireSettings: @escaping () -> Void
-    ) {
+    ) async {
         guard !started else {
             qobuzLog.debug("lifecycle", "Ignored duplicate app startup request")
             return
@@ -51,9 +51,16 @@ final class NativeAppLifecycleController {
         session.activate()
         connectivity.start()
         let startedAt = Date()
+        let interval = QobuzPerformanceSignposts.begin("AppStartup")
+        defer {
+            QobuzPerformanceSignposts.end(
+                interval,
+                metadata: "queue=\(queue.items.count) activities=\(downloads.activities.count)"
+            )
+        }
         qobuzLog.notice("lifecycle", "Native app startup started")
         do {
-            try account.load()
+            try await account.load()
             qobuzLog.info(
                 "lifecycle",
                 "Startup configuration loaded",
@@ -67,7 +74,7 @@ final class NativeAppLifecycleController {
                 fileURLWithPath: account.settings.downloadPath,
                 isDirectory: true
             ).standardizedFileURL
-            if library.loadCache(for: libraryRoot) == .rejected {
+            if await library.loadCache(for: libraryRoot) == .rejected {
                 qobuzLog.notice(
                     "library.cache",
                     "No valid archive cache is available; rebuilding from the Library"
@@ -77,7 +84,7 @@ final class NativeAppLifecycleController {
                 }
             }
             do {
-                try session.restore()
+                try await session.restore(root: libraryRoot)
             } catch {
                 qobuzLog.error("persistence.session", "Download queue restoration failed", error: error)
                 onNotice("Could not restore the download queue: \(error.localizedDescription)")

@@ -179,12 +179,13 @@ public struct QobuzAudioMetadata: Equatable, Sendable {
 }
 
 public protocol AudioMetadataWriting: Sendable {
+    @discardableResult
     func write(
         metadata: QobuzAudioMetadata,
         artwork: EmbeddedArtwork?,
         to fileURL: URL,
         fileSystem: LibraryFileSystem
-    ) throws
+    ) throws -> String
 }
 
 public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
@@ -193,12 +194,13 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
 
     public init() {}
 
+    @discardableResult
     public func write(
         metadata: QobuzAudioMetadata,
         artwork: EmbeddedArtwork?,
         to fileURL: URL,
         fileSystem: LibraryFileSystem
-    ) throws {
+    ) throws -> String {
         let started = Date()
         let embeddableArtwork = artwork.flatMap {
             $0.data.count <= EmbeddedArtwork.maximumEmbeddedBytes ? $0 : nil
@@ -218,7 +220,7 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
         ]
         qobuzLog.info("metadata.audio", "Audio metadata write started", metadata: metadataValues)
         do {
-            switch fileURL.pathExtension.lowercased() {
+            let checksum = switch fileURL.pathExtension.lowercased() {
             case "mp3":
                 try id3Writer.write(
                     metadata: metadata,
@@ -243,6 +245,7 @@ public struct NativeAudioMetadataWriter: AudioMetadataWriting, Sendable {
                     "durationMs": String(Int(Date().timeIntervalSince(started) * 1_000))
                 ]) { _, new in new }
             )
+            return checksum
         } catch {
             qobuzLog.error(
                 "metadata.audio",

@@ -72,7 +72,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             )))
             continuation.yield(.tagging(track: item))
             qobuzLog.info("download.metadata", "Writing audio metadata and artwork", metadata: trackMetadata)
-            try metadataWriter.write(
+            let checksum = try metadataWriter.write(
                 metadata: QobuzAudioMetadata(item: item),
                 artwork: artwork,
                 to: staging,
@@ -97,10 +97,9 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             }
             try Task.checkCancellation()
             let stagingPath = try fileSystem.relativePath(for: staging)
-            let checksum = try MusicFileIntegrity.sha256(of: stagingPath, in: fileSystem)
             qobuzLog.info(
                 "download.integrity",
-                "Track checksum calculated",
+                "Track checksum finalized during metadata write",
                 metadata: trackMetadata.merging(["sha256": checksum]) { _, new in new }
             )
             continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
@@ -217,11 +216,13 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
         state: QobuzDownloadOperationState,
         trackMetadata: [String: String]
     ) -> Task<EmbeddedArtwork?, Error> {
-        if let cached = state.artworkCache[item.album.id] {
+        switch state.artworkCache.lookup(item.album.id) {
+        case .artwork(let cached):
             return Task { cached }
-        }
-        if state.albumsWithoutArtwork.contains(item.album.id) {
+        case .missing:
             return Task { nil }
+        case .notCached:
+            break
         }
         return Task {
             try await QobuzLogScope.withValue(trackMetadata) {
@@ -243,7 +244,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
         } catch let error where error.isQobuzCancellation {
             throw NativeQobuzError.cancelled
         } catch {
-            state.albumsWithoutArtwork.insert(item.album.id)
+            state.artworkCache.store(nil, for: item.album.id)
             qobuzLog.warning(
                 "download.artwork",
                 "Album artwork could not be downloaded",
@@ -253,11 +254,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             continuation.yield(.warning("Artwork: \(error.localizedDescription)"))
             return nil
         }
-        if let artwork {
-            state.artworkCache[item.album.id] = artwork
-        } else {
-            state.albumsWithoutArtwork.insert(item.album.id)
-        }
+        state.artworkCache.store(artwork, for: item.album.id)
         return artwork
     }
 

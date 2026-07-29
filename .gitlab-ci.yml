@@ -1,5 +1,6 @@
 stages:
   - verify
+  - performance
   - release
 
 default:
@@ -28,6 +29,7 @@ native-release-portability:
   stage: release
   needs:
     - native-verify
+    - native-performance-budgets
   script:
     - scripts/ci/release.sh
   artifacts:
@@ -40,3 +42,13 @@ native-release-portability:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_BRANCH == "native-qobuz"
     - if: $CI_PIPELINE_SOURCE == "web"
+
+native-performance-budgets:
+  stage: performance
+  needs:
+    - native-verify
+  script:
+    - scripts/ci/test_performance.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH

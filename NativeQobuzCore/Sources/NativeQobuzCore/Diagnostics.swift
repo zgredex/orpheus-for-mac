@@ -113,6 +113,10 @@ public enum QobuzLogScope {
 /// installs a durable JSONL sink while command-line tools still receive OSLog.
 public final class QobuzDiagnostics: @unchecked Sendable {
     public typealias Sink = @Sendable (QobuzLogEntry) -> Void
+    private struct RedactionRule: @unchecked Sendable {
+        let expression: NSRegularExpression
+        let replacement: String
+    }
 
     public static let shared = QobuzDiagnostics()
     public let sessionID = UUID()
@@ -120,7 +124,28 @@ public final class QobuzDiagnostics: @unchecked Sendable {
 
     private let lock = NSLock()
     private var sink: Sink?
+    private var unifiedLoggers: [String: Logger] = [:]
     private let subsystem = "com.orpheus.formac"
+    private static let redactionRules: [RedactionRule] = [
+        (
+            #"(?i)([\"']?(?:user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)[\"']?\s*:\s*)(\"[^\"]*\"|'[^']*')"#,
+            #"$1\"<redacted>\""#
+        ),
+        (
+            #"(?i)((?:user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)(?:\s*=\s*|%3D))[^&\s,}\]]+"#,
+            "$1<redacted>"
+        ),
+        (
+            #"(?i)((?:X-User-Auth-Token|user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)\s*:\s*)(?![\"'])[^\r\n,}\]]+"#,
+            "$1<redacted>"
+        ),
+        (#"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+"#, "$1<redacted>")
+    ].compactMap { pattern, replacement in
+        try? RedactionRule(
+            expression: NSRegularExpression(pattern: pattern),
+            replacement: replacement
+        )
+    }
 
     private init() {}
 
@@ -226,28 +251,12 @@ public final class QobuzDiagnostics: @unchecked Sendable {
     public static func redact(_ value: String, key: String? = nil) -> String {
         if let key, sensitiveKey(key) { return "<redacted>" }
         var result = value
-        let replacements = [
-            (
-                #"(?i)([\"']?(?:user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)[\"']?\s*:\s*)(\"[^\"]*\"|'[^']*')"#,
-                #"$1\"<redacted>\""#
-            ),
-            (
-                #"(?i)((?:user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)(?:\s*=\s*|%3D))[^&\s,}\]]+"#,
-                "$1<redacted>"
-            ),
-            (
-                #"(?i)((?:X-User-Auth-Token|user_auth_token|auth[_-]?token|app[_-]?secret|request_sig|authorization)\s*:\s*)(?![\"'])[^\r\n,}\]]+"#,
-                "$1<redacted>"
-            ),
-            (#"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+"#, "$1<redacted>")
-        ]
-        for (pattern, replacement) in replacements {
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { continue }
+        for rule in redactionRules {
             let range = NSRange(result.startIndex..<result.endIndex, in: result)
-            result = expression.stringByReplacingMatches(
+            result = rule.expression.stringByReplacingMatches(
                 in: result,
                 range: range,
-                withTemplate: replacement
+                withTemplate: rule.replacement
             )
         }
         return result
@@ -274,8 +283,10 @@ public final class QobuzDiagnostics: @unchecked Sendable {
         }
         var visited = Set<ObjectIdentifier>()
         var descriptions: [String] = []
-        while let error = pending.first, descriptions.count < 16 {
-            pending.removeFirst()
+        var cursor = 0
+        while cursor < pending.count, descriptions.count < 16 {
+            let error = pending[cursor]
+            cursor += 1
             guard visited.insert(ObjectIdentifier(error)).inserted else { continue }
             descriptions.append(redact(
                 "\(String(reflecting: type(of: error))) domain=\(error.domain) code=\(error.code): \(error.localizedDescription)"
@@ -289,7 +300,12 @@ public final class QobuzDiagnostics: @unchecked Sendable {
     }
 
     private func emitToUnifiedLog(_ entry: QobuzLogEntry) {
-        let logger = Logger(subsystem: subsystem, category: entry.category)
+        let logger = lock.withLock {
+            if let logger = unifiedLoggers[entry.category] { return logger }
+            let logger = Logger(subsystem: subsystem, category: entry.category)
+            unifiedLoggers[entry.category] = logger
+            return logger
+        }
         let details = entry.metadata.keys.sorted().compactMap { key in
             entry.metadata[key].map { "\(key)=\($0)" }
         }.joined(separator: " ")

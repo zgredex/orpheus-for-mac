@@ -2,16 +2,17 @@ import SwiftUI
 
 struct NativeActivityView: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var downloads: NativeDownloadController
     @State private var expandedActivityIDs: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
-            PaneHeader(title: "Activity", count: vm.activities.count) {
+            PaneHeader(title: "Activity", count: downloads.activities.count) {
                 Button(action: vm.clearFinishedActivities) { Image(systemName: "trash") }
-                    .buttonStyle(.plain).disabled(!vm.canClearActivity).help("Clear finished")
+                    .buttonStyle(.plain).disabled(!downloads.canClearActivity).help("Clear finished")
             }
             Divider()
-            if vm.activities.isEmpty {
+            if downloads.activities.isEmpty {
                 HStack(spacing: DS.Space.m) {
                     Image(systemName: "arrow.down.circle")
                         .font(.title3)
@@ -28,10 +29,10 @@ struct NativeActivityView: View {
                 .padding(.horizontal, DS.Space.l)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
-                List(vm.activities) { activity in
+                List(downloads.activities) { activity in
                     ActivityRow(
                         activity: activity,
-                        status: vm.status(for: activity),
+                        status: downloads.status(for: activity),
                         showsDetails: detailExpansion(for: activity.id)
                     )
                 }

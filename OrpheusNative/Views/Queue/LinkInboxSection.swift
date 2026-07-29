@@ -3,6 +3,7 @@ import SwiftUI
 
 struct LinkInboxSection: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var linkInbox: NativeLinkInboxController
 
     var body: some View {
         VStack(spacing: 0) {
@@ -11,13 +12,13 @@ struct LinkInboxSection: View {
                     .foregroundStyle(.secondary)
                 Text("Link Inbox")
                     .font(.headline)
-                Text("\(vm.linkInbox.count)")
+                Text("\(linkInbox.items.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button(action: vm.clearReviewedLinks) { Image(systemName: "checkmark.circle") }
                     .buttonStyle(.plain)
-                    .disabled(!vm.linkInbox.contains { $0.status.isReviewed })
+                    .disabled(!linkInbox.items.contains { $0.status.isReviewed })
                     .help("Clear reviewed links")
                 Button(action: vm.clearLinkInbox) { Image(systemName: "trash") }
                     .buttonStyle(.plain)
@@ -26,7 +27,7 @@ struct LinkInboxSection: View {
             .padding(.horizontal, DS.Space.m)
             .frame(height: 38)
 
-            List(vm.linkInbox) { item in
+            List(linkInbox.items) { item in
                 inboxRow(item)
                     .contextMenu {
                         Button("Open", systemImage: "arrow.right") { vm.openInboxItem(item.id) }
@@ -38,7 +39,7 @@ struct LinkInboxSection: View {
                     }
             }
             .listStyle(.inset)
-            .frame(height: min(CGFloat(vm.linkInbox.count) * 54 + 8, 220))
+            .frame(height: min(CGFloat(linkInbox.items.count) * 54 + 8, 220))
         }
     }
 

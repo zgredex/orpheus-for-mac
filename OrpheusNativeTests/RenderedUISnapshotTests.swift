@@ -42,15 +42,15 @@ final class RenderedUISnapshotTests: XCTestCase {
         )
     }
 
-    func testDownloadRecoveryCollapsedAndExpandedStates() throws {
-        let fixture = try RenderedSnapshotFixtures.recoveryViewModel()
+    func testDownloadRecoveryCollapsedAndExpandedStates() async throws {
+        let fixture = try await RenderedSnapshotFixtures.recoveryViewModel()
         defer {
             fixture.viewModel.prepareForTermination()
             try? FileManager.default.removeItem(at: fixture.root)
         }
 
         let activityPane = NativeActivityView()
-            .environmentObject(fixture.viewModel)
+            .nativeApplicationEnvironment(fixture.viewModel)
             .environment(\.colorScheme, .dark)
             .environment(\.locale, Locale(identifier: "pl_PL"))
         RenderedSnapshotHarness.assertSnapshot(
@@ -72,7 +72,7 @@ final class RenderedUISnapshotTests: XCTestCase {
             )
         }
         .listStyle(.inset)
-        .environmentObject(fixture.viewModel)
+        .nativeApplicationEnvironment(fixture.viewModel)
         .environment(\.colorScheme, .dark)
         .dynamicTypeSize(.accessibility1)
         RenderedSnapshotHarness.assertSnapshot(
@@ -139,8 +139,8 @@ final class RenderedUISnapshotTests: XCTestCase {
         )
     }
 
-    func testCompleteWorkspaceAtThirteenInchAndCompactSizes() throws {
-        let fixture = try RenderedSnapshotFixtures.recoveryViewModel(loadPreview: true)
+    func testCompleteWorkspaceAtThirteenInchAndCompactSizes() async throws {
+        let fixture = try await RenderedSnapshotFixtures.recoveryViewModel(loadPreview: true)
         defer {
             fixture.viewModel.prepareForTermination()
             try? FileManager.default.removeItem(at: fixture.root)
@@ -148,7 +148,7 @@ final class RenderedUISnapshotTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
 
         let target = NativeContentView()
-            .environmentObject(fixture.viewModel)
+            .nativeApplicationEnvironment(fixture.viewModel)
             .environment(\.colorScheme, .dark)
             .environment(\.locale, Locale(identifier: "en_GB"))
         RenderedSnapshotHarness.assertSnapshot(
@@ -159,7 +159,7 @@ final class RenderedUISnapshotTests: XCTestCase {
         )
 
         let compact = NativeContentView()
-            .environmentObject(fixture.viewModel)
+            .nativeApplicationEnvironment(fixture.viewModel)
             .environment(\.colorScheme, .dark)
             .environment(\.locale, Locale(identifier: "pl_PL"))
             .dynamicTypeSize(.xLarge)
@@ -171,15 +171,15 @@ final class RenderedUISnapshotTests: XCTestCase {
         )
     }
 
-    func testSettingsManagementLayoutAtSheetSize() throws {
-        let fixture = try RenderedSnapshotFixtures.recoveryViewModel()
+    func testSettingsManagementLayoutAtSheetSize() async throws {
+        let fixture = try await RenderedSnapshotFixtures.recoveryViewModel()
         defer {
             fixture.viewModel.prepareForTermination()
             try? FileManager.default.removeItem(at: fixture.root)
         }
 
         let settings = NativeSettingsView(draft: fixture.viewModel.settingsDraft)
-            .environmentObject(fixture.viewModel)
+            .nativeApplicationEnvironment(fixture.viewModel)
             .environment(\.colorScheme, .dark)
             .environment(\.locale, Locale(identifier: "de_DE"))
         RenderedSnapshotHarness.assertSnapshot(

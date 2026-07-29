@@ -10,4 +10,5 @@ run_native_xcode_tests \
     OrpheusNativeLogicTests \
     AppLogic \
     "$DERIVED_DATA" \
-    "$ROOT/Build/CI/AppLogicSourcePackages"
+    "$ROOT/Build/CI/AppLogicSourcePackages" \
+    "$@"

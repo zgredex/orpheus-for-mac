@@ -1,7 +1,7 @@
 import Foundation
 import NativeQobuzCore
 
-enum NativeArchiveIndexLoadResult: Equatable {
+enum NativeArchiveIndexLoadResult: Equatable, Sendable {
     case missing
     case restored(QobuzArchiveSnapshot)
     case rejected

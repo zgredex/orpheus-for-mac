@@ -3,6 +3,9 @@ import SwiftUI
 
 struct NativeBrowseHeader: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var browse: NativeBrowseController
+    @EnvironmentObject private var queue: NativeQueueController
+    @EnvironmentObject private var library: NativeLibraryController
     let page: BrowsePage?
 
     var body: some View {
@@ -22,11 +25,11 @@ struct NativeBrowseHeader: View {
                 .foregroundStyle(.secondary)
             Text("Results for")
                 .foregroundStyle(.secondary)
-            Text(vm.browse.query)
+            Text(browse.query)
                 .fontWeight(.semibold)
                 .lineLimit(1)
             Spacer()
-            if vm.browse.isLoading {
+            if browse.isLoading {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -57,12 +60,12 @@ struct NativeBrowseHeader: View {
         Picker(
             "Category",
             selection: Binding(
-                get: { vm.browse.category },
-                set: { vm.browse.category = $0 }
+                get: { browse.category },
+                set: { browse.category = $0 }
             )
         ) {
             ForEach(NativeBrowseCategory.allCases) { category in
-                Text("\(category.rawValue)  \(vm.browse.countLabel(for: category))")
+                Text("\(category.rawValue)  \(browse.countLabel(for: category))")
                     .monospacedDigit()
                     .lineLimit(1)
                     .tag(category)
@@ -73,7 +76,7 @@ struct NativeBrowseHeader: View {
     }
 
     private var categoryStatus: some View {
-        Text(vm.browse.statusText)
+        Text(browse.statusText)
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -116,7 +119,7 @@ struct NativeBrowseHeader: View {
         case .album(let album):
             let queued = queuedURLs.contains(QobuzRequest.album(album.id).canonicalURL)
             HStack(spacing: DS.Space.m) {
-                if let status = vm.library.status(for: album) {
+                if let status = library.status(for: album) {
                     LibraryStatusLabel(status: status)
                 }
                 Button(queued ? "In Queue" : "Add Album", systemImage: queued ? "checkmark" : "plus") {
@@ -194,6 +197,6 @@ struct NativeBrowseHeader: View {
     }
 
     private var queuedURLs: Set<URL> {
-        Set(vm.queue.map(\.canonicalURL))
+        Set(queue.items.map(\.canonicalURL))
     }
 }

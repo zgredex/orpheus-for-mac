@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ActivityRow: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var downloads: NativeDownloadController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let activity: NativeDownloadActivity
     let status: NativeDownloadStatus
@@ -91,7 +92,7 @@ struct ActivityRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if let partial = vm.resumablePartial(for: activity) {
+            if let partial = activity.resumablePartial {
                 Label(
                     "\(Format.bytes(partial.bytes)) partial file will be resumed",
                     systemImage: "arrow.clockwise.circle.fill"
@@ -226,7 +227,7 @@ struct ActivityRow: View {
             Button("Reveal", systemImage: "folder") { vm.reveal(activity) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .help(vm.resumablePartial(for: activity) == nil
+                .help(activity.resumablePartial == nil
                     ? "Show the download location in Finder"
                     : "Show the resumable partial file in Finder")
 
@@ -287,11 +288,11 @@ struct ActivityRow: View {
 
     private func restartHelp(action: String) -> String {
         guard vm.canRestart(activity) else {
-            return vm.isDownloading
+            return downloads.isDownloading
                 ? "Wait for the current download to finish"
                 : "The original queue item is no longer available"
         }
-        if vm.resumablePartial(for: activity) != nil {
+        if activity.resumablePartial != nil {
             return "\(action) and resume the existing partial file"
         }
         return "\(action) this download"

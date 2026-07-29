@@ -901,7 +901,12 @@ struct RecordingMetadataWriter: AudioMetadataWriting {
         artwork: EmbeddedArtwork?,
         to fileURL: URL,
         fileSystem: LibraryFileSystem
-    ) throws {}
+    ) throws -> String {
+        try MusicFileIntegrity.sha256(
+            of: fileSystem.relativePath(for: fileURL),
+            in: fileSystem
+        )
+    }
 }
 
 private struct FailingAssetFetcher: QobuzAssetFetching {

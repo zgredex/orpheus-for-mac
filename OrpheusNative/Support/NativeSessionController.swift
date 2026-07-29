@@ -35,14 +35,18 @@ final class NativeSessionController {
         isActive = true
     }
 
-    func restore() throws {
-        guard let snapshot = try store.load() else { return }
+    func restore(root: URL) async throws {
+        let store = store
+        let restored = try await Task.detached(priority: .userInitiated) {
+            try store.load()
+        }.value
+        guard let snapshot = restored else { return }
         try snapshot.validate()
         writer.setBaseline(snapshot)
         isRestoring = true
         defer { isRestoring = false }
 
-        downloads.restore(operations: snapshot.operations)
+        downloads.restore(operations: snapshot.operations, root: root)
         linkInbox.restore(snapshot.linkInbox)
         queue.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
     }

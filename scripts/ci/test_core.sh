@@ -10,4 +10,4 @@ export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$ROOT/Build
 
 mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
 require_native_runtime
-xcrun swift test --disable-sandbox --package-path "$ROOT/NativeQobuzCore"
+xcrun swift test --disable-sandbox --package-path "$ROOT/NativeQobuzCore" "$@"

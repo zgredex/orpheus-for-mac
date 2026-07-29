@@ -56,8 +56,8 @@ final class NativeDownloadController: ObservableObject {
         self.onCheckpoint = onCheckpoint
     }
 
-    func restore(operations: [NativeDownloadOperation]) {
-        ledger.restore(operations: operations)
+    func restore(operations: [NativeDownloadOperation], root: URL) {
+        ledger.restore(operations: operations, root: root)
     }
 
     func status(for item: NativeQueueItem) -> NativeDownloadStatus {
@@ -290,7 +290,10 @@ final class NativeDownloadController: ObservableObject {
     }
 
     func resumablePartial(for activity: NativeDownloadActivity, root: URL) -> NativePartialDownload? {
-        ledger.partial(for: activity, root: root)
+        guard status(for: activity).canResume || status(for: activity).canRetry else {
+            return nil
+        }
+        return ledger.refreshPartial(for: activity.id, root: root)
     }
 
     func reveal(_ activity: NativeDownloadActivity, defaultRootPath: String) {
@@ -300,7 +303,7 @@ final class NativeDownloadController: ObservableObject {
         if let output = activity.outputURL,
            let existing = resolver.existingItem(output, within: root) {
             target = existing
-        } else if let partial = ledger.partialRegardlessOfStatus(for: activity.id, root: root) {
+        } else if let partial = activity.resumablePartial {
             target = partial.url
         } else if let output = activity.outputURL,
                   let folder = resolver.existingItem(output.deletingLastPathComponent(), within: root) {

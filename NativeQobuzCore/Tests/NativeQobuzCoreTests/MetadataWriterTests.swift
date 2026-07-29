@@ -39,9 +39,15 @@ final class MetadataWriterTests: XCTestCase {
 
         let fileSystem = try fileSystem(for: file)
         try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
-        try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
+        let checksum = try writer.write(
+            metadata: metadata,
+            artwork: artwork,
+            to: file,
+            fileSystem: fileSystem
+        )
 
         let data = try Data(contentsOf: file)
+        XCTAssertEqual(checksum, try MusicFileIntegrity.sha256(of: file))
         XCTAssertEqual(data.prefix(6), Data([0x49, 0x44, 0x33, 3, 0, 0]))
         XCTAssertEqual(data.suffix(audioPayload.count), audioPayload)
         XCTAssertEqual(data.occurrences(of: Data("ID3".utf8)), 1)
@@ -114,9 +120,15 @@ final class MetadataWriterTests: XCTestCase {
 
         let fileSystem = try fileSystem(for: file)
         try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
-        try writer.write(metadata: metadata, artwork: artwork, to: file, fileSystem: fileSystem)
+        let checksum = try writer.write(
+            metadata: metadata,
+            artwork: artwork,
+            to: file,
+            fileSystem: fileSystem
+        )
 
         let result = try Data(contentsOf: file)
+        XCTAssertEqual(checksum, try MusicFileIntegrity.sha256(of: file))
         let blocks = try parseFLACBlocks(result)
         XCTAssertEqual(blocks.map(\.type), [0, 4, 6])
         XCTAssertEqual(result.suffix(audioPayload.count), audioPayload)

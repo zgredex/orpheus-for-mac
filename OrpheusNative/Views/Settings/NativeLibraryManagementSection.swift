@@ -3,6 +3,10 @@ import SwiftUI
 
 struct NativeLibraryManagementSection: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var account: NativeAccountController
+    @EnvironmentObject private var library: NativeLibraryController
+    @EnvironmentObject private var libraryManagement: NativeLibraryManagementController
+    @EnvironmentObject private var downloads: NativeDownloadController
     @Binding var draft: SettingsDraft
     @Binding var errorMessage: String?
     @State private var relocationDestination: URL?
@@ -51,7 +55,7 @@ struct NativeLibraryManagementSection: View {
 
     private var currentLibraryRow: some View {
         LabeledContent("Current Library") {
-            Text(vm.settings.downloadPath)
+            Text(account.settings.downloadPath)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -60,7 +64,7 @@ struct NativeLibraryManagementSection: View {
     }
 
     @ViewBuilder private var indexedContentRow: some View {
-        if let snapshot = vm.archiveSnapshot {
+        if let snapshot = library.snapshot {
             LabeledContent("Indexed content") {
                 Text(summary(snapshot))
                     .foregroundStyle(snapshot.problemCount == 0 ? Color.secondary : Color.orange)
@@ -69,7 +73,7 @@ struct NativeLibraryManagementSection: View {
     }
 
     @ViewBuilder private var operationProgress: some View {
-        if let label = vm.libraryManagement.phase.label {
+        if let label = libraryManagement.phase.label {
             HStack(spacing: DS.Space.s) {
                 ProgressView().controlSize(.small)
                 Text(label).font(.caption).foregroundStyle(.secondary)
@@ -136,13 +140,13 @@ struct NativeLibraryManagementSection: View {
         }
     }
 
-    private var trackCount: Int { vm.archiveSnapshot?.tracks.count ?? 0 }
-    private var problemCount: Int { vm.archiveSnapshot?.problemCount ?? 0 }
+    private var trackCount: Int { library.snapshot?.tracks.count ?? 0 }
+    private var problemCount: Int { library.snapshot?.problemCount ?? 0 }
     private var prunableProblemCount: Int {
-        vm.archiveSnapshot?.tracks.count { $0.integrity != .verified } ?? 0
+        library.snapshot?.tracks.count { $0.integrity != .verified } ?? 0
     }
     private var operationsDisabled: Bool {
-        vm.isDownloading || vm.isArchiveScanning || vm.libraryManagement.isWorking
+        downloads.isDownloading || library.isScanning || libraryManagement.isWorking
     }
     private var canRelocate: Bool {
         trackCount > 0 && problemCount == 0 && !operationsDisabled
@@ -164,7 +168,7 @@ struct NativeLibraryManagementSection: View {
     }
 
     private func chooseRelocationDestination() {
-        guard let destination = FileDialog.chooseFolder(startingAt: vm.settings.downloadPath) else { return }
+        guard let destination = FileDialog.chooseFolder(startingAt: account.settings.downloadPath) else { return }
         relocationDestination = destination
         errorMessage = nil
         resultMessage = nil
@@ -175,11 +179,11 @@ struct NativeLibraryManagementSection: View {
         guard let destination = relocationDestination else { return }
         Task {
             do {
-                resultMessage = try await vm.libraryManagement.relocate(
+                resultMessage = try await libraryManagement.relocate(
                     to: destination,
-                    downloadIsActive: vm.isDownloading
+                    downloadIsActive: downloads.isDownloading
                 )
-                draft.downloadPath = vm.settings.downloadPath
+                draft.downloadPath = account.settings.downloadPath
                 relocationDestination = nil
             } catch {
                 errorMessage = error.localizedDescription
@@ -190,8 +194,8 @@ struct NativeLibraryManagementSection: View {
     private func prune() {
         Task {
             do {
-                let result = try await vm.libraryManagement.pruneProblems(
-                    downloadIsActive: vm.isDownloading
+                let result = try await libraryManagement.pruneProblems(
+                    downloadIsActive: downloads.isDownloading
                 )
                 resultMessage = "Pruned \(result.removedTrackCount) tracked problem\(result.removedTrackCount == 1 ? "" : "s")."
             } catch {
@@ -203,8 +207,8 @@ struct NativeLibraryManagementSection: View {
     private func deleteLibrary() {
         Task {
             do {
-                let result = try await vm.libraryManagement.deleteLibrary(
-                    downloadIsActive: vm.isDownloading
+                let result = try await libraryManagement.deleteLibrary(
+                    downloadIsActive: downloads.isDownloading
                 )
                 resultMessage = "Deleted \(result.removedTrackCount) indexed track\(result.removedTrackCount == 1 ? "" : "s")."
             } catch {

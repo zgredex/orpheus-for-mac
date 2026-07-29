@@ -4,6 +4,10 @@ import SwiftUI
 
 struct NativeContentView: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var account: NativeAccountController
+    @EnvironmentObject private var browse: NativeBrowseController
+    @EnvironmentObject private var library: NativeLibraryController
+    @EnvironmentObject private var downloads: NativeDownloadController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -15,27 +19,27 @@ struct NativeContentView: View {
             #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 ToolbarItem {
-                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
+                    RegionBadge(code: account.accountRegion, quality: account.settings.quality)
                 }
                 .sharedBackgroundVisibility(.hidden)
             } else {
                 ToolbarItem {
-                    RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
+                    RegionBadge(code: account.accountRegion, quality: account.settings.quality)
                 }
             }
             #else
             ToolbarItem {
-                RegionBadge(code: vm.accountRegion, quality: vm.settings.quality)
+                RegionBadge(code: account.accountRegion, quality: account.settings.quality)
             }
             #endif
             ToolbarItem {
                 Button {
-                    if vm.isLibraryOpen { vm.closeLibrary() }
+                    if library.isOpen { vm.closeLibrary() }
                     else { vm.openLibrary() }
                 } label: {
                     Image(systemName: "books.vertical")
                 }
-                .help(vm.isLibraryOpen ? "Close Library" : "Open Library")
+                .help(library.isOpen ? "Close Library" : "Open Library")
             }
             ToolbarItem {
                 Button { vm.showDiagnostics = true } label: { Image(systemName: "waveform.path.ecg.rectangle") }
@@ -89,13 +93,13 @@ struct NativeContentView: View {
                     )
                 VSplitView {
                     Group {
-                        if vm.isLibraryOpen { NativeLibraryView().transition(.opacity) }
-                        else if vm.browse.isOpen { NativeBrowseView().transition(.opacity) }
+                        if library.isOpen { NativeLibraryView().transition(.opacity) }
+                        else if browse.isOpen { NativeBrowseView().transition(.opacity) }
                         else { NativePreviewView().transition(.opacity) }
                     }
                     .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
                     .layoutPriority(1)
-                    .animation(.easeOut(duration: 0.15), value: vm.browse.isOpen)
+                    .animation(.easeOut(duration: 0.15), value: browse.isOpen)
                     NativeActivityView()
                         .frame(
                             maxWidth: .infinity,
@@ -124,7 +128,7 @@ struct NativeContentView: View {
     private func activityPaneHeight(totalWidth: CGFloat) -> CGFloat {
         let workspaceWidth = totalWidth - DS.Pane.queueMaximumWidth
         return DS.ActivityPane.preferredHeight(
-            activityCount: vm.activities.count,
+            activityCount: downloads.activities.count,
             compact: workspaceWidth < DS.Row.activityRegularMinimumWidth,
             accessibility: dynamicTypeSize.isAccessibilitySize
         )

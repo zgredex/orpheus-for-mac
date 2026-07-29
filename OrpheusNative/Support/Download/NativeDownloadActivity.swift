@@ -30,10 +30,11 @@ struct NativeDownloadActivity: Identifiable, Equatable {
     var errorMessage: String? { operation.errorMessage }
     var outputURL: URL? { operation.latestOutputURL }
     var checkpoint: QobuzDownloadCheckpoint? { operation.checkpoint }
+    var resumablePartial: NativePartialDownload? { operation.resumablePartial }
     var informationalNotices: [String] { notices }
 }
 
-struct NativePartialDownload: Equatable {
+struct NativePartialDownload: Codable, Equatable, Sendable {
     let url: URL
     let bytes: Int64
 }

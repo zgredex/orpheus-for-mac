@@ -1,22 +1,25 @@
+import CryptoKit
 import Foundation
 
 protocol AudioMetadataFileRewriter: Sendable {
+    @discardableResult
     func rewrite(
         metadata: QobuzAudioMetadata,
         artwork: EmbeddedArtwork?,
         path: LibraryRelativePath,
         input: FileHandle,
         fileSystem: LibraryFileSystem
-    ) throws
+    ) throws -> String
 }
 
 extension AudioMetadataFileRewriter {
+    @discardableResult
     func write(
         metadata: QobuzAudioMetadata,
         artwork: EmbeddedArtwork?,
         to path: LibraryRelativePath,
         fileSystem: LibraryFileSystem
-    ) throws {
+    ) throws -> String {
         try fileSystem.withReadableHandle(at: path) {
             try rewrite(metadata: metadata, artwork: artwork, path: path, input: $0, fileSystem: fileSystem)
         }
@@ -30,7 +33,7 @@ struct ID3v23Writer: AudioMetadataFileRewriter {
         path: LibraryRelativePath,
         input: FileHandle,
         fileSystem: LibraryFileSystem
-    ) throws {
+    ) throws -> String {
         let prefix = try input.read(upToCount: 10) ?? Data()
         let audioOffset: UInt64
         if prefix.count == 10, prefix.starts(with: Data("ID3".utf8)) {
@@ -74,7 +77,7 @@ struct ID3v23Writer: AudioMetadataFileRewriter {
         tag.append(contentsOf: encodeSynchsafe(frames.count))
         tag.append(frames)
 
-        try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
+        return try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
             try output.write(contentsOf: tag)
             try input.seek(toOffset: audioOffset)
             try AtomicFileEditor.copy(input, to: output)
@@ -159,7 +162,7 @@ struct FLACMetadataWriter: AudioMetadataFileRewriter {
         path: LibraryRelativePath,
         input: FileHandle,
         fileSystem: LibraryFileSystem
-    ) throws {
+    ) throws -> String {
         guard try input.read(upToCount: 4) == Data("fLaC".utf8) else {
             throw NativeQobuzError.fileSystem("Invalid FLAC signature in \(path.lastComponent ?? path.rawValue)")
         }
@@ -180,7 +183,7 @@ struct FLACMetadataWriter: AudioMetadataFileRewriter {
         blocks.append(Block(type: 4, data: vorbisComment(metadata)))
         if let artwork { blocks.append(Block(type: 6, data: picture(artwork))) }
 
-        try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
+        return try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
             try output.write(contentsOf: Data("fLaC".utf8))
             for (index, block) in blocks.enumerated() {
                 guard block.data.count <= 0xFF_FFFF else {
@@ -257,11 +260,12 @@ struct FLACMetadataWriter: AudioMetadataFileRewriter {
 }
 
 private enum AtomicFileEditor {
+    @discardableResult
     static func rewrite(
         _ destination: LibraryRelativePath,
         fileSystem: LibraryFileSystem,
-        body: (FileHandle) throws -> Void
-    ) throws {
+        body: (HashingFileWriter) throws -> Void
+    ) throws -> String {
         let temporaryName = QobuzFilenameComponent.make(
             prefix: ".",
             stem: destination.lastComponent ?? "audio",
@@ -271,10 +275,13 @@ private enum AtomicFileEditor {
         do {
             let output = try fileSystem.writableHandle(at: temporary, truncate: true)
             do {
-                try body(output)
+                let writer = HashingFileWriter(handle: output)
+                try body(writer)
+                let checksum = writer.finalize()
                 try output.synchronize()
                 try output.close()
                 try fileSystem.replaceItem(at: destination, with: temporary)
+                return checksum
             } catch {
                 try? output.close()
                 throw error
@@ -285,10 +292,28 @@ private enum AtomicFileEditor {
         }
     }
 
-    static func copy(_ input: FileHandle, to output: FileHandle) throws {
+    static func copy(_ input: FileHandle, to output: HashingFileWriter) throws {
         while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
             try output.write(contentsOf: chunk)
         }
+    }
+}
+
+private final class HashingFileWriter {
+    private let handle: FileHandle
+    private var digest = SHA256()
+
+    init(handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func write(contentsOf data: Data) throws {
+        try handle.write(contentsOf: data)
+        digest.update(data: data)
+    }
+
+    func finalize() -> String {
+        digest.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
 

@@ -28,6 +28,7 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
     var checkpoint: QobuzDownloadCheckpoint?
     var checkpointUpdatedAt: Date?
     var activityCreatedAt: Date?
+    var resumablePartial: NativePartialDownload?
 
     var id: UUID { queueID }
     var latestOutputURL: URL? { outputURLs.last }
@@ -70,6 +71,7 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
         self.phase = phase
         bytesPerSecond = nil
         errorMessage = nil
+        resumablePartial = nil
     }
 
     mutating func clearActivity() {
@@ -96,5 +98,6 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
         checkpoint = nil
         checkpointUpdatedAt = nil
         activityCreatedAt = nil
+        resumablePartial = nil
     }
 }

@@ -122,20 +122,16 @@ struct NativeLibraryIndexProblem: Identifiable, Equatable {
 
 extension QobuzArchiveSnapshot {
     var nativeFileProblems: [NativeLibraryFileProblem] {
-        let diagnostics = Dictionary(grouping: issues, by: \.relativePath)
-        return tracks.compactMap { track in
-            guard track.integrity != .verified else { return nil }
+        index.problemTracks.map { track in
             return NativeLibraryFileProblem(
                 track: track,
-                diagnostic: diagnostics[track.relativePath]?.first?.message
+                diagnostic: index.issuesByPath[track.relativePath]?.first?.message
             )
         }
     }
 
     var nativeIndexProblems: [NativeLibraryIndexProblem] {
-        let trackProblemPaths = Set(nativeFileProblems.map { $0.track.relativePath })
-        return issues.enumerated().compactMap { offset, issue in
-            guard !trackProblemPaths.contains(issue.relativePath) else { return nil }
+        index.standaloneIssues.enumerated().map { offset, issue in
             return NativeLibraryIndexProblem(
                 id: "\(offset):\(issue.relativePath):\(issue.message)",
                 relativePath: issue.relativePath,

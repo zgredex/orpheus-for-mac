@@ -3,10 +3,14 @@ import SwiftUI
 
 struct NativePreviewView: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var browse: NativeBrowseController
+    @EnvironmentObject private var queue: NativeQueueController
+    @EnvironmentObject private var preview: NativePreviewController
+    @EnvironmentObject private var library: NativeLibraryController
 
     var body: some View {
         Group {
-            switch vm.preview {
+            switch preview.state {
             case .empty:
                 ContentUnavailableView("Select an item", systemImage: "music.note", description: Text("Metadata and tracks appear here."))
             case .loading:
@@ -18,9 +22,9 @@ struct NativePreviewView: View {
                     album: album,
                     onOpenArtist: album.artist.id.map { id in { vm.openArtist(id) } },
                     onOpenLabel: album.labelInfo?.id.map { id in { vm.openLabel(id) } },
-                    libraryStatus: vm.library.status(for: album),
-                    trackLibraryStatus: { vm.library.status(for: $0) },
-                    trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) },
+                    libraryStatus: library.status(for: album),
+                    trackLibraryStatus: { library.status(for: $0) },
+                    trackAvailabilityMessage: { browse.unavailabilityMessage(for: $0) },
                     selectedTrackIDs: vm.queueTrackSelection(for: .album(album.id)),
                     onToggleTrackSelection: vm.toggleSelectedQueueTrack,
                     onSelectAllTracks: vm.selectAllSelectedQueueTracks,
@@ -30,14 +34,14 @@ struct NativePreviewView: View {
                 TrackPreview(
                     track: track,
                     onOpenAlbum: track.album.map { summary in { vm.openAlbum(summary.id) } },
-                    libraryStatus: vm.library.status(for: track)
+                    libraryStatus: library.status(for: track)
                 )
             case .playlist(let playlist):
                 PlaylistPreview(
                     playlist: playlist,
-                    libraryStatus: vm.library.status(for: playlist.tracks),
-                    trackLibraryStatus: { vm.library.status(for: $0) },
-                    trackAvailabilityMessage: { vm.browse.unavailabilityMessage(for: $0) },
+                    libraryStatus: library.status(for: playlist.tracks),
+                    trackLibraryStatus: { library.status(for: $0) },
+                    trackAvailabilityMessage: { browse.unavailabilityMessage(for: $0) },
                     selection: vm.queueTrackSelection(for: .playlist(playlist.id)).map {
                         PlaylistTrackSelection(
                             selectedTrackIDs: $0,
@@ -62,7 +66,7 @@ struct NativePreviewView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.default, value: vm.preview)
+        .animation(.default, value: preview.state)
     }
 
 }

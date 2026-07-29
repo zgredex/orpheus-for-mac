@@ -11,15 +11,15 @@ final class NativeViewModel: ObservableObject {
     @Published var showDiagnostics = false
 
     let diagnostics: NativeDiagnosticsController
-    private let account: NativeAccountController
+    let account: NativeAccountController
     let browse: NativeBrowseController
-    private let queueController: NativeQueueController
-    private let previewController: NativePreviewController
-    private let linkInboxController: NativeLinkInboxController
+    let queueController: NativeQueueController
+    let previewController: NativePreviewController
+    let linkInboxController: NativeLinkInboxController
     let library: NativeLibraryController
     let libraryManagement: NativeLibraryManagementController
-    private let connectivity: NativeConnectivityController
-    private let downloads: NativeDownloadController
+    let connectivity: NativeConnectivityController
+    let downloads: NativeDownloadController
     private let downloadOrchestrator: NativeDownloadOrchestrator
     private let queueOrchestrator: NativeQueueOrchestrator
     private let browseNavigation: NativeBrowseNavigationController
@@ -27,7 +27,7 @@ final class NativeViewModel: ObservableObject {
     private let lifecycle: NativeAppLifecycleController
     private let requestIntake: NativeRequestIntakeController
     private let diagnosticSnapshotBuilder: NativeDiagnosticSnapshotBuilder
-    private var observationRelay: NativeDomainObservationRelay?
+    private var sessionObservationRelay: NativeSessionObservationRelay?
 
     init(
         paths: NativePaths,
@@ -122,20 +122,13 @@ final class NativeViewModel: ObservableObject {
             logStore: logStore ?? NativeLogFileStore(paths: paths),
             supplementalCollector: supplementalDiagnosticsCollector ?? NativeSupplementalDiagnosticsCollector()
         )
-        let observationRelay = NativeDomainObservationRelay(
-            onChange: { [weak self] in self?.objectWillChange.send() },
+        let sessionObservationRelay = NativeSessionObservationRelay(
             onPersistenceChange: { [weak self] in self?.session.schedulePersistence() }
         )
-        observationRelay.observe(account)
-        observationRelay.observe(browse)
-        observationRelay.observe(queueController, persistsSession: true)
-        observationRelay.observe(previewController)
-        observationRelay.observe(linkInboxController, persistsSession: true)
-        observationRelay.observe(library)
-        observationRelay.observe(libraryManagement)
-        observationRelay.observe(connectivity)
-        observationRelay.observe(downloads, persistsSession: true)
-        self.observationRelay = observationRelay
+        sessionObservationRelay.observe(queueController)
+        sessionObservationRelay.observe(linkInboxController)
+        sessionObservationRelay.observe(downloads)
+        self.sessionObservationRelay = sessionObservationRelay
         session.configure { [weak self] message in self?.notice = message }
         browseNavigation.configure { [weak self] message in
             self?.notice = message
@@ -220,8 +213,8 @@ final class NativeViewModel: ObservableObject {
         try await diagnostics.export(snapshot: diagnosticSnapshotBuilder.makeSnapshot(), to: parent)
     }
 
-    func start() {
-        lifecycle.start(
+    func start() async {
+        await lifecycle.start(
             onLoadPreview: { [weak self] item in
                 guard let self else { return }
                 queueOrchestrator.loadPreview(

@@ -3,6 +3,9 @@ import SwiftUI
 
 struct NativeSettingsView: View {
     @EnvironmentObject private var vm: NativeViewModel
+    @EnvironmentObject private var account: NativeAccountController
+    @EnvironmentObject private var libraryManagement: NativeLibraryManagementController
+    @EnvironmentObject private var downloads: NativeDownloadController
     @Environment(\.dismiss) private var dismiss
     @State private var draft: SettingsDraft
     @State private var errorMessage: String?
@@ -23,7 +26,7 @@ struct NativeSettingsView: View {
                         .help("Qobuz application ID. Orpheus for Mac never stores or sends the account User ID.")
                     SecureField("App secret", text: $draft.credentials.appSecret)
                     SecureField("Auth token", text: $draft.credentials.authToken)
-                    LabeledContent("Account region", value: vm.regionDisplay)
+                    LabeledContent("Account region", value: account.regionDisplay)
                 } header: {
                     Text("Qobuz")
                 }
@@ -48,7 +51,7 @@ struct NativeSettingsView: View {
                         }
                         Spacer()
                         Button("Inspect Folder…") { inspectExistingLibrary() }
-                            .disabled(isInspectingLibrary || isAdoptingLibrary || vm.isDownloading)
+                            .disabled(isInspectingLibrary || isAdoptingLibrary || downloads.isDownloading)
                     }
                     if isInspectingLibrary {
                         HStack(spacing: DS.Space.s) {
@@ -82,7 +85,7 @@ struct NativeSettingsView: View {
                             || draft.downloadPath.isEmpty
                             || isInspectingLibrary
                             || isAdoptingLibrary
-                            || vm.libraryManagement.isWorking
+                            || libraryManagement.isWorking
                     )
             }
             .padding(.top, DS.Space.l)

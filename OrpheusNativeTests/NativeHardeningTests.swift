@@ -111,7 +111,7 @@ final class NativeHardeningTests: XCTestCase {
         let scanner = ImmediateArchiveScanner(snapshot: rebuilt)
         let viewModel = NativeViewModel(paths: paths, archiveScanner: scanner)
 
-        viewModel.start()
+        await viewModel.start()
         for _ in 0..<100 where viewModel.archiveSnapshot == nil || viewModel.isArchiveScanning {
             try await Task.sleep(for: .milliseconds(10))
         }
