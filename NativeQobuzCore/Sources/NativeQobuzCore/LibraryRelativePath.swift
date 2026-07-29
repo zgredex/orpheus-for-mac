@@ -29,6 +29,12 @@ public struct LibraryRelativePath: Hashable, Codable, Sendable, CustomStringConv
     public var parent: LibraryRelativePath {
         LibraryRelativePath(components: Array(components.dropLast()))
     }
+    public var ancestorDirectories: [LibraryRelativePath] {
+        guard components.count > 1 else { return [] }
+        return (1..<components.count).map {
+            LibraryRelativePath(components: Array(components.prefix($0)))
+        }
+    }
 
     public func appending(_ leafName: String) throws -> LibraryRelativePath {
         guard QobuzPathSafety.isSafeLeafName(leafName) else {

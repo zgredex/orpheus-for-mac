@@ -3,7 +3,7 @@ import Foundation
 
 public final class LibraryFileSystem: @unchecked Sendable {
     public let rootURL: URL
-    private let root: LibraryDescriptorRoot
+    let root: LibraryDescriptorRoot
     private lazy var enumerator = LibraryDirectoryEnumerator(root: root)
 
     public init(rootURL: URL, createIfMissing: Bool = true) throws {
@@ -132,7 +132,7 @@ public final class LibraryFileSystem: @unchecked Sendable {
         )
     }
 
-    private func openHandle(
+    func openHandle(
         at path: LibraryRelativePath,
         flags: Int32,
         createParents: Bool = false,

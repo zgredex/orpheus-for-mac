@@ -60,6 +60,10 @@ struct NativeSettingsView: View {
                         adoptionSummary(adoptionPlan)
                     }
                 }
+                NativeLibraryManagementSection(
+                    draft: $draft,
+                    errorMessage: $errorMessage
+                )
             }
             .formStyle(.grouped)
             if let errorMessage {
@@ -78,6 +82,7 @@ struct NativeSettingsView: View {
                             || draft.downloadPath.isEmpty
                             || isInspectingLibrary
                             || isAdoptingLibrary
+                            || vm.libraryManagement.isWorking
                     )
             }.padding(.top, 14)
         }

@@ -43,7 +43,9 @@ struct QobuzPlaylistAssets: @unchecked Sendable {
         guard case .playlist(let id) = plan.request, !outputs.isEmpty else { return nil }
         let folder = folderPlanner.folder(title: plan.title, id: id, root: fileSystem.rootURL)
         let folderPath = try fileSystem.relativePath(for: folder)
-        let destination = try folderPath.appending("\(outputPlanner.sanitize(plan.title)).m3u")
+        let destination = try folderPath.appending(
+            "\(outputPlanner.sanitize(plan.title)).\(QobuzManagedLibraryAssetPolicy.preferredPlaylistExtension)"
+        )
         var lines = ["#EXTM3U"]
         for output in outputs {
             let duration = output.item.track.duration ?? -1
@@ -64,7 +66,9 @@ struct QobuzPlaylistAssets: @unchecked Sendable {
         var created: [URL] = []
         if let description = playlist.playlistDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
            !description.isEmpty {
-            let destination = try folderPath.appending("description.txt")
+            let destination = try folderPath.appending(
+                QobuzManagedLibraryAssetPolicy.descriptionFilename
+            )
             try fileSystem.writeAtomically(Data(description.utf8), to: destination)
             created.append(fileSystem.displayURL(for: destination))
         }

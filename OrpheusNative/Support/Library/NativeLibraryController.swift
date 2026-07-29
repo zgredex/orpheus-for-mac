@@ -23,6 +23,7 @@ final class NativeLibraryController: ObservableObject {
     private let scanner: any QobuzArchiveScanning
     private let adopter: any QobuzLibraryAdopting
     private let downloadedIndexer: NativeDownloadedLibraryIndexer
+    private let revealer = NativeLibraryRevealController()
     private var refreshTask: Task<Void, Never>?
     private var refreshID: UUID?
 
@@ -249,10 +250,7 @@ final class NativeLibraryController: ObservableObject {
     }
 
     func activate(_ pending: NativePendingLibraryAdoption) throws {
-        cancelRefresh()
-        snapshot = pending.result.snapshot
-        try archiveStore.save(pending.result.snapshot)
-        isOpen = true
+        try install(pending.result.snapshot)
         qobuzLog.notice(
             "library.adoption.ui",
             "Adopted Library became the active download root",
@@ -266,16 +264,23 @@ final class NativeLibraryController: ObservableObject {
         )
     }
 
+    func install(_ value: QobuzArchiveSnapshot, open: Bool = true) throws {
+        cancelRefresh()
+        try archiveStore.save(value)
+        snapshot = value
+        isOpen = open
+    }
+
     func revealTrack(_ track: QobuzArchiveTrack) {
-        reveal(relativePath: track.relativePath)
+        revealer.reveal(relativePath: track.relativePath, snapshot: snapshot)
     }
 
     func revealEntry(_ entry: QobuzArchiveEntry) {
-        reveal(relativePath: entry.relativePath)
+        revealer.reveal(relativePath: entry.relativePath, snapshot: snapshot)
     }
 
     func revealIssue(_ issue: NativeLibraryIndexProblem) {
-        reveal(relativePath: issue.relativePath, allowingRoot: true)
+        revealer.reveal(relativePath: issue.relativePath, snapshot: snapshot, allowingRoot: true)
     }
 
     func status(for item: NativeQueueItem) -> NativeLibraryStatus? {
@@ -329,18 +334,4 @@ final class NativeLibraryController: ObservableObject {
         return NativeLibraryStatus(snapshot.coverage(trackIDs: trackIDs))
     }
 
-    private func reveal(relativePath: String, allowingRoot: Bool = false) {
-        guard let snapshot else { return }
-        let root = URL(fileURLWithPath: snapshot.rootPath, isDirectory: true).standardizedFileURL
-        guard let target = QobuzPathSafety.containedURL(
-            for: relativePath,
-            in: root,
-            allowingRoot: allowingRoot
-        ),
-        let existing = NativeSecureRevealResolver().existingItem(target, within: root) else {
-            NSWorkspace.shared.activateFileViewerSelecting([root])
-            return
-        }
-        NSWorkspace.shared.activateFileViewerSelecting([existing])
-    }
 }

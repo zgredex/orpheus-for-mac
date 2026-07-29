@@ -17,6 +17,7 @@ final class NativeViewModel: ObservableObject {
     private let previewController: NativePreviewController
     private let linkInboxController: NativeLinkInboxController
     let library: NativeLibraryController
+    let libraryManagement: NativeLibraryManagementController
     private let connectivity: NativeConnectivityController
     private let downloads: NativeDownloadController
     private let downloadOrchestrator: NativeDownloadOrchestrator
@@ -62,6 +63,11 @@ final class NativeViewModel: ObservableObject {
             scanner: archiveScanner,
             adopter: libraryAdopter ?? QobuzLibraryAdopter(scanner: archiveScanner)
         )
+        let libraryManagement = NativeLibraryManagementController(
+            account: account,
+            library: library,
+            maintenance: QobuzLibraryMaintenanceService(scanner: archiveScanner)
+        )
         let downloads = NativeDownloadController(
             queue: queueController,
             connectivity: connectivity,
@@ -79,6 +85,7 @@ final class NativeViewModel: ObservableObject {
         self.previewController = previewController
         self.linkInboxController = linkInboxController
         self.library = library
+        self.libraryManagement = libraryManagement
         self.connectivity = connectivity
         self.downloads = downloads
         downloadOrchestrator = NativeDownloadOrchestrator(
@@ -125,6 +132,7 @@ final class NativeViewModel: ObservableObject {
         observationRelay.observe(previewController)
         observationRelay.observe(linkInboxController, persistsSession: true)
         observationRelay.observe(library)
+        observationRelay.observe(libraryManagement)
         observationRelay.observe(connectivity)
         observationRelay.observe(downloads, persistsSession: true)
         self.observationRelay = observationRelay
@@ -195,8 +203,6 @@ final class NativeViewModel: ObservableObject {
     private var client: (any NativeQobuzServicing)? { account.client }
     var regionDisplay: String { account.regionDisplay }
 
-    var diagnosticsDirectoryPath: String { diagnostics.directoryURL.path }
-
     func status(for item: NativeQueueItem) -> NativeDownloadStatus {
         downloads.status(for: item)
     }
@@ -207,18 +213,6 @@ final class NativeViewModel: ObservableObject {
 
     func detailError(for activity: NativeDownloadActivity) -> String? {
         downloads.detailError(for: activity)
-    }
-
-    func diagnosticEntries(limit: Int = 5_000) throws -> [QobuzLogEntry] {
-        try diagnostics.entries(limit: limit)
-    }
-
-    func clearDiagnostics() throws {
-        try diagnostics.clear()
-    }
-
-    func revealDiagnostics() {
-        diagnostics.reveal()
     }
 
     @discardableResult

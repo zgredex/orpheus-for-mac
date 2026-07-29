@@ -70,7 +70,7 @@ struct NativeLogView: View {
                 }
                 .disabled(isExporting)
                 .help(isExporting ? "Exporting diagnostic bundle" : "Export diagnostic bundle")
-                Button(action: vm.revealDiagnostics) { Image(systemName: "folder") }
+                Button(action: vm.diagnostics.reveal) { Image(systemName: "folder") }
                     .help("Reveal log files")
                 Button(role: .destructive) { confirmClear = true } label: { Image(systemName: "trash") }
                     .help("Clear diagnostic history")
@@ -117,12 +117,12 @@ struct NativeLogView: View {
                 }
                 .frame(width: 230)
                 Spacer()
-                Text(vm.diagnosticsDirectoryPath)
+                Text(vm.diagnostics.directoryURL.path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .help(vm.diagnosticsDirectoryPath)
+                    .help(vm.diagnostics.directoryURL.path)
             }
             if let loadError {
                 Label(loadError, systemImage: "exclamationmark.triangle.fill")
@@ -266,7 +266,7 @@ struct NativeLogView: View {
 
     private func refresh() {
         do {
-            entries = try vm.diagnosticEntries()
+            entries = try vm.diagnostics.entries(limit: 5_000)
             loadError = nil
             if let selectedID, !entries.contains(where: { $0.id == selectedID }) { self.selectedID = nil }
         } catch {
@@ -276,7 +276,7 @@ struct NativeLogView: View {
 
     private func clear() {
         do {
-            try vm.clearDiagnostics()
+            try vm.diagnostics.clear()
             selectedID = nil
             message = "Diagnostic history cleared."
             refresh()

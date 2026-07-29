@@ -16,7 +16,9 @@ struct QobuzLibraryPlaylistInference {
     ) -> QobuzLibraryCollectionRecord? {
         guard entry.metadata.kind == .regularFile,
               let filename = entry.path.lastComponent,
-              ["m3u", "m3u8"].contains((filename as NSString).pathExtension.lowercased()),
+              QobuzManagedLibraryAssetPolicy.playlistExtensions.contains(
+                  (filename as NSString).pathExtension.lowercased()
+              ),
               let contents = try? fileSystem.readString(
                   entry.path,
                   maximumBytes: LibraryArtifactLimits.playlist
@@ -56,7 +58,7 @@ struct QobuzLibraryPlaylistInference {
     }
 
     private func description(in folder: LibraryRelativePath) -> String? {
-        guard let path = try? folder.appending("description.txt"),
+        guard let path = try? folder.appending(QobuzManagedLibraryAssetPolicy.descriptionFilename),
               let metadata = try? fileSystem.metadata(at: path),
               metadata.kind == .regularFile,
               let value = try? fileSystem.readString(

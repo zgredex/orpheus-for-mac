@@ -17,7 +17,9 @@ struct QobuzCollectionSidecarWriter: @unchecked Sendable {
             try Task.checkCancellation()
             let album = output.item.album
             guard visited.insert(album.id).inserted, let source = album.bookletURL else { continue }
-            let destination = try fileSystem.relativePath(for: output.audioURL).parent.appending("Booklet.pdf")
+            let destination = try fileSystem.relativePath(for: output.audioURL).parent.appending(
+                QobuzManagedLibraryAssetPolicy.bookletFilename
+            )
             if try fileSystem.metadata(at: destination)?.kind == .regularFile {
                 created.append(fileSystem.displayURL(for: destination))
                 continue
@@ -43,7 +45,9 @@ struct QobuzCollectionSidecarWriter: @unchecked Sendable {
             guard visited.insert(album.id).inserted,
                   let description = album.albumDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !description.isEmpty else { continue }
-            let destination = try fileSystem.relativePath(for: output.audioURL).parent.appending("description.txt")
+            let destination = try fileSystem.relativePath(for: output.audioURL).parent.appending(
+                QobuzManagedLibraryAssetPolicy.descriptionFilename
+            )
             try fileSystem.writeAtomically(Data(description.utf8), to: destination)
             created.append(fileSystem.displayURL(for: destination))
         }

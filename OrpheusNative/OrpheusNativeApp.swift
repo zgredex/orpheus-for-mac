@@ -96,7 +96,7 @@ struct OrpheusNativeApp: App {
             CommandMenu("Diagnostics") {
                 Button("Open Diagnostics") { viewModel.showDiagnostics = true }
                     .keyboardShortcut("l", modifiers: [.command, .shift])
-                Button("Reveal Log Files") { viewModel.revealDiagnostics() }
+                Button("Reveal Log Files") { viewModel.diagnostics.reveal() }
             }
         }
     }

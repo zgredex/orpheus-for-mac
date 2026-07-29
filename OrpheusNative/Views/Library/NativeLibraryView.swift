@@ -84,6 +84,14 @@ struct NativeLibraryView: View {
                 .fixedSize()
                 .help("Library Actions")
             }
+            Button {
+                vm.showSettings = true
+            } label: {
+                Image(systemName: "externaldrive.badge.timemachine")
+            }
+            .buttonStyle(.borderless)
+            .disabled(vm.isDownloading || vm.libraryManagement.isWorking)
+            .help("Relocate, Prune, or Delete Library")
             Button(action: vm.closeLibrary) { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
                 .help("Close Library")
