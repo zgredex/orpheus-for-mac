@@ -5,6 +5,11 @@ import NativeQobuzCore
 /// navigation has a separate owner in `NativeBrowseController`.
 @MainActor
 final class NativeCatalogSearchController: ObservableObject {
+    private enum TaskSlot: Hashable {
+        case initial(NativeBrowseCategory)
+        case pagination(NativeBrowseCategory)
+    }
+
     @Published private(set) var query = ""
     @Published var category: NativeBrowseCategory = .albums
     @Published private(set) var results = NativeBrowseResults()
@@ -14,7 +19,7 @@ final class NativeCatalogSearchController: ObservableObject {
     @Published private(set) var loadMoreErrors: [NativeBrowseCategory: String] = [:]
 
     private var client: (any NativeQobuzServicing)?
-    private var tasks: [Task<Void, Never>] = []
+    private var tasks: [TaskSlot: Task<Void, Never>] = [:]
     private var requestID: UUID?
 
     var isLoading: Bool { !loadingCategories.isEmpty || !loadingMoreCategories.isEmpty }
@@ -53,7 +58,7 @@ final class NativeCatalogSearchController: ObservableObject {
             ]
         )
         for category in NativeBrowseCategory.allCases {
-            tasks.append(initialTask(client: client, query: value, category: category, requestID: id))
+            startInitialTask(client: client, query: value, category: category, requestID: id)
         }
     }
 
@@ -78,7 +83,10 @@ final class NativeCatalogSearchController: ObservableObject {
             "Loading next search result page",
             metadata: Self.searchMetadata(id: id, query: query, category: category, offset: offset)
         )
-        tasks.append(Task { [weak self] in
+        let slot = TaskSlot.pagination(category)
+        tasks[slot]?.cancel()
+        tasks[slot] = Task { [weak self] in
+            defer { self?.finishTask(slot, requestID: id) }
             do {
                 let metadata = Self.searchMetadata(id: id, query: query, category: category, offset: offset)
                 let page = try await QobuzLogScope.withValue(metadata) {
@@ -109,7 +117,7 @@ final class NativeCatalogSearchController: ObservableObject {
                     error: error
                 )
             }
-        })
+        }
     }
 
     func reset() {
@@ -133,13 +141,16 @@ final class NativeCatalogSearchController: ObservableObject {
         results.nextOffset(for: category) != nil
     }
 
-    private func initialTask(
+    private func startInitialTask(
         client: any NativeQobuzServicing,
         query: String,
         category: NativeBrowseCategory,
         requestID: UUID
-    ) -> Task<Void, Never> {
-        Task { [weak self] in
+    ) {
+        let slot = TaskSlot.initial(category)
+        tasks[slot]?.cancel()
+        tasks[slot] = Task { [weak self] in
+            defer { self?.finishTask(slot, requestID: requestID) }
             do {
                 let metadata = Self.searchMetadata(id: requestID, query: query, category: category, offset: 0)
                 let page = try await QobuzLogScope.withValue(metadata) {
@@ -195,8 +206,13 @@ final class NativeCatalogSearchController: ObservableObject {
     }
 
     private func cancelTasks() {
-        tasks.forEach { $0.cancel() }
+        tasks.values.forEach { $0.cancel() }
         tasks.removeAll()
+    }
+
+    private func finishTask(_ slot: TaskSlot, requestID: UUID) {
+        guard self.requestID == requestID else { return }
+        tasks.removeValue(forKey: slot)
     }
 
     private static func searchMetadata(

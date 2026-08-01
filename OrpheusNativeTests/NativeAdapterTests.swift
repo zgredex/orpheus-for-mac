@@ -24,6 +24,23 @@ final class NativeAdapterTests: XCTestCase {
         )
     }
 
+    func testSignedURLRecoveryBudgetIsOwnedPerTrack() {
+        var budget = NativeSignedURLRecoveryBudget()
+        let first = QobuzID("first")
+        let second = QobuzID("second")
+
+        XCTAssertTrue(budget.consume(for: first))
+        XCTAssertFalse(budget.consume(for: first))
+        XCTAssertTrue(budget.consume(for: second))
+        XCTAssertFalse(budget.consume(for: second))
+        XCTAssertTrue(budget.consume(for: nil))
+        XCTAssertFalse(budget.consume(for: nil))
+
+        budget.reset()
+        XCTAssertTrue(budget.consume(for: first))
+        XCTAssertTrue(budget.consume(for: nil))
+    }
+
     func testConnectivityMonitorLifecycleUpdatesViewModelAndStopsAtTermination() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -155,6 +172,30 @@ final class NativeAdapterTests: XCTestCase {
         XCTAssertEqual(results.tracks.map(\.title), ["One", "Two", "Three"])
         XCTAssertEqual(results.total(for: .tracks), 3)
         XCTAssertNil(results.nextOffset(for: .tracks))
+    }
+
+    func testBrowseResultsPreserveKnownTotalWhenLaterPageOmitsIt() {
+        var results = NativeBrowseResults()
+        results.replace(
+            QobuzSearchResults(
+                tracks: [QobuzTrack(id: .init("one"), title: "One")],
+                nextOffset: 1,
+                total: 20
+            ),
+            for: .tracks
+        )
+        results.append(
+            QobuzSearchResults(
+                tracks: [QobuzTrack(id: .init("two"), title: "Two")],
+                offset: 1,
+                nextOffset: 2,
+                total: nil
+            ),
+            for: .tracks
+        )
+
+        XCTAssertEqual(results.total(for: .tracks), 20)
+        XCTAssertEqual(results.nextOffset(for: .tracks), 2)
     }
 
     func testLibraryProblemsExplainIntegrityAndSeparateManualIndexIssues() throws {

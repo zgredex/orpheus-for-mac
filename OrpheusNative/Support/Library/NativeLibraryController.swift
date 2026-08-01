@@ -12,7 +12,6 @@ final class NativeLibraryController: ObservableObject {
     @Published private(set) var isOpen = false
     @Published private(set) var snapshot: QobuzArchiveSnapshot?
     @Published private(set) var isScanning = false
-
     private let archiveStore: any NativeArchiveIndexStoring
     private let scanner: any QobuzArchiveScanning
     private let adopter: any QobuzLibraryAdopting
@@ -20,9 +19,10 @@ final class NativeLibraryController: ObservableObject {
     private let downloadedIndexer: NativeDownloadedLibraryIndexer
     private let revealer = NativeLibraryRevealController()
     private var cacheLoadTask: Task<Void, Never>?
+    private var cacheGeneration: UInt64 = 0
+    private var activeRootPath: String?
     private var refreshTask: Task<Void, Never>?
     private var refreshID: UUID?
-
     init(
         archiveStore: any NativeArchiveIndexStoring,
         scanner: any QobuzArchiveScanning,
@@ -40,27 +40,50 @@ final class NativeLibraryController: ObservableObject {
 
     @discardableResult
     func loadCache(for root: URL) async -> NativeLibraryCacheLoadStatus {
-        let restoration = await cacheRestorer.restore(for: root)
+        let standardizedRoot = root.standardizedFileURL
+        let generation = cacheGeneration
+        let restoration = await cacheRestorer.restore(for: standardizedRoot)
+        guard !Task.isCancelled, generation == cacheGeneration else {
+            return restoration.status
+        }
+        guard activeRootPath == nil || activeRootPath == standardizedRoot.path else {
+            qobuzLog.debug(
+                "library.cache",
+                "Superseded archive cache restoration was discarded",
+                metadata: [
+                    "cachedRoot": standardizedRoot.path,
+                    "activeRoot": activeRootPath ?? "none"
+                ]
+            )
+            return restoration.status
+        }
         snapshot = restoration.snapshot
         return restoration.status
     }
-
     func open(root: URL, onFailure: @escaping @MainActor (String) -> Void) {
+        let standardizedRoot = root.standardizedFileURL
+        activeRootPath = standardizedRoot.path
+        if snapshot?.rootPath != standardizedRoot.path {
+            snapshot = nil
+        }
         isOpen = true
-        qobuzLog.notice("library.ui", "Library opened", metadata: ["downloadRoot": root.path])
+        qobuzLog.notice("library.ui", "Library opened", metadata: ["downloadRoot": standardizedRoot.path])
         if snapshot == nil {
-            cacheLoadTask?.cancel()
+            cancelCacheLoad()
+            let generation = cacheGeneration
             isScanning = true
             cacheLoadTask = Task { [weak self] in
                 guard let self else { return }
-                defer { cacheLoadTask = nil }
-                _ = await loadCache(for: root)
-                guard !Task.isCancelled, isOpen else { return }
+                defer {
+                    if cacheGeneration == generation { cacheLoadTask = nil }
+                }
+                _ = await loadCache(for: standardizedRoot)
+                guard !Task.isCancelled, cacheGeneration == generation, isOpen else { return }
                 cacheLoadTask = nil
-                refresh(root: root, onFailure: onFailure)
+                refresh(root: standardizedRoot, onFailure: onFailure)
             }
         } else {
-            refresh(root: root, onFailure: onFailure)
+            refresh(root: standardizedRoot, onFailure: onFailure)
         }
     }
 
@@ -72,18 +95,22 @@ final class NativeLibraryController: ObservableObject {
 
     func invalidate() {
         cancelRefresh()
-        cacheLoadTask?.cancel()
-        cacheLoadTask = nil
+        activeRootPath = nil
         snapshot = nil
     }
 
     func cancelRefresh() {
-        cacheLoadTask?.cancel()
-        cacheLoadTask = nil
+        cancelCacheLoad()
         refreshTask?.cancel()
         refreshTask = nil
         refreshID = nil
         isScanning = false
+    }
+
+    private func cancelCacheLoad() {
+        cacheGeneration &+= 1
+        cacheLoadTask?.cancel()
+        cacheLoadTask = nil
     }
 
     func refresh(

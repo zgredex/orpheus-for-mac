@@ -72,6 +72,12 @@ final class NativeLogSerialWriter: @unchecked Sendable {
         }
     }
 
+    func flush() throws {
+        try queue.sync {
+            try flushPending(synchronize: true)
+        }
+    }
+
     func loadEntries(limit: Int) throws -> [QobuzLogEntry] {
         try queue.sync {
             try flushPending(synchronize: false)

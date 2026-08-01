@@ -121,6 +121,29 @@ final class NativeHardeningTests: XCTestCase {
         XCTAssertEqual(try NativeArchiveIndexStore(paths: paths).load(), .restored(rebuilt))
     }
 
+    func testInvalidationPreventsLateArchiveCacheFromRepopulatingLibrary() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let libraryRoot = root.appendingPathComponent("Music", isDirectory: true)
+        let cached = QobuzArchiveSnapshot(
+            rootPath: libraryRoot.standardizedFileURL.path,
+            tracks: []
+        )
+        let scanner = ImmediateArchiveScanner(snapshot: cached)
+        let controller = NativeLibraryController(
+            archiveStore: DelayedArchiveStore(snapshot: cached, loadDelay: 0.1),
+            scanner: scanner,
+            adopter: QobuzLibraryAdopter(scanner: scanner)
+        )
+
+        let restoration = Task { await controller.loadCache(for: libraryRoot) }
+        try await Task.sleep(for: .milliseconds(20))
+        controller.invalidate()
+        _ = await restoration.value
+
+        XCTAssertNil(controller.snapshot)
+    }
+
     func testSessionCacheSymlinkIsQuarantinedWithoutReadingOrChangingTarget() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -237,6 +260,23 @@ private final class RecordingSessionStore: NativeSessionStoring, @unchecked Send
             writes += 1
         }
     }
+}
+
+private final class DelayedArchiveStore: NativeArchiveIndexStoring, @unchecked Sendable {
+    private let snapshot: QobuzArchiveSnapshot
+    private let loadDelay: TimeInterval
+
+    init(snapshot: QobuzArchiveSnapshot, loadDelay: TimeInterval) {
+        self.snapshot = snapshot
+        self.loadDelay = loadDelay
+    }
+
+    func load() throws -> NativeArchiveIndexLoadResult {
+        Thread.sleep(forTimeInterval: loadDelay)
+        return .restored(snapshot)
+    }
+
+    func save(_ snapshot: QobuzArchiveSnapshot) throws {}
 }
 
 private final class ImmediateArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {

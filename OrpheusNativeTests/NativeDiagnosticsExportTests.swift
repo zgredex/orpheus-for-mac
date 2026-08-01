@@ -76,6 +76,7 @@ private struct FailingCopyLogStore: NativeLogStoring {
     func append(_ entry: QobuzLogEntry) {}
     func loadEntries(limit: Int) throws -> [QobuzLogEntry] { [] }
     func entryStream() -> AsyncStream<QobuzLogEntry> { AsyncStream { $0.finish() } }
+    func flush() throws {}
     func copyLogFiles(to destination: URL) throws {
         throw NSError(
             domain: "NativeDiagnosticsExportTests",

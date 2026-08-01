@@ -40,6 +40,13 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             "totalTracks": String(item.total)
         ]
         let trackStarted = Date()
+        // Establish track identity before requesting its signed URL. If that
+        // request or the subsequent transfer fails, recovery must be budgeted
+        // against this track rather than whichever track completed previously.
+        continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
+            phase: .transferringAudio,
+            trackID: item.track.id
+        )))
         qobuzLog.info("download.track", "Resolving downloadable audio file", metadata: trackMetadata)
         let fileInfo = try await QobuzLogScope.withValue(trackMetadata) {
             try await service.fileInfo(trackID: item.track.id, format: configuration.requestedFormat)

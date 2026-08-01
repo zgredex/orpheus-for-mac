@@ -56,8 +56,18 @@ final class NativeDownloadItemRunner {
         checkpoint()
 
         await QobuzLogScope.withValue(operationMetadata) {
+            @MainActor func pause(_ error: NativeQobuzError) {
+                pauseAfterResumableFailure(
+                    error,
+                    queueID: item.id,
+                    activityID: activityID,
+                    startedAt: startedAt,
+                    root: root,
+                    checkpoint: checkpoint
+                )
+            }
             var connectivityRecovery = NativeConnectivityRecoveryPolicy()
-            var refreshedExpiredURL = false
+            var signedURLRecovery = NativeSignedURLRecoveryBudget()
             while !Task.isCancelled {
                 do {
                     try await withNativePowerActivity(
@@ -106,13 +116,20 @@ final class NativeDownloadItemRunner {
                         root: root
                     )
                     return
-                } catch let error as NativeQobuzError where error.requiresFreshSignedURL && !refreshedExpiredURL {
-                    refreshedExpiredURL = true
+                } catch let error as NativeQobuzError where error.requiresFreshSignedURL {
+                    let failedTrackID = ledger.activity(id: activityID)?.checkpoint?.trackID
+                    guard signedURLRecovery.consume(for: failedTrackID) else {
+                        pause(error)
+                        return
+                    }
                     let partialExists = ledger.refreshPartial(for: activityID, root: root) != nil
                     qobuzLog.warning(
                         "download.recovery.url",
                         "Expired audio URL detected; reacquiring a fresh signed Qobuz URL",
-                        metadata: ["partialPreserved": String(partialExists)],
+                        metadata: [
+                            "partialPreserved": String(partialExists),
+                            "trackID": failedTrackID?.rawValue ?? "unscoped"
+                        ],
                         error: error
                     )
                     ledger.transition(queueID: item.id, activityID: activityID, to: .queued)
@@ -171,7 +188,7 @@ final class NativeDownloadItemRunner {
                             return
                         }
                         connectivityRecovery.recovered()
-                        refreshedExpiredURL = false
+                        signedURLRecovery.reset()
                         qobuzLog.notice(
                             "download.recovery.network",
                             "Network path recovered; resuming with a fresh signed URL",
@@ -185,23 +202,7 @@ final class NativeDownloadItemRunner {
                     }
                     continue
                 } catch let error as NativeQobuzError where error.canResumeTransfer {
-                    let partial = ledger.refreshPartial(for: activityID, root: root)
-                    qobuzLog.warning(
-                        "download.item",
-                        "Queue item download paused after a resumable failure",
-                        metadata: [
-                            "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
-                            "partialPath": partial?.url.path ?? "none"
-                        ],
-                        error: error
-                    )
-                    ledger.transition(queueID: item.id, activityID: activityID, to: .paused)
-                    ledger.updateActivity(activityID) {
-                        $0.phase = "Paused · \(error.localizedDescription)"
-                        $0.errorMessage = error.localizedDescription
-                        $0.bytesPerSecond = nil
-                    }
-                    checkpoint()
+                    pause(error)
                     return
                 } catch {
                     _ = ledger.refreshPartial(for: activityID, root: root)
@@ -233,6 +234,33 @@ final class NativeDownloadItemRunner {
                 root: root
             )
         }
+    }
+
+    private func pauseAfterResumableFailure(
+        _ error: NativeQobuzError,
+        queueID: UUID,
+        activityID: UUID,
+        startedAt: Date,
+        root: URL,
+        checkpoint: @MainActor () -> Void
+    ) {
+        let partial = ledger.refreshPartial(for: activityID, root: root)
+        qobuzLog.warning(
+            "download.item",
+            "Queue item download paused after a resumable failure",
+            metadata: [
+                "durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000)),
+                "partialPath": partial?.url.path ?? "none"
+            ],
+            error: error
+        )
+        ledger.transition(queueID: queueID, activityID: activityID, to: .paused)
+        ledger.updateActivity(activityID) {
+            $0.phase = "Paused · \(error.localizedDescription)"
+            $0.errorMessage = error.localizedDescription
+            $0.bytesPerSecond = nil
+        }
+        checkpoint()
     }
 
     private func finishCancellation(

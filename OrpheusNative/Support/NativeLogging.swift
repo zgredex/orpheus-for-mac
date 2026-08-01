@@ -7,6 +7,7 @@ protocol NativeLogStoring: Sendable {
     func append(_ entry: QobuzLogEntry)
     func loadEntries(limit: Int) throws -> [QobuzLogEntry]
     func entryStream() -> AsyncStream<QobuzLogEntry>
+    func flush() throws
     func copyLogFiles(to destination: URL) throws
     func clear() throws
 }
@@ -57,6 +58,10 @@ final class NativeLogFileStore: NativeLogStoring, @unchecked Sendable {
 
     func entryStream() -> AsyncStream<QobuzLogEntry> {
         writer.entryStream()
+    }
+
+    func flush() throws {
+        try writer.flush()
     }
 
     func copyLogFiles(to destination: URL) throws {

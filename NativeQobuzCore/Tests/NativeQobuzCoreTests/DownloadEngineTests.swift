@@ -357,6 +357,13 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertEqual(started.map(\.track.id), [QobuzID("two"), QobuzID("three")])
         XCTAssertEqual(started.map(\.position), [1, 2])
         XCTAssertEqual(started.map(\.total), [2, 2])
+        let signedURLCheckpoints = events.compactMap { event -> QobuzID? in
+            guard case .checkpoint(let checkpoint) = event,
+                  checkpoint.phase == .transferringAudio,
+                  checkpoint.outputURL == nil else { return nil }
+            return checkpoint.trackID
+        }
+        XCTAssertEqual(signedURLCheckpoints, [QobuzID("two"), QobuzID("three")])
         XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 2, skipped: 0)))
     }
 

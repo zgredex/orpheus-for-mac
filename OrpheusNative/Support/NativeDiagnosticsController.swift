@@ -38,6 +38,10 @@ final class NativeDiagnosticsController: @unchecked Sendable {
         logStore.entryStream()
     }
 
+    func flush() throws {
+        try logStore.flush()
+    }
+
     func clear() throws {
         try logStore.clear()
     }

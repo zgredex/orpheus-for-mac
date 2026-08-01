@@ -30,9 +30,10 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
             )
         }
         let referencedPaths = Set(collections.flatMap(\.trackPaths))
-        let fallbackTracks = uniqueTracks.filter {
-            !referencedPaths.contains($0.relativePath) && !$0.isLibraryManaged
-        }
+        // The root collection manifest is presentation metadata, not ownership
+        // of the physical archive. If it is missing or quarantined, every
+        // unreferenced track must remain visible through the fallback projection.
+        let fallbackTracks = uniqueTracks.filter { !referencedPaths.contains($0.relativePath) }
         let grouped = Dictionary(grouping: fallbackTracks, by: Self.groupKey)
         let fallbackEntries = grouped.keys.compactMap { key -> QobuzArchiveEntry? in
             guard let values = grouped[key], let first = values.first else { return nil }

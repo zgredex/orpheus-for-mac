@@ -114,7 +114,7 @@ struct NativeBrowseResults: Equatable {
         case .playlists: playlists = values.playlists
         case .tracks: tracks = values.tracks
         }
-        updatePageMetadata(values, for: category)
+        updatePageMetadata(values, for: category, preservesExistingTotal: false)
     }
 
     mutating func append(_ values: QobuzSearchResults, for category: NativeBrowseCategory) {
@@ -134,7 +134,7 @@ struct NativeBrowseResults: Equatable {
             var known = Set(tracks.map(\.id))
             tracks.append(contentsOf: values.tracks.filter { known.insert($0.id).inserted })
         }
-        updatePageMetadata(values, for: category)
+        updatePageMetadata(values, for: category, preservesExistingTotal: true)
     }
 
     var firstNonemptyCategory: NativeBrowseCategory? {
@@ -143,10 +143,11 @@ struct NativeBrowseResults: Equatable {
 
     private mutating func updatePageMetadata(
         _ values: QobuzSearchResults,
-        for category: NativeBrowseCategory
+        for category: NativeBrowseCategory,
+        preservesExistingTotal: Bool
     ) {
         if let total = values.total { totals[category] = total }
-        else { totals.removeValue(forKey: category) }
+        else if !preservesExistingTotal { totals.removeValue(forKey: category) }
         if let nextOffset = values.nextOffset { nextOffsets[category] = nextOffset }
         else { nextOffsets.removeValue(forKey: category) }
     }

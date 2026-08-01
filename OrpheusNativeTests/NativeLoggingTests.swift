@@ -61,6 +61,25 @@ final class NativeLoggingTests: XCTestCase {
         XCTAssertTrue(persisted)
     }
 
+    func testExplicitFlushMakesBatchedNoticeDurable() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        let store = NativeLogFileStore(paths: paths)
+        try store.activate()
+        let entry = logEntry(level: .notice, message: "termination checkpoint")
+        store.append(entry)
+
+        try store.flush()
+
+        let current = paths.logsDirectory.appendingPathComponent("orpheus-current.jsonl")
+        let persisted = String(decoding: try Data(contentsOf: current), as: UTF8.self)
+        XCTAssertTrue(persisted.contains(entry.id.uuidString))
+    }
+
     func testTailReaderReturnsOnlyNewestRecordsAcrossArchives() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

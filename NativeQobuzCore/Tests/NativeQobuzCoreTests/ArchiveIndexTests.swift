@@ -245,6 +245,22 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertTrue(library.entries.allSatisfy { $0.tracks.map(\.relativePath) == [sharedPath] })
     }
 
+    func testManagedTracksRemainVisibleWhenCollectionManifestIsMissing() {
+        let track = archiveTrack(
+            relativePath: "Artist/Album/01. Song.flac",
+            trackID: "song",
+            albumID: "album",
+            integrity: .verified,
+            archiveKind: .album,
+            isLibraryManaged: true
+        )
+
+        let library = QobuzArchiveLibrary(tracks: [track], collections: [])
+
+        XCTAssertEqual(library.entries.count, 1)
+        XCTAssertEqual(library.entries.first?.tracks.map(\.relativePath), [track.relativePath])
+    }
+
     func testProvenanceRoundTripPersistsArchiveKindAndUnclassifiedDataRemainsReadable() throws {
         let value = provenance(
             trackID: "single",
@@ -591,7 +607,8 @@ final class ArchiveIndexTests: XCTestCase {
         trackID: String,
         albumID: String,
         integrity: QobuzArchiveIntegrity,
-        archiveKind: QobuzArchiveKind = .album
+        archiveKind: QobuzArchiveKind = .album,
+        isLibraryManaged: Bool = false
     ) -> QobuzArchiveTrack {
         QobuzArchiveTrack(
             relativePath: relativePath,
@@ -601,7 +618,8 @@ final class ArchiveIndexTests: XCTestCase {
             expectedSHA256: String(repeating: "a", count: 64),
             actualSHA256: integrity == .verified ? String(repeating: "a", count: 64) : nil,
             integrity: integrity,
-            archiveKind: archiveKind
+            archiveKind: archiveKind,
+            isLibraryManaged: isLibraryManaged
         )
     }
 

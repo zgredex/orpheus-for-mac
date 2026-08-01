@@ -125,3 +125,25 @@ struct NativeConnectivityRecoveryPolicy: Equatable {
         usedImmediateRetry = false
     }
 }
+
+/// Grants one signed-URL refresh to each failing track. Qobuz URLs expire per
+/// media request, so spending one album-wide retry must not strand later tracks.
+struct NativeSignedURLRecoveryBudget: Equatable {
+    private var refreshedTrackIDs: Set<QobuzID> = []
+    private var usedUnscopedRetry = false
+
+    @discardableResult
+    mutating func consume(for trackID: QobuzID?) -> Bool {
+        guard let trackID else {
+            guard !usedUnscopedRetry else { return false }
+            usedUnscopedRetry = true
+            return true
+        }
+        return refreshedTrackIDs.insert(trackID).inserted
+    }
+
+    mutating func reset() {
+        refreshedTrackIDs.removeAll(keepingCapacity: true)
+        usedUnscopedRetry = false
+    }
+}

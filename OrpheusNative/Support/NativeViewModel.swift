@@ -553,6 +553,12 @@ final class NativeViewModel: ObservableObject {
 
     func prepareForTermination() {
         lifecycle.prepareForTermination()
+        do {
+            try diagnostics.flush()
+        } catch {
+            qobuzLog.critical("lifecycle", "Final diagnostic flush failed", error: error)
+            try? diagnostics.flush()
+        }
     }
 
     func reveal(_ activity: NativeDownloadActivity) {
