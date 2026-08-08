@@ -20,8 +20,20 @@ final class HardeningTests: XCTestCase {
             pathExtension: "flac"
         )
         let destination = URL(fileURLWithPath: "/tmp").appendingPathComponent(destinationName)
-        let processing = QobuzDownloadArtifacts.processingURL(for: destination, formatID: 27)
-        let partial = QobuzDownloadArtifacts.partialURL(for: destination, formatID: 27)
+        let albumID = QobuzID("album")
+        let trackID = QobuzID("track")
+        let processing = QobuzDownloadArtifacts.processingURL(
+            for: destination,
+            formatID: 27,
+            albumID: albumID,
+            trackID: trackID
+        )
+        let partial = QobuzDownloadArtifacts.partialURL(
+            for: destination,
+            formatID: 27,
+            albumID: albumID,
+            trackID: trackID
+        )
 
         XCTAssertLessThanOrEqual(sanitized.utf8.count, QobuzFilenameComponent.sanitizedStemBytes)
         XCTAssertLessThanOrEqual(destination.lastPathComponent.utf8.count, QobuzFilenameComponent.maximumBytes)
@@ -107,6 +119,21 @@ final class HardeningTests: XCTestCase {
                 mimeType: "image/png"
             )
         )
+    }
+
+    func testDownloadProgressLimiterBoundsBurstsAndAlwaysEmitsCompletion() {
+        var time: TimeInterval = 10
+        var limiter = QobuzDownloadProgressLimiter(
+            minimumInterval: 0.1,
+            minimumFractionDelta: 0.01,
+            now: { time }
+        )
+
+        XCTAssertTrue(limiter.shouldEmit(fraction: 0.01))
+        XCTAssertFalse(limiter.shouldEmit(fraction: 0.011))
+        time += 0.11
+        XCTAssertTrue(limiter.shouldEmit(fraction: 0.012))
+        XCTAssertTrue(limiter.shouldEmit(fraction: 1))
     }
 
 }

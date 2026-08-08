@@ -6,27 +6,30 @@ final class NativeDownloadOrchestrator {
     private let account: NativeAccountController
     private let queue: NativeQueueController
     private let downloads: NativeDownloadController
+    private let libraryManagement: NativeLibraryManagementController
 
     init(
         account: NativeAccountController,
         queue: NativeQueueController,
-        downloads: NativeDownloadController
+        downloads: NativeDownloadController,
+        libraryManagement: NativeLibraryManagementController
     ) {
         self.account = account
         self.queue = queue
         self.downloads = downloads
+        self.libraryManagement = libraryManagement
     }
 
     var canDownloadSelected: Bool {
-        !downloads.isDownloading
-            && queue.selectedItem.map { downloads.isStartable($0) } == true
-            && account.credentials.isComplete
+        !libraryManagement.isWorking
+            && !downloads.isDownloading
+            && queue.selectedItem.map(canStartNow) == true
     }
 
     var canDownloadAll: Bool {
-        !downloads.isDownloading
-            && account.credentials.isComplete
-            && queue.items.contains { downloads.isStartable($0) }
+        !libraryManagement.isWorking
+            && !downloads.isDownloading
+            && queue.items.contains(where: canStartNow)
     }
 
     func downloadSelected() {
@@ -35,11 +38,11 @@ final class NativeDownloadOrchestrator {
     }
 
     func downloadAll() {
-        start(ids: queue.items.filter { downloads.isStartable($0) }.map(\.id))
+        start(ids: queue.items.filter(canStartNow).map(\.id))
     }
 
     func downloadNext() {
-        guard let next = queue.items.first(where: { downloads.isStartable($0) }) else { return }
+        guard let next = queue.items.first(where: canStartNow) else { return }
         start(ids: [next.id])
     }
 
@@ -52,6 +55,7 @@ final class NativeDownloadOrchestrator {
     }
 
     private func recover(_ activity: NativeDownloadActivity, action: NativeDownloadRecoveryAction) {
+        guard !libraryManagement.isWorking else { return }
         downloads.recover(
             activity,
             action: action,
@@ -63,6 +67,7 @@ final class NativeDownloadOrchestrator {
     }
 
     func repairArchiveTracks(_ tracks: [QobuzArchiveTrack]) {
+        guard !libraryManagement.isWorking else { return }
         downloads.repairArchiveTracks(
             tracks,
             client: account.client,
@@ -73,6 +78,7 @@ final class NativeDownloadOrchestrator {
     }
 
     private func start(ids: [UUID]) {
+        guard !libraryManagement.isWorking else { return }
         downloads.start(
             ids: ids,
             client: account.client,
@@ -80,5 +86,10 @@ final class NativeDownloadOrchestrator {
             defaultQuality: account.settings.quality,
             defaultRootPath: account.settings.downloadPath
         )
+    }
+
+    private func canStartNow(_ item: NativeQueueItem) -> Bool {
+        downloads.isStartable(item)
+            && (account.credentials.isComplete || downloads.canResumeLibraryIndex(item))
     }
 }

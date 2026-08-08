@@ -80,6 +80,32 @@ final class NativeLoggingTests: XCTestCase {
         XCTAssertTrue(persisted.contains(entry.id.uuidString))
     }
 
+    func testActivationRepairsCrashTruncatedJSONLTailBeforeAppending() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        try FileManager.default.createDirectory(at: paths.logsDirectory, withIntermediateDirectories: true)
+        let codec = NativeLogCodec()
+        let preserved = logEntry(level: .info, message: "preserved")
+        var bytes = try codec.encodeLine(preserved)
+        bytes.append(Data(#"{"partial":"crash""#.utf8))
+        try bytes.write(to: paths.logsDirectory.appendingPathComponent("orpheus-current.jsonl"))
+        let store = NativeLogFileStore(paths: paths)
+        try store.activate()
+        let appended = logEntry(level: .warning, message: "after restart")
+
+        store.append(appended)
+        try store.flush()
+
+        let entries = try store.loadEntries(limit: 10)
+        XCTAssertEqual(entries.first?.message, "preserved")
+        XCTAssertEqual(entries.last?.message, "after restart")
+        XCTAssertFalse(entries.contains { $0.message.contains("partial") })
+    }
+
     func testTailReaderReturnsOnlyNewestRecordsAcrossArchives() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -145,6 +171,39 @@ final class NativeLoggingTests: XCTestCase {
         XCTAssertFalse(afterClear.contains { $0.category == "test.rotation" })
     }
 
+    func testQuarantinedLogIsNotReadOrExportedButClearRemovesIt() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        try FileManager.default.createDirectory(
+            at: paths.logsDirectory,
+            withIntermediateDirectories: true
+        )
+        let rejected = paths.logsDirectory.appendingPathComponent(
+            "orpheus-rejected-oversized-\(UUID().uuidString).jsonl"
+        )
+        try Data("untrusted-not-jsonl".utf8).write(to: rejected)
+        let store = NativeLogFileStore(paths: paths)
+        try store.activate()
+        store.append(logEntry(level: .warning, message: "exportable"))
+        try store.flush()
+
+        let loadedMessages = try store.loadEntries(limit: 10).map(\.message)
+        XCTAssertTrue(loadedMessages.contains("exportable"))
+        XCTAssertFalse(loadedMessages.contains("untrusted-not-jsonl"))
+        let exported = root.appendingPathComponent("Export", isDirectory: true)
+        try store.copyLogFiles(to: exported)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: exported.appendingPathComponent(rejected.lastPathComponent).path
+        ))
+
+        try store.clear()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rejected.path))
+    }
+
     func testDiagnosticExportContainsReportAndNeverContainsCredentialValues() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -155,8 +214,7 @@ final class NativeLoggingTests: XCTestCase {
         let store = NativeLogFileStore(paths: paths)
         let viewModel = NativeViewModel(
             paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: FileCredentialStore(paths: paths),
+            configurationStore: NativeConfigurationStore(paths: paths),
             archiveStore: NativeArchiveIndexStore(paths: paths),
             sessionStore: NativeSessionStore(paths: paths),
             logStore: store,
@@ -200,7 +258,9 @@ final class NativeLoggingTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: latest.path)
 
         let older = source.appendingPathComponent("OrpheusNative_older.crash")
-        try Data("OrpheusNative older auth_token=OLDER-SECRET marker=older".utf8).write(to: older)
+        try Data(
+            "Process: OrpheusNative [42]\nIdentifier: com.orpheus.formac\nauth_token=OLDER-SECRET marker=older".utf8
+        ).write(to: older)
         try FileManager.default.setAttributes(
             [.modificationDate: now.addingTimeInterval(-60)],
             ofItemAtPath: older.path

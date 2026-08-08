@@ -44,8 +44,9 @@ struct QobuzTrackDownloader: @unchecked Sendable {
         // request or the subsequent transfer fails, recovery must be budgeted
         // against this track rather than whichever track completed previously.
         continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
-            phase: .transferringAudio,
-            trackID: item.track.id
+            phase: .resolvingAudio,
+            trackID: item.track.id,
+            albumID: item.album.id
         )))
         qobuzLog.info("download.track", "Resolving downloadable audio file", metadata: trackMetadata)
         let fileInfo = try await QobuzLogScope.withValue(trackMetadata) {
@@ -63,20 +64,13 @@ struct QobuzTrackDownloader: @unchecked Sendable {
             requestedMaximum: configuration.requestedMaximum,
             delivered: fileInfo
         )
-        emitDeliveryNotice(
-            item: item,
-            fileInfo: fileInfo,
-            requestedMaximum: configuration.requestedMaximum,
-            trackMetadata: trackMetadata,
-            continuation: continuation
-        )
         let destination = try destinationResolver.destination(
             for: item,
             fileInfo: fileInfo,
             root: configuration.downloadRoot,
             fileSystem: fileSystem,
             repairTarget: configuration.repairTarget,
-            reusableAudio: state.reusableAudio,
+            reusableAudio: &state.reusableAudio,
             trackMetadata: trackMetadata
         )
         qobuzLog.debug(
@@ -87,6 +81,7 @@ struct QobuzTrackDownloader: @unchecked Sendable {
         if try await existingVerifier.verifyIfReusable(
             item: item,
             fileInfo: fileInfo,
+            requestedMaximum: configuration.requestedMaximum,
             destination: destination,
             repairTarget: configuration.repairTarget,
             root: configuration.downloadRoot,
@@ -98,6 +93,14 @@ struct QobuzTrackDownloader: @unchecked Sendable {
         ) {
             return
         }
+
+        emitDeliveryNotice(
+            item: item,
+            fileInfo: fileInfo,
+            requestedMaximum: configuration.requestedMaximum,
+            trackMetadata: trackMetadata,
+            continuation: continuation
+        )
 
         let result = try await transferPipeline.transferTrack(
             item: item,

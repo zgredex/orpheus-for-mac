@@ -25,8 +25,7 @@ final class NativeViewModelTestFixture {
         )
         viewModel = NativeViewModel(
             paths: paths,
-            settingsStore: NativeSettingsStore(paths: paths),
-            credentialStore: MemoryCredentialStore(credentials: credentials),
+            configurationStore: MemoryConfigurationStore(paths: paths, credentials: credentials),
             archiveStore: archiveStore,
             sessionStore: sessionStore,
             clientFactory: { _ in service }

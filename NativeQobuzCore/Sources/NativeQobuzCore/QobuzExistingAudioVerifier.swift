@@ -21,6 +21,7 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
     func verifyIfReusable(
         item: QobuzResolvedTrack,
         fileInfo: QobuzFileInfo,
+        requestedMaximum: QobuzQuality?,
         destination: URL,
         repairTarget: QobuzArchiveTrack?,
         root: URL,
@@ -33,16 +34,17 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
         let destinationPath = try fileSystem.relativePath(for: destination)
         guard try fileSystem.metadata(at: destinationPath)?.kind == .regularFile,
               let provenance = try? assetWriter.provenance(for: destination, fileSystem: fileSystem),
-              provenance.matchesIdentityAndFormat(item: item, fileInfo: fileInfo) else { return false }
+              provenance.belongs(to: item) else { return false }
         do {
             continuation.yield(.validating(track: item))
             let media = try await validator.validate(destination, fileSystem: fileSystem)
-            let delivery = try deliveryPolicy.validate(fileInfo: fileInfo, media: media)
-            guard provenance.matches(item: item, delivery: delivery) else {
-                throw NativeQobuzError.invalidResponse(
-                    "Existing file properties do not match its archive provenance"
-                )
-            }
+            let delivery = try deliveryPolicy.validateExistingForReuse(
+                provenance: provenance,
+                item: item,
+                requestedMaximum: requestedMaximum,
+                offered: fileInfo,
+                media: media
+            )
             try Task.checkCancellation()
             let checksum = try MusicFileIntegrity.sha256(of: destinationPath, in: fileSystem)
             guard provenance.sha256.caseInsensitiveCompare(checksum) == .orderedSame else {
@@ -54,7 +56,8 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
                     delivery: delivery,
                     sha256: checksum,
                     archiveKind: repairTarget?.archiveKind
-                        ?? (provenance.archiveKind == .unclassified ? nil : provenance.archiveKind)
+                        ?? (provenance.archiveKind == .unclassified ? nil : provenance.archiveKind),
+                    isLibraryManaged: repairTarget?.isLibraryManaged ?? provenance.isLibraryManaged
                 ),
                 for: destination,
                 fileSystem: fileSystem
@@ -79,6 +82,8 @@ struct QobuzExistingAudioVerifier: @unchecked Sendable {
                 "Existing audio passed validation and checksum verification",
                 metadata: trackMetadata.merging([
                     "destinationPath": destination.path,
+                    "archivedFormatID": String(provenance.formatID),
+                    "offeredFormatID": String(fileInfo.formatID),
                     "sha256": checksum,
                     "durationMs": String(Int(Date().timeIntervalSince(trackStarted) * 1_000))
                 ]) { _, new in new }

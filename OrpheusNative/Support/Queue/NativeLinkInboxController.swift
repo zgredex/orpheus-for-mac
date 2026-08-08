@@ -14,16 +14,31 @@ final class NativeLinkInboxController: ObservableObject {
     private var client: (any NativeQobuzServicing)?
     private var availabilityPolicy = NativeCatalogAvailabilityPolicy(accountRegion: nil)
     private var reviewTask: Task<Void, Never>?
+    private var didConfigure = false
 
     func configure(client: (any NativeQobuzServicing)?, accountRegion: String?) {
+        cancel()
         self.client = client
         availabilityPolicy.accountRegion = accountRegion
+        didConfigure = true
+        reviewAll()
+    }
+
+    func updateAccountRegion(_ accountRegion: String?) {
+        let normalized = accountRegion?.uppercased()
+        guard availabilityPolicy.accountRegion?.uppercased() != normalized else { return }
+        availabilityPolicy.accountRegion = normalized
+        if didConfigure, !items.isEmpty { reviewAll() }
     }
 
     func restore(_ items: [NativeLinkInboxItem]) {
-        reviewTask?.cancel()
-        reviewTask = nil
-        self.items = items
+        cancel()
+        self.items = items.map { item in
+            var item = item
+            if item.status == .checking { item.status = .pending }
+            return item
+        }
+        if didConfigure { reviewAll() }
     }
 
     func item(_ id: UUID) -> NativeLinkInboxItem? {
@@ -87,7 +102,8 @@ final class NativeLinkInboxController: ObservableObject {
         }
 
         reviewTask?.cancel()
-        var workByID = Dictionary(uniqueKeysWithValues: requested.map { ($0.0, $0.1) })
+        var workByID: [UUID: QobuzRequest] = [:]
+        for (id, request) in requested { workByID[id] = request }
         for item in items {
             switch item.status {
             case .pending, .checking:
@@ -128,6 +144,12 @@ final class NativeLinkInboxController: ObservableObject {
             self.reviewTask = nil
         }
         return false
+    }
+
+    private func reviewAll() {
+        guard !items.isEmpty else { return }
+        for index in items.indices { items[index].status = .pending }
+        _ = review(items.map { ($0.id, $0.request) })
     }
 
     private static func fetchReview(

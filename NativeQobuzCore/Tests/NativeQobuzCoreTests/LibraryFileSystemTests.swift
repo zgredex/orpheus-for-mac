@@ -31,7 +31,42 @@ final class LibraryFileSystemTests: XCTestCase {
         }
     }
 
-    func testDescriptorRelativeMoveRenamesSymlinkItselfWithoutReadingTarget() throws {
+    func testTruncatingHardLinkedPartialCannotModifyOutsideTarget() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let outside = fixture.outside.appendingPathComponent("outside.partial")
+        let payload = Data("outside bytes must survive".utf8)
+        try payload.write(to: outside)
+        let partial = fixture.library.appendingPathComponent("track.flac.partial")
+        let result = outside.path.withCString { source in
+            partial.path.withCString { destination in Darwin.link(source, destination) }
+        }
+        XCTAssertEqual(result, 0)
+        let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
+        let path = try LibraryRelativePath("track.flac.partial")
+
+        XCTAssertEqual(try fileSystem.metadata(at: path)?.kind, .hardLink)
+        XCTAssertThrowsError(try fileSystem.writableHandle(at: path, truncate: true)) {
+            XCTAssertEqual($0 as? LibraryFileSystemError, .hardLink(path.rawValue))
+        }
+        XCTAssertEqual(try Data(contentsOf: outside), payload)
+        XCTAssertEqual(try Data(contentsOf: partial), payload)
+    }
+
+    func testNamedPipeIsRejectedBeforeOpenCanBlock() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let pipe = fixture.library.appendingPathComponent("manifest.json")
+        XCTAssertEqual(pipe.path.withCString { Darwin.mkfifo($0, mode_t(0o600)) }, 0)
+        let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
+        let path = try LibraryRelativePath("manifest.json")
+
+        XCTAssertThrowsError(try fileSystem.read(path)) {
+            XCTAssertEqual($0 as? LibraryFileSystemError, .notRegularFile(path.rawValue))
+        }
+    }
+
+    func testDescriptorRelativeMoveRejectsSymlinkWithoutReadingTarget() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let target = fixture.outside.appendingPathComponent("sentinel.json")
@@ -40,7 +75,40 @@ final class LibraryFileSystemTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
         let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
 
-        try fileSystem.moveItem(
+        XCTAssertThrowsError(
+            try fileSystem.moveItem(
+                at: LibraryRelativePath("cache.json"),
+                to: LibraryRelativePath("cache.rejected.json")
+            )
+        ) {
+            guard case LibraryFileSystemError.symbolicLink = $0 else {
+                return XCTFail("Expected symbolic-link rejection, got \($0)")
+            }
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.library.appendingPathComponent("cache.rejected.json").path
+        ))
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: source.path
+            ),
+            target.path
+        )
+        XCTAssertEqual(try Data(contentsOf: target), Data("outside".utf8))
+    }
+
+    func testQuarantineRenamesSymlinkLeafWithoutOpeningItsTarget() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let target = fixture.outside.appendingPathComponent("sentinel.json")
+        try Data("outside".utf8).write(to: target)
+        let source = fixture.library.appendingPathComponent("cache.json")
+        try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+        let fileSystem = try LibraryFileSystem(rootURL: fixture.library)
+
+        try fileSystem.quarantineItem(
             at: LibraryRelativePath("cache.json"),
             to: LibraryRelativePath("cache.rejected.json")
         )

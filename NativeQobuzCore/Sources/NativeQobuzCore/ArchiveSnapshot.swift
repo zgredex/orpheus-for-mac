@@ -40,8 +40,8 @@ public struct QobuzArchiveSnapshot: Codable, Equatable, Sendable {
         rootPath = try container.decode(String.self, forKey: .rootPath)
         scannedAt = try container.decode(Date.self, forKey: .scannedAt)
         tracks = try container.decode([QobuzArchiveTrack].self, forKey: .tracks)
-        issues = try container.decodeIfPresent([QobuzArchiveIssue].self, forKey: .issues) ?? []
-        collections = try container.decodeIfPresent([QobuzLibraryCollectionRecord].self, forKey: .collections) ?? []
+        issues = try container.decode([QobuzArchiveIssue].self, forKey: .issues)
+        collections = try container.decode([QobuzLibraryCollectionRecord].self, forKey: .collections)
         index = QobuzArchiveLookupIndex(
             tracks: tracks,
             issues: issues,

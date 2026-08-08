@@ -146,7 +146,10 @@ struct NativeLibraryManagementSection: View {
         library.snapshot?.tracks.count { $0.integrity != .verified } ?? 0
     }
     private var operationsDisabled: Bool {
-        downloads.isDownloading || library.isScanning || libraryManagement.isWorking
+        libraryManagement.isBlockedByDownloadRecovery
+            || library.isScanning
+            || library.isPerformingAdoption
+            || libraryManagement.isWorking
     }
     private var canRelocate: Bool {
         trackCount > 0 && problemCount == 0 && !operationsDisabled
@@ -179,10 +182,7 @@ struct NativeLibraryManagementSection: View {
         guard let destination = relocationDestination else { return }
         Task {
             do {
-                resultMessage = try await libraryManagement.relocate(
-                    to: destination,
-                    downloadIsActive: downloads.isDownloading
-                )
+                resultMessage = try await libraryManagement.relocate(to: destination)
                 draft.downloadPath = account.settings.downloadPath
                 relocationDestination = nil
             } catch {
@@ -194,9 +194,7 @@ struct NativeLibraryManagementSection: View {
     private func prune() {
         Task {
             do {
-                let result = try await libraryManagement.pruneProblems(
-                    downloadIsActive: downloads.isDownloading
-                )
+                let result = try await libraryManagement.pruneProblems()
                 resultMessage = "Pruned \(result.removedTrackCount) tracked problem\(result.removedTrackCount == 1 ? "" : "s")."
             } catch {
                 errorMessage = error.localizedDescription
@@ -207,9 +205,7 @@ struct NativeLibraryManagementSection: View {
     private func deleteLibrary() {
         Task {
             do {
-                let result = try await libraryManagement.deleteLibrary(
-                    downloadIsActive: downloads.isDownloading
-                )
+                let result = try await libraryManagement.deleteLibrary()
                 resultMessage = "Deleted \(result.removedTrackCount) indexed track\(result.removedTrackCount == 1 ? "" : "s")."
             } catch {
                 errorMessage = error.localizedDescription

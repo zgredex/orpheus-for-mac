@@ -33,4 +33,8 @@ final class QobuzAudioReuseRegistry: @unchecked Sendable {
     func store(_ destination: URL, reuseKey: String, root: URL) {
         index.store(destination, reuseKey: reuseKey, root: root)
     }
+
+    func remove(reuseKey: String, root: URL) {
+        index.remove(reuseKey: reuseKey, root: root)
+    }
 }

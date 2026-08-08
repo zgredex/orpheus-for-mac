@@ -84,6 +84,31 @@ final class NativeHardeningTests: XCTestCase {
         XCTAssertEqual(rejected.count, 1)
     }
 
+    func testArchiveCacheQuarantinesSnapshotMissingCurrentSchemaFields() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = NativePaths(
+            applicationSupportRoot: root.appendingPathComponent("Support"),
+            defaultDownloadRoot: root.appendingPathComponent("Music")
+        )
+        let snapshot = QobuzArchiveSnapshot(
+            rootPath: paths.defaultDownloadRoot.path,
+            tracks: [],
+            issues: [],
+            collections: []
+        )
+        try FileManager.default.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
+        try archiveCacheData(snapshot, removing: "issues").write(to: paths.archiveIndexURL)
+
+        XCTAssertEqual(try NativeArchiveIndexStore(paths: paths).load(), .rejected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.archiveIndexURL.path))
+        let rejected = try FileManager.default.contentsOfDirectory(
+            at: paths.applicationSupportRoot,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("archive-index.rejected-") }
+        XCTAssertEqual(rejected.count, 1)
+    }
+
     func testRejectedArchiveCacheRebuildsAutomaticallyAtStartup() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -91,22 +116,14 @@ final class NativeHardeningTests: XCTestCase {
             applicationSupportRoot: root.appendingPathComponent("Support"),
             defaultDownloadRoot: root.appendingPathComponent("Music")
         )
-        let duplicate = QobuzArchiveTrack(
-            relativePath: "Artist/Album/01.flac",
-            qobuzTrackID: "track",
-            qobuzAlbumID: "album",
-            formatID: 27,
-            expectedSHA256: String(repeating: "a", count: 64),
-            actualSHA256: String(repeating: "a", count: 64),
-            integrity: .verified,
-            archiveKind: .album
-        )
         let invalid = QobuzArchiveSnapshot(
             rootPath: paths.defaultDownloadRoot.path,
-            tracks: [duplicate, duplicate]
+            tracks: [],
+            issues: [],
+            collections: []
         )
         try FileManager.default.createDirectory(at: paths.applicationSupportRoot, withIntermediateDirectories: true)
-        try JSONEncoder().encode(invalid).write(to: paths.archiveIndexURL)
+        try archiveCacheData(invalid, removing: "collections").write(to: paths.archiveIndexURL)
         let rebuilt = QobuzArchiveSnapshot(rootPath: paths.defaultDownloadRoot.path, tracks: [])
         let scanner = ImmediateArchiveScanner(snapshot: rebuilt)
         let viewModel = NativeViewModel(paths: paths, archiveScanner: scanner)
@@ -234,6 +251,16 @@ final class NativeHardeningTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("NativeHardeningTests-\(UUID().uuidString)", isDirectory: true)
     }
+
+    private func archiveCacheData(
+        _ snapshot: QobuzArchiveSnapshot,
+        removing key: String
+    ) throws -> Data {
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: key)
+        return try JSONSerialization.data(withJSONObject: object)
+    }
 }
 
 private final class RecordingSessionStore: NativeSessionStoring, @unchecked Sendable {
@@ -277,6 +304,7 @@ private final class DelayedArchiveStore: NativeArchiveIndexStoring, @unchecked S
     }
 
     func save(_ snapshot: QobuzArchiveSnapshot) throws {}
+    func remove() throws {}
 }
 
 private final class ImmediateArchiveScanner: QobuzArchiveScanning, @unchecked Sendable {

@@ -1,28 +1,76 @@
 import Foundation
 
+struct QobuzLibraryCollectionChange: Sendable {
+    let manifest: QobuzLibraryManifest
+    let playlistMembership: [QobuzPlaylistMembership]?
+}
+
 struct QobuzLibraryCollectionWriter: @unchecked Sendable {
     private let folderPlanner: QobuzPlaylistFolderPlanner
+    private let retainedReader: QobuzRetainedTrackMembershipReader
+    private let playlistResolver: QobuzPlaylistMembershipResolver
 
     init(folderPlanner: QobuzPlaylistFolderPlanner) {
         self.folderPlanner = folderPlanner
+        let retainedReader = QobuzRetainedTrackMembershipReader()
+        self.retainedReader = retainedReader
+        playlistResolver = QobuzPlaylistMembershipResolver(retainedReader: retainedReader)
     }
 
-    func record(
+    func prepare(
         plan: QobuzDownloadPlan,
         outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
         fileSystem: LibraryFileSystem
-    ) throws -> URL {
+    ) throws -> QobuzLibraryCollectionChange {
         guard !outputs.isEmpty else {
             throw NativeQobuzError.emptyCollection(plan.title)
         }
         let records = try collectionRecords(plan: plan, outputs: outputs, fileSystem: fileSystem)
         var manifest = try QobuzLibraryManifestIO.load(in: fileSystem)
         let updatedIDs = Set(records.map(\.id))
+        let existingByID = try recordsByID(manifest.collections)
+        var playlistMembership: [QobuzPlaylistMembership]?
+        let mergedRecords = try records.map { record in
+            if record.kind == .playlist {
+                let membership = try playlistResolver.resolve(
+                    plan: plan,
+                    outputs: outputs,
+                    existing: existingByID[record.id],
+                    fileSystem: fileSystem
+                )
+                playlistMembership = membership
+                return record.replacingTrackPaths(membership.map(\.path.rawValue))
+            }
+            guard let existing = existingByID[record.id] else { return record }
+            let retained = try retainedReader.memberships(from: existing, fileSystem: fileSystem)
+            return record.replacingTrackPaths(
+                QobuzLibraryTrackMembership.unique(retained.map(\.path.rawValue) + record.trackPaths)
+            )
+        }
         manifest.collections.removeAll { updatedIDs.contains($0.id) }
-        manifest.collections.append(contentsOf: records)
+        manifest.collections.append(contentsOf: mergedRecords)
         manifest.collections.sort { $0.id < $1.id }
-        try QobuzLibraryManifestIO.save(manifest, in: fileSystem)
-        return fileSystem.displayURL(for: try LibraryRelativePath(QobuzLibraryManifestIO.filename))
+        try validate(
+            manifest,
+            newOutputPaths: Set(records.flatMap(\.trackPaths)),
+            fileSystem: fileSystem
+        )
+        return QobuzLibraryCollectionChange(
+            manifest: manifest,
+            playlistMembership: playlistMembership
+        )
+    }
+
+    func manifestMutation(
+        _ change: QobuzLibraryCollectionChange,
+        fileSystem: LibraryFileSystem
+    ) throws -> LibraryFileTransactionMutation {
+        let path = try LibraryRelativePath(QobuzLibraryManifestIO.filename)
+        return try LibraryFileTransactionMutation.capture(
+            path: path,
+            finalState: .data(try QobuzLibraryManifestIO.encode(change.manifest)),
+            in: fileSystem
+        )
     }
 
     private func collectionRecords(
@@ -46,11 +94,16 @@ struct QobuzLibraryCollectionWriter: @unchecked Sendable {
             }
         case .track(let id):
             let output = outputs[0]
+            let relativePath = try fileSystem.relativePath(for: output.audioURL)
             return [QobuzLibraryRecordFactory.track(
                 qobuzID: id.rawValue,
                 title: output.item.track.displayTitle,
                 artist: output.item.track.performer?.name ?? output.item.album.artist.name,
-                relativePath: try fileSystem.relativePath(for: output.audioURL).rawValue,
+                relativePath: relativePath.rawValue,
+                artworkRelativePath: try existingArtworkRelativePath(
+                    in: relativePath.parent,
+                    fileSystem: fileSystem
+                ),
                 duration: output.item.track.duration
             )]
         case .playlist(let id):
@@ -63,7 +116,7 @@ struct QobuzLibraryCollectionWriter: @unchecked Sendable {
                 owner: playlist?.owner?.name,
                 relativePath: folderPath.rawValue,
                 trackPaths: try outputs.map { try fileSystem.relativePath(for: $0.audioURL).rawValue },
-                artworkRelativePath: existingArtworkRelativePath(in: folderPath, fileSystem: fileSystem),
+                artworkRelativePath: try existingArtworkRelativePath(in: folderPath, fileSystem: fileSystem),
                 description: playlist?.playlistDescription,
                 createdAt: playlist?.createdAt,
                 updatedAt: playlist?.updatedAt,
@@ -86,7 +139,7 @@ struct QobuzLibraryCollectionWriter: @unchecked Sendable {
             artist: album.mainArtists.map(\.name).joined(separator: ", "),
             relativePath: folder.rawValue,
             trackPaths: try outputs.map { try fileSystem.relativePath(for: $0.audioURL).rawValue },
-            artworkRelativePath: existingArtworkRelativePath(in: folder, fileSystem: fileSystem),
+            artworkRelativePath: try existingArtworkRelativePath(in: folder, fileSystem: fileSystem),
             description: album.albumDescription,
             duration: album.duration
         )
@@ -95,13 +148,52 @@ struct QobuzLibraryCollectionWriter: @unchecked Sendable {
     private func existingArtworkRelativePath(
         in folder: LibraryRelativePath,
         fileSystem: LibraryFileSystem
-    ) -> String? {
+    ) throws -> String? {
         for filename in EmbeddedArtwork.externalFilenames {
-            guard let path = try? folder.appending(filename),
-                  let metadata = try? fileSystem.metadata(at: path),
-                  metadata.kind == .regularFile else { continue }
+            let path = try folder.appending(filename)
+            guard let metadata = try fileSystem.metadata(at: path) else { continue }
+            if metadata.kind == .symbolicLink {
+                throw LibraryFileSystemError.symbolicLink(path.rawValue)
+            }
+            guard metadata.kind == .regularFile else {
+                throw LibraryFileSystemError.notRegularFile(path.rawValue)
+            }
             return path.rawValue
         }
         return nil
+    }
+
+    private func recordsByID(
+        _ records: [QobuzLibraryCollectionRecord]
+    ) throws -> [String: QobuzLibraryCollectionRecord] {
+        var values: [String: QobuzLibraryCollectionRecord] = [:]
+        for record in records {
+            guard values.updateValue(record, forKey: record.id) == nil else {
+                throw NativeQobuzError.invalidResponse(
+                    "The Library manifest contains duplicate collection IDs."
+                )
+            }
+        }
+        return values
+    }
+
+    private func validate(
+        _ manifest: QobuzLibraryManifest,
+        newOutputPaths: Set<String>,
+        fileSystem: LibraryFileSystem
+    ) throws {
+        let paths = Set(manifest.collections.flatMap(\.trackPaths))
+        try QobuzArchiveSnapshotValidation.validateCollections(
+            manifest.collections,
+            physicalTrackPaths: paths
+        )
+        for value in newOutputPaths {
+            let path = try LibraryRelativePath(value)
+            guard try fileSystem.metadata(at: path)?.kind == .regularFile else {
+                throw NativeQobuzError.invalidResponse(
+                    "The Library manifest links a missing or non-regular audio file."
+                )
+            }
+        }
     }
 }

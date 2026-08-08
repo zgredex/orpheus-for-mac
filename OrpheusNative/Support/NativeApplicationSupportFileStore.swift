@@ -2,14 +2,13 @@ import Foundation
 import NativeQobuzCore
 
 enum NativePersistentArtifact: String, Sendable {
-    case settings = "settings.json"
+    case configuration = "configuration.json"
     case archiveIndex = "archive-index.json"
-    case credentials = "credentials.json"
     case session = "download-session.json"
 
     var maximumBytes: Int {
         switch self {
-        case .settings, .credentials: 256 * 1_024
+        case .configuration: 256 * 1_024
         case .session: 64 * 1_024 * 1_024
         case .archiveIndex: 256 * 1_024 * 1_024
         }
@@ -50,10 +49,23 @@ struct NativeApplicationSupportFileStore: Sendable {
     ) throws -> URL {
         let fileSystem = try LibraryFileSystem(rootURL: rootURL, createIfMissing: false)
         let rejectedName = "\(rejectedPrefix)-\(UUID().uuidString).json"
-        try fileSystem.moveItem(
+        try fileSystem.quarantineItem(
             at: LibraryRelativePath(artifact.rawValue),
             to: LibraryRelativePath(rejectedName)
         )
         return rootURL.appendingPathComponent(rejectedName)
+    }
+
+    func remove(_ artifact: NativePersistentArtifact) throws {
+        let fileSystem: LibraryFileSystem
+        do {
+            fileSystem = try LibraryFileSystem(rootURL: rootURL, createIfMissing: false)
+        } catch LibraryFileSystemError.missing {
+            return
+        }
+        try fileSystem.removeFile(
+            LibraryRelativePath(artifact.rawValue),
+            ifPresent: true
+        )
     }
 }

@@ -1,12 +1,17 @@
 import Foundation
 
+public struct QobuzLibraryCollectionAssets: Equatable, Sendable {
+    public let manifestURL: URL
+    public let playlistURL: URL?
+}
+
 /// Stable public facade for collection assets. Each operation delegates to the
 /// component that exclusively owns that asset type.
 public struct QobuzCollectionAssetWriter: @unchecked Sendable {
     private let artworkAssets: QobuzArtworkAssets
     private let sidecarWriter: QobuzCollectionSidecarWriter
     private let playlistAssets: QobuzPlaylistAssets
-    private let libraryWriter: QobuzLibraryCollectionWriter
+    private let libraryFinalizer: QobuzLibraryFinalizationTransaction
     private let provenanceStore: QobuzProvenanceStore
 
     public init(
@@ -16,13 +21,20 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         let folderPlanner = QobuzPlaylistFolderPlanner(outputPlanner: outputPlanner)
         artworkAssets = QobuzArtworkAssets(fetcher: fetcher)
         sidecarWriter = QobuzCollectionSidecarWriter(fetcher: fetcher)
-        playlistAssets = QobuzPlaylistAssets(
+        let playlistAssets = QobuzPlaylistAssets(
             fetcher: fetcher,
             outputPlanner: outputPlanner,
             folderPlanner: folderPlanner
         )
-        libraryWriter = QobuzLibraryCollectionWriter(folderPlanner: folderPlanner)
-        provenanceStore = QobuzProvenanceStore()
+        let libraryWriter = QobuzLibraryCollectionWriter(folderPlanner: folderPlanner)
+        let provenanceStore = QobuzProvenanceStore()
+        self.playlistAssets = playlistAssets
+        self.provenanceStore = provenanceStore
+        libraryFinalizer = QobuzLibraryFinalizationTransaction(
+            libraryWriter: libraryWriter,
+            playlistAssets: playlistAssets,
+            provenanceStore: provenanceStore
+        )
     }
 
     public func artwork(for album: QobuzAlbum) async throws -> EmbeddedArtwork? {
@@ -52,24 +64,20 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         try sidecarWriter.writeAlbumDescriptions(for: outputs, fileSystem: fileSystem)
     }
 
-    public func writePlaylist(
-        plan: QobuzDownloadPlan,
-        outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
-        fileSystem: LibraryFileSystem
-    ) throws -> URL? {
-        try playlistAssets.writePlaylist(plan: plan, outputs: outputs, fileSystem: fileSystem)
-    }
-
     public func writePlaylistMetadata(plan: QobuzDownloadPlan, fileSystem: LibraryFileSystem) async throws -> [URL] {
         try await playlistAssets.writeMetadata(plan: plan, fileSystem: fileSystem)
     }
 
-    public func recordLibraryCollections(
+    public func updateLibraryCollections(
         plan: QobuzDownloadPlan,
         outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
         fileSystem: LibraryFileSystem
-    ) throws -> URL {
-        try libraryWriter.record(plan: plan, outputs: outputs, fileSystem: fileSystem)
+    ) async throws -> QobuzLibraryCollectionAssets {
+        try await libraryFinalizer.commit(
+            plan: plan,
+            outputs: outputs,
+            fileSystem: fileSystem
+        )
     }
 
     public func reusableAudioIndex(fileSystem: LibraryFileSystem) throws -> [String: URL] {
@@ -99,7 +107,4 @@ public struct QobuzCollectionAssetWriter: @unchecked Sendable {
         try provenanceStore.record(provenance, for: audioURL, fileSystem: fileSystem)
     }
 
-    public func markLibraryManaged(_ audioURLs: [URL], fileSystem: LibraryFileSystem) throws {
-        try provenanceStore.markLibraryManaged(audioURLs, fileSystem: fileSystem)
-    }
 }

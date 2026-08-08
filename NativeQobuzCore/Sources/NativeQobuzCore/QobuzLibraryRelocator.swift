@@ -2,9 +2,14 @@ import Foundation
 
 struct QobuzLibraryRelocator: Sendable {
     private let scanner: any QobuzArchiveScanning
+    private let copier: LibraryFileCopier
 
-    init(scanner: any QobuzArchiveScanning) {
+    init(
+        scanner: any QobuzArchiveScanning,
+        copier: LibraryFileCopier = LibraryFileCopier()
+    ) {
         self.scanner = scanner
+        self.copier = copier
     }
 
     func relocate(
@@ -35,11 +40,12 @@ struct QobuzLibraryRelocator: Sendable {
         }
         let assets = try QobuzManagedLibraryAssets(snapshot: snapshot, fileSystem: source)
         var copied: [LibraryRelativePath] = []
+        var attemptedDirectories = Set<LibraryRelativePath>()
         var copiedBytes: Int64 = 0
         do {
-            let copier = LibraryFileCopier()
             for (offset, path) in assets.files.enumerated() {
                 try Task.checkCancellation()
+                attemptedDirectories.formUnion(path.ancestorDirectories)
                 let result = try copier.copy(path, from: source, to: destination)
                 copied.append(path)
                 copiedBytes += result.byteCount
@@ -78,7 +84,7 @@ struct QobuzLibraryRelocator: Sendable {
                 metadata: metadata.merging(["copiedFileCount": String(copied.count)]) { _, new in new },
                 error: error
             )
-            cleanup(copied, in: destination)
+            cleanup(copied, attemptedDirectories: attemptedDirectories, in: destination)
             throw error
         }
     }
@@ -112,9 +118,13 @@ struct QobuzLibraryRelocator: Sendable {
         })
     }
 
-    private func cleanup(_ paths: [LibraryRelativePath], in fileSystem: LibraryFileSystem) {
+    private func cleanup(
+        _ paths: [LibraryRelativePath],
+        attemptedDirectories: Set<LibraryRelativePath>,
+        in fileSystem: LibraryFileSystem
+    ) {
         for path in paths.reversed() { try? fileSystem.removeFile(path, ifPresent: true) }
-        let directories = Set(paths.flatMap { $0.ancestorDirectories }).sorted {
+        let directories = attemptedDirectories.sorted {
             $0.components.count > $1.components.count
         }
         for directory in directories { _ = try? fileSystem.removeEmptyDirectory(directory) }

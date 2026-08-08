@@ -12,19 +12,22 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
     private let metadataWriter: any AudioMetadataWriting
     private let assetWriter: QobuzCollectionAssetWriter
     private let deliveryPolicy: QobuzDeliveryPolicy
+    private let commitTransaction: QobuzTrackCommitTransaction
 
     init(
         transfer: any FileTransferClient,
         validator: any MediaValidating,
         metadataWriter: any AudioMetadataWriting,
         assetWriter: QobuzCollectionAssetWriter,
-        deliveryPolicy: QobuzDeliveryPolicy
+        deliveryPolicy: QobuzDeliveryPolicy,
+        commitTransaction: QobuzTrackCommitTransaction = QobuzTrackCommitTransaction()
     ) {
         self.transfer = transfer
         self.validator = validator
         self.metadataWriter = metadataWriter
         self.assetWriter = assetWriter
         self.deliveryPolicy = deliveryPolicy
+        self.commitTransaction = commitTransaction
     }
 
     func transferTrack(
@@ -39,12 +42,18 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
     ) async throws -> QobuzTrackTransferResult {
         continuation.yield(.trackStarted(track: item, destination: destination, format: fileInfo.format))
         let artworkTask = artworkTask(for: item, state: state, trackMetadata: trackMetadata)
-        let staging = QobuzDownloadArtifacts.processingURL(for: destination, formatID: fileInfo.formatID)
+        let staging = QobuzDownloadArtifacts.processingURL(
+            for: destination,
+            formatID: fileInfo.formatID,
+            albumID: item.album.id,
+            trackID: item.track.id
+        )
 
         do {
             continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
                 phase: .transferringAudio,
                 trackID: item.track.id,
+                albumID: item.album.id,
                 outputURL: staging
             )))
             try await transferUnlessStaged(
@@ -68,6 +77,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
                 phase: .writingTags,
                 trackID: item.track.id,
+                albumID: item.album.id,
                 outputURL: staging
             )))
             continuation.yield(.tagging(track: item))
@@ -82,6 +92,7 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
                 phase: .validatingAudio,
                 trackID: item.track.id,
+                albumID: item.album.id,
                 outputURL: staging
             )))
             continuation.yield(.validating(track: item))
@@ -96,7 +107,6 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
                 throw error
             }
             try Task.checkCancellation()
-            let stagingPath = try fileSystem.relativePath(for: staging)
             qobuzLog.info(
                 "download.integrity",
                 "Track checksum finalized during metadata write",
@@ -105,21 +115,22 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
             continuation.yield(.checkpoint(QobuzDownloadCheckpoint(
                 phase: .writingProvenance,
                 trackID: item.track.id,
+                albumID: item.album.id,
                 outputURL: destination
             )))
-            try assetWriter.recordProvenance(
-                QobuzFileProvenance(
-                    item: item,
-                    delivery: delivery,
-                    sha256: checksum,
-                    archiveKind: repairTarget?.archiveKind
-                ),
-                for: destination,
-                fileSystem: fileSystem
+            let provenance = QobuzFileProvenance(
+                item: item,
+                delivery: delivery,
+                sha256: checksum,
+                archiveKind: repairTarget?.archiveKind,
+                isLibraryManaged: repairTarget?.isLibraryManaged ?? false
             )
-            try fileSystem.replaceItem(
-                at: fileSystem.relativePath(for: destination),
-                with: stagingPath
+            try await commitTransaction.commit(
+                provenance: provenance,
+                expectedSHA256: checksum,
+                stagingURL: staging,
+                destinationURL: destination,
+                fileSystem: fileSystem
             )
             qobuzLog.info(
                 "download.output",
@@ -184,19 +195,23 @@ struct QobuzTrackTransferPipeline: @unchecked Sendable {
                 "stagingPath": staging.path,
                 "partialPath": QobuzDownloadArtifacts.partialURL(
                     for: destination,
-                    formatID: fileInfo.formatID
+                    formatID: fileInfo.formatID,
+                    albumID: item.album.id,
+                    trackID: item.track.id
                 ).path
             ]) { _, new in new }
         )
         let transferEvents = await QobuzLogScope.withValue(trackMetadata) {
             transfer.events(from: fileInfo.url, to: staging, fileSystem: fileSystem)
         }
+        var progressLimiter = QobuzDownloadProgressLimiter()
         for try await transferEvent in transferEvents {
             try Task.checkCancellation()
             guard case .progress(let progress) = transferEvent else { continue }
             let fileFraction = progress.fraction
             let overall = (Double(item.position - 1) + (fileFraction ?? 0)) / Double(max(item.total, 1))
             state.currentTrackBytes = progress.bytesWritten
+            guard progressLimiter.shouldEmit(fraction: fileFraction) else { continue }
             continuation.yield(.progress(QobuzDownloadProgress(
                 completedTracks: item.position - 1,
                 totalTracks: item.total,

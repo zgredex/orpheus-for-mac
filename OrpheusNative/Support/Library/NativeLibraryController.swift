@@ -2,22 +2,19 @@ import AppKit
 import Foundation
 import NativeQobuzCore
 
-struct NativePendingLibraryAdoption {
-    let id: String
-    let result: QobuzLibraryAdoptionResult
-}
-
 @MainActor
 final class NativeLibraryController: ObservableObject {
     @Published private(set) var isOpen = false
     @Published private(set) var snapshot: QobuzArchiveSnapshot?
     @Published private(set) var isScanning = false
+    @Published private(set) var isPerformingAdoption = false
     private let archiveStore: any NativeArchiveIndexStoring
     private let scanner: any QobuzArchiveScanning
-    private let adopter: any QobuzLibraryAdopting
+    private let adoption: NativeLibraryAdoptionTransactionController
     private let cacheRestorer: NativeLibraryCacheRestorer
     private let downloadedIndexer: NativeDownloadedLibraryIndexer
     private let revealer = NativeLibraryRevealController()
+    private let statusResolver = NativeLibraryStatusResolver()
     private var cacheLoadTask: Task<Void, Never>?
     private var cacheGeneration: UInt64 = 0
     private var activeRootPath: String?
@@ -30,7 +27,10 @@ final class NativeLibraryController: ObservableObject {
     ) {
         self.archiveStore = archiveStore
         self.scanner = scanner
-        self.adopter = adopter
+        adoption = NativeLibraryAdoptionTransactionController(
+            archiveStore: archiveStore,
+            adopter: adopter
+        )
         cacheRestorer = NativeLibraryCacheRestorer(archiveStore: archiveStore)
         downloadedIndexer = NativeDownloadedLibraryIndexer(
             archiveStore: archiveStore,
@@ -141,7 +141,10 @@ final class NativeLibraryController: ObservableObject {
             }
             do {
                 let scanned = try await QobuzLogScope.withValue(["libraryRefreshID": identifier]) {
-                    try await self.scanner.scan(root: standardizedRoot, reusing: reusableSnapshot)
+                    try await Task.detached(priority: .userInitiated) {
+                        try QobuzLibraryMutationRecovery.recover(at: standardizedRoot)
+                    }.value
+                    return try await self.scanner.scan(root: standardizedRoot, reusing: reusableSnapshot)
                 }
                 try Task.checkCancellation()
                 guard refreshID == token else { return }
@@ -213,21 +216,21 @@ final class NativeLibraryController: ObservableObject {
             requestedMessage: "Library adoption inspection requested",
             failureMessage: "Library adoption inspection failed"
         ) {
-            try await adopter.inspect(root: root)
+            try await adoption.inspect(root: root)
         }
         return plan
     }
 
     func prepareAdoption(at root: URL, downloadIsActive: Bool) async throws -> NativePendingLibraryAdoption {
-        let (adoptionID, result) = try await performAdoptionOperation(
+        let (adoptionID, prepared) = try await performAdoptionOperation(
             at: root,
             downloadIsActive: downloadIsActive,
             requestedMessage: "Library adoption confirmed",
             failureMessage: "Library adoption failed"
         ) {
-            try await adopter.adopt(root: root)
+            try await adoption.prepare(root: root)
         }
-        return NativePendingLibraryAdoption(id: adoptionID, result: result)
+        return NativePendingLibraryAdoption(id: adoptionID, prepared: prepared)
     }
 
     private func performAdoptionOperation<Value>(
@@ -240,6 +243,11 @@ final class NativeLibraryController: ObservableObject {
         guard !downloadIsActive else {
             throw NativeQobuzError.unavailable("A Library cannot be adopted during an active download.")
         }
+        guard !isScanning, !isPerformingAdoption else {
+            throw NativeQobuzError.unavailable("Another Library operation is already running.")
+        }
+        isPerformingAdoption = true
+        defer { isPerformingAdoption = false }
         let adoptionID = UUID().uuidString
         qobuzLog.notice(
             "library.adoption.ui",
@@ -262,8 +270,28 @@ final class NativeLibraryController: ObservableObject {
         }
     }
 
-    func activate(_ pending: NativePendingLibraryAdoption) throws {
-        try install(pending.result.snapshot)
+    func stageActivation(_ pending: NativePendingLibraryAdoption) throws -> NativeStagedLibraryAdoption {
+        try adoption.stageActivation(pending)
+    }
+
+    func prepareActivationCommit(_ staged: NativeStagedLibraryAdoption) throws {
+        try adoption.prepareActivationCommit(staged)
+    }
+
+    func finishActivationCommit(_ staged: NativeStagedLibraryAdoption) throws {
+        try adoption.finishActivationCommit(staged)
+    }
+
+    func rollbackActivation(_ staged: NativeStagedLibraryAdoption, primaryError: Error) throws -> Never {
+        try adoption.rollbackActivation(staged, primaryError: primaryError)
+    }
+
+    func publishActivation(_ staged: NativeStagedLibraryAdoption) {
+        let pending = staged.pending
+        cancelRefresh()
+        activeRootPath = pending.result.plan.root.path
+        snapshot = pending.result.snapshot
+        isOpen = true
         qobuzLog.notice(
             "library.adoption.ui",
             "Adopted Library became the active download root",
@@ -297,54 +325,23 @@ final class NativeLibraryController: ObservableObject {
     }
 
     func status(for item: NativeQueueItem) -> NativeLibraryStatus? {
-        guard let snapshot else { return nil }
-        let coverage: QobuzArchiveCoverage
-        switch item.request {
-        case .track(let id):
-            coverage = snapshot.coverage(trackID: id)
-        case .album(let id):
-            let trackIDs = item.selectedTrackIDs.map(Array.init) ?? item.expectedTrackIDs
-            if let trackIDs, !trackIDs.isEmpty {
-                coverage = snapshot.coverage(trackIDs: trackIDs, albumID: id)
-            } else if item.selectedTrackIDs != nil {
-                return nil
-            } else {
-                coverage = snapshot.coverage(albumID: id)
-            }
-        case .playlist:
-            let trackIDs = item.selectedTrackIDs.map(Array.init) ?? item.expectedTrackIDs
-            guard let trackIDs, !trackIDs.isEmpty else { return nil }
-            coverage = snapshot.coverage(trackIDs: trackIDs)
-        case .artist, .label:
-            return nil
-        }
-        return NativeLibraryStatus(coverage)
+        statusResolver.status(for: item, snapshot: snapshot)
     }
 
     func status(for album: QobuzAlbumSummary) -> NativeLibraryStatus? {
-        guard let snapshot else { return nil }
-        return NativeLibraryStatus(snapshot.coverage(albumID: album.id))
+        statusResolver.status(for: album, snapshot: snapshot)
     }
 
     func status(for album: QobuzAlbum) -> NativeLibraryStatus? {
-        guard let snapshot else { return nil }
-        let trackIDs = album.availableTracks.map(\.id)
-        let coverage = trackIDs.isEmpty
-            ? snapshot.coverage(albumID: album.id)
-            : snapshot.coverage(trackIDs: trackIDs, albumID: album.id)
-        return NativeLibraryStatus(coverage)
+        statusResolver.status(for: album, snapshot: snapshot)
     }
 
     func status(for track: QobuzTrack) -> NativeLibraryStatus? {
-        guard let snapshot else { return nil }
-        return NativeLibraryStatus(snapshot.coverage(trackID: track.id, albumID: track.album?.id))
+        statusResolver.status(for: track, snapshot: snapshot)
     }
 
     func status(for tracks: [QobuzTrack]) -> NativeLibraryStatus? {
-        guard let snapshot else { return nil }
-        let trackIDs = tracks.filter { $0.accountAvailabilityIssue == nil }.map(\.id)
-        guard !trackIDs.isEmpty else { return nil }
-        return NativeLibraryStatus(snapshot.coverage(trackIDs: trackIDs))
+        statusResolver.status(for: tracks, snapshot: snapshot)
     }
 
 }

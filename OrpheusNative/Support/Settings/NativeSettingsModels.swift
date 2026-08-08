@@ -4,6 +4,29 @@ import NativeQobuzCore
 struct NativeSettings: Codable, Equatable {
     var downloadPath: String
     var quality: QobuzQuality
+
+    func normalized() throws -> NativeSettings {
+        guard !downloadPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              (downloadPath as NSString).isAbsolutePath else {
+            throw NativeSettingsValidationError.invalidDownloadPath
+        }
+        return NativeSettings(
+            downloadPath: URL(fileURLWithPath: downloadPath, isDirectory: true)
+                .standardizedFileURL.path,
+            quality: quality
+        )
+    }
+}
+
+enum NativeSettingsValidationError: LocalizedError, Equatable {
+    case invalidDownloadPath
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDownloadPath:
+            "The download location must be a non-empty absolute folder path."
+        }
+    }
 }
 
 struct CredentialDraft: Codable, Equatable {

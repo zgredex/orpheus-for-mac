@@ -7,23 +7,21 @@ import NativeQobuzCore
 @MainActor
 final class NativeDownloadStateStoreTests: XCTestCase {
     func testOperationOwnsActivityTelemetryAndCompletionWaitsForLibraryIndex() {
-        let item = NativeQueueItem(request: .album(.init("album")), title: "Album")
-        let ledger = NativeDownloadLedger()
-        ledger.registerQueue(item.id)
-        let activityID = ledger.prepareActivity(
-            for: item,
-            quality: .hiRes,
-            repairFormat: nil,
-            root: URL(fileURLWithPath: "/Library")
-        )
+        let (item, ledger, activityID) = preparedAlbumActivity()
         let output = URL(fileURLWithPath: "/Library/Artist/Album/01. Track.flac")
+        let staging = URL(fileURLWithPath: "/Library/Artist/Album/.01. Track.qobuz-27.processing.flac")
         let asset = URL(fileURLWithPath: "/Library/Artist/Album/cover.jpg")
 
         ledger.handle(.warning("Cover unavailable"), activityID: activityID)
         ledger.handle(.assetCreated(asset), activityID: activityID)
+        ledger.handle(.trackStarted(
+            track: resolvedTrack(),
+            destination: output,
+            format: .hiRes
+        ), activityID: activityID)
         ledger.handle(.checkpoint(QobuzDownloadCheckpoint(
             phase: .writingCollectionAssets,
-            outputURL: output
+            outputURL: staging
         )), activityID: activityID)
         ledger.handle(.completed(title: "Album", downloaded: 1, skipped: 0), activityID: activityID)
 
@@ -103,6 +101,49 @@ final class NativeDownloadStateStoreTests: XCTestCase {
         XCTAssertEqual(state.status(forQueueID: completedQueueID), .completed)
     }
 
+    func testRetryClearsAttemptTelemetryButPartialResumeKeepsOnlyRecoveryIdentity() throws {
+        let (item, ledger, activityID) = preparedAlbumActivity()
+        let output = URL(fileURLWithPath: "/Library/Artist/Album/01. Track.flac")
+        ledger.handle(.trackStarted(
+            track: resolvedTrack(),
+            destination: output,
+            format: .hiRes
+        ), activityID: activityID)
+        ledger.handle(.progress(QobuzDownloadProgress(
+            completedTracks: 0,
+            totalTracks: 1,
+            currentTrackFraction: 0.5,
+            overallFraction: 0.5,
+            bytesWritten: 50,
+            totalBytes: 100,
+            bytesPerSecond: 10
+        )), activityID: activityID)
+        ledger.handle(.warning("old warning"), activityID: activityID)
+        ledger.transition(queueID: item.id, activityID: activityID, to: .failed("old failure"))
+
+        _ = ledger.prepareActivity(
+            for: item,
+            quality: .lossless,
+            repairFormat: nil,
+            root: URL(fileURLWithPath: "/Library")
+        )
+
+        let restarted = try XCTUnwrap(ledger.operations.first)
+        XCTAssertEqual(restarted.activityID, activityID)
+        XCTAssertEqual(restarted.quality, .lossless)
+        XCTAssertEqual(restarted.progress, 0)
+        XCTAssertEqual(restarted.completedTracks, 0)
+        XCTAssertEqual(restarted.totalTracks, 0)
+        XCTAssertNil(restarted.bytesWritten)
+        XCTAssertNil(restarted.totalBytes)
+        XCTAssertNil(restarted.currentTrack)
+        XCTAssertNil(restarted.checkpoint)
+        XCTAssertTrue(restarted.outputURLs.isEmpty)
+        XCTAssertTrue(restarted.warnings.isEmpty)
+        XCTAssertTrue(restarted.notices.isEmpty)
+        XCTAssertNil(restarted.errorMessage)
+    }
+
     func testSessionRejectsDuplicateOperationAndActivityBindings() throws {
         let queue = NativeQueueItem(request: .album(.init("album")), title: "Album")
         let valid = NativeDownloadOperation(
@@ -152,5 +193,126 @@ final class NativeDownloadStateStoreTests: XCTestCase {
         let rejected = try FileManager.default.contentsOfDirectory(atPath: root.path)
             .filter { $0.hasPrefix("download-session.rejected-") && $0.hasSuffix(".json") }
         XCTAssertEqual(rejected.count, 1)
+    }
+
+    func testSessionRestoreRejectsWritableRecoveryStateFromDifferentConfiguredRoot() async throws {
+        let configuredRoot = URL(fileURLWithPath: "/Configured Library", isDirectory: true)
+        let oldRoot = URL(fileURLWithPath: "/Old Library", isDirectory: true)
+        let item = NativeQueueItem(request: .album(QobuzID("album")), title: "Album")
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .paused,
+            title: item.title
+        )
+        operation.quality = .hiRes
+        operation.downloadRootPath = oldRoot.path
+        let output = oldRoot.appendingPathComponent("Artist/Album/01. Track.flac")
+        operation.recordOutput(output)
+        operation.recordCheckpoint(QobuzDownloadCheckpoint(
+            phase: .transferringAudio,
+            trackID: QobuzID("track"),
+            albumID: QobuzID("album"),
+            outputURL: QobuzDownloadArtifacts.processingURL(
+                for: output,
+                formatID: QobuzAudioFormat.hiRes.formatID,
+                albumID: QobuzID("album"),
+                trackID: QobuzID("track")
+            )
+        ))
+        let store = MemorySessionStore(snapshot: singleItemSession(item: item, operation: operation))
+        let queue = NativeQueueController()
+        let downloads = NativeDownloadController(
+            queue: queue,
+            connectivity: NativeConnectivityController(monitor: FakeConnectivityMonitor()),
+            powerActivityManager: FakePowerActivityManager()
+        )
+        let session = NativeSessionController(
+            store: store,
+            queue: queue,
+            downloads: downloads,
+            linkInbox: NativeLinkInboxController()
+        )
+
+        try await session.restore(root: configuredRoot)
+
+        XCTAssertTrue(queue.items.isEmpty)
+        XCTAssertTrue(downloads.operations.isEmpty)
+        XCTAssertNil(store.snapshot)
+    }
+
+    func testCompletedHistoricalActivityMayReferToPreviousLibraryRoot() throws {
+        let item = NativeQueueItem(request: .track(QobuzID("track")), title: "Track")
+        let oldRoot = URL(fileURLWithPath: "/Old Library", isDirectory: true)
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .completed,
+            title: item.title
+        )
+        operation.downloadRootPath = oldRoot.path
+        operation.recordOutput(oldRoot.appendingPathComponent("Artist/Album/01. Track.flac"))
+        operation.recordCheckpoint(QobuzDownloadCheckpoint(phase: .complete))
+        let snapshot = singleItemSession(item: item, operation: operation)
+
+        XCTAssertNoThrow(try snapshot.validate())
+        XCTAssertNoThrow(try snapshot.validate(
+            restoringAt: URL(fileURLWithPath: "/Current Library", isDirectory: true)
+        ))
+    }
+
+    func testSessionRequiresExactArtifactIdentityOnlyAfterTransferStarts() throws {
+        let item = NativeQueueItem(request: .track(QobuzID("track")), title: "Track")
+        let root = URL(fileURLWithPath: "/Library", isDirectory: true)
+        var operation = NativeDownloadOperation(
+            queueID: item.id,
+            activityID: UUID(),
+            status: .failed("Signed URL failed"),
+            title: item.title
+        )
+        operation.quality = .hiRes
+        operation.downloadRootPath = root.path
+        operation.recordCheckpoint(QobuzDownloadCheckpoint(
+            phase: .resolvingAudio,
+            trackID: QobuzID("track"),
+            albumID: QobuzID("album")
+        ))
+
+        XCTAssertNoThrow(try singleItemSession(item: item, operation: operation).validate())
+
+        operation.recordCheckpoint(QobuzDownloadCheckpoint(
+            phase: .transferringAudio,
+            trackID: QobuzID("track"),
+            albumID: QobuzID("album")
+        ))
+        XCTAssertThrowsError(try singleItemSession(item: item, operation: operation).validate())
+    }
+
+    private func preparedAlbumActivity() -> (NativeQueueItem, NativeDownloadLedger, UUID) {
+        let item = NativeQueueItem(request: .album(.init("album")), title: "Album")
+        let ledger = NativeDownloadLedger()
+        ledger.registerQueue(item.id)
+        let activityID = ledger.prepareActivity(
+            for: item,
+            quality: .hiRes,
+            repairFormat: nil,
+            root: URL(fileURLWithPath: "/Library")
+        )
+        return (item, ledger, activityID)
+    }
+
+    private func resolvedTrack() -> QobuzResolvedTrack {
+        let albumID = QobuzID("album")
+        return QobuzResolvedTrack(
+            track: QobuzTrack(id: QobuzID("track"), title: "Track"),
+            album: QobuzAlbum(
+                id: albumID,
+                title: "Album",
+                artist: QobuzArtist(id: QobuzID("artist"), name: "Artist")
+            ),
+            collection: .album(id: albumID, title: "Album"),
+            position: 1,
+            total: 1
+        )
     }
 }

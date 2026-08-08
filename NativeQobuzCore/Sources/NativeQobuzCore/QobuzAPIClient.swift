@@ -69,14 +69,16 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func playlist(id: QobuzID) async throws -> QobuzPlaylist {
         let pageSize = 500
         let first = try await playlistPage(id: id, offset: 0, limit: pageSize)
-        let total = first.tracksTotal ?? first.tracksCount ?? first.tracks.count
+        let reportedTotal = first.tracksTotal ?? first.tracksCount
         let tracks = try await qobuzAllPages(
             firstItems: first.tracks,
             firstOffset: first.tracksOffset ?? 0,
-            total: total,
+            firstReportedLimit: first.tracksLimit,
+            total: reportedTotal,
             pageSize: pageSize
         ) { offset, limit in
-            try await self.playlistPage(id: id, offset: offset, limit: limit).tracks
+            let page = try await self.playlistPage(id: id, offset: offset, limit: limit)
+            return QobuzPaginationPage(items: page.tracks, reportedLimit: page.tracksLimit)
         }
         return QobuzPlaylist(
             id: first.id,
@@ -88,9 +90,9 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
             updatedAt: first.updatedAt,
             duration: first.duration,
             description: first.playlistDescription,
-            tracksCount: first.tracksCount ?? total,
+            tracksCount: first.tracksCount ?? reportedTotal ?? tracks.count,
             artworkURLs: first.artworkURLs,
-            tracksTotal: total,
+            tracksTotal: reportedTotal ?? tracks.count,
             tracksOffset: 0,
             tracksLimit: tracks.count
         )
@@ -99,21 +101,15 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func artist(id: QobuzID) async throws -> QobuzArtistCatalog {
         let pageSize = 500
         let first = try await artistPage(id: id, offset: 0, limit: pageSize)
-        let total = first.albumsTotal ?? first.albums.count
-        let albums = try await qobuzAllPages(
-            firstItems: first.albums,
-            firstOffset: first.albumsOffset ?? 0,
-            total: total,
-            pageSize: pageSize
-        ) { offset, limit in
-            try await self.artistPage(id: id, offset: offset, limit: limit).albums
+        let albums = try await qobuzAllAlbumPages(first: first, pageSize: pageSize) { offset, limit in
+            try await self.artistPage(id: id, offset: offset, limit: limit)
         }
         return QobuzArtistCatalog(
             id: first.id,
             name: first.name,
             image: first.image,
             albums: albums,
-            albumsTotal: total,
+            albumsTotal: first.albumsTotal ?? albums.count,
             albumsOffset: 0,
             albumsLimit: albums.count
         )
@@ -122,21 +118,15 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
     public func label(id: QobuzID) async throws -> QobuzLabelCatalog {
         let pageSize = 500
         let first = try await labelPage(id: id, offset: 0, limit: pageSize)
-        let total = first.albumsTotal ?? first.albums.count
-        let albums = try await qobuzAllPages(
-            firstItems: first.albums,
-            firstOffset: first.albumsOffset ?? 0,
-            total: total,
-            pageSize: pageSize
-        ) { offset, limit in
-            try await self.labelPage(id: id, offset: offset, limit: limit).albums
+        let albums = try await qobuzAllAlbumPages(first: first, pageSize: pageSize) { offset, limit in
+            try await self.labelPage(id: id, offset: offset, limit: limit)
         }
         return QobuzLabelCatalog(
             id: first.id,
             name: first.name,
             slug: first.slug,
             albums: albums,
-            albumsTotal: total,
+            albumsTotal: first.albumsTotal ?? albums.count,
             albumsOffset: 0,
             albumsLimit: albums.count
         )
@@ -181,70 +171,110 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
         switch category {
         case .albums:
             let page = value.albums
+            let cursor = try QobuzPageCursor.searchPage(
+                page,
+                requestedOffset: requestedOffset,
+                requestedLimit: requestedLimit
+            )
             return QobuzSearchResults(
                 albums: (page?.items ?? []).filter { $0.accountAvailabilityIssue == nil },
-                offset: page?.offset ?? requestedOffset,
-                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                offset: cursor.offset,
+                nextOffset: cursor.nextOffset,
                 total: page?.total
             )
         case .artists:
             let page = value.artists
+            let cursor = try QobuzPageCursor.searchPage(
+                page,
+                requestedOffset: requestedOffset,
+                requestedLimit: requestedLimit
+            )
             return QobuzSearchResults(
                 artists: page?.items ?? [],
-                offset: page?.offset ?? requestedOffset,
-                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                offset: cursor.offset,
+                nextOffset: cursor.nextOffset,
                 total: page?.total
             )
         case .playlists:
             let page = value.playlists
+            let cursor = try QobuzPageCursor.searchPage(
+                page,
+                requestedOffset: requestedOffset,
+                requestedLimit: requestedLimit
+            )
             return QobuzSearchResults(
                 playlists: page?.items ?? [],
-                offset: page?.offset ?? requestedOffset,
-                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                offset: cursor.offset,
+                nextOffset: cursor.nextOffset,
                 total: page?.total
             )
         case .tracks:
             let page = value.tracks
+            let cursor = try QobuzPageCursor.searchPage(
+                page,
+                requestedOffset: requestedOffset,
+                requestedLimit: requestedLimit
+            )
             return QobuzSearchResults(
                 tracks: (page?.items ?? []).filter { $0.accountAvailabilityIssue == nil },
-                offset: page?.offset ?? requestedOffset,
-                nextOffset: nextOffset(for: page, fallbackOffset: requestedOffset, requestedLimit: requestedLimit),
+                offset: cursor.offset,
+                nextOffset: cursor.nextOffset,
                 total: page?.total
             )
         }
     }
 
     public func playlistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzPlaylist {
-        try await catalogPage(
-            endpoint: "playlist/get",
-            identifierKey: "playlist_id",
+        try await validatedCatalogPage(
+            request: .playlist,
             id: id,
-            extra: "tracks,subscribers,focusAll",
             offset: offset,
-            limit: limit
+            limit: limit,
+            reportedOffset: \.tracksOffset
         )
     }
 
     public func artistPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzArtistCatalog {
-        try await catalogPage(
-            endpoint: "artist/get",
-            identifierKey: "artist_id",
+        try await validatedCatalogPage(
+            request: .artist,
             id: id,
-            extra: "albums,playlists,tracks_appears_on,albums_with_last_release,focusAll",
             offset: offset,
-            limit: limit
+            limit: limit,
+            reportedOffset: \.albumsOffset
         )
     }
 
     public func labelPage(id: QobuzID, offset: Int, limit: Int) async throws -> QobuzLabelCatalog {
-        try await catalogPage(
-            endpoint: "label/get",
-            identifierKey: "label_id",
+        try await validatedCatalogPage(
+            request: .label,
             id: id,
-            extra: "albums",
             offset: offset,
+            limit: limit,
+            reportedOffset: \.albumsOffset
+        )
+    }
+
+    private func validatedCatalogPage<Value: Decodable>(
+        request: QobuzCatalogPageRequest,
+        id: QobuzID,
+        offset: Int,
+        limit: Int,
+        reportedOffset: KeyPath<Value, Int?>
+    ) async throws -> Value {
+        let requestedOffset = max(offset, 0)
+        let page: Value = try await catalogPage(
+            endpoint: request.endpoint,
+            identifierKey: request.identifierKey,
+            id: id,
+            extra: request.extra,
+            offset: requestedOffset,
             limit: limit
         )
+        _ = try QobuzPageCursor.validatedOffset(
+            reportedOffset: page[keyPath: reportedOffset],
+            requestedOffset: requestedOffset
+        )
+        return page
     }
 
     private func catalogPage<Value: Decodable>(
@@ -268,17 +298,6 @@ public final class QobuzAPIClient: QobuzCatalogService, QobuzBrowsingService, @u
             ]
         )
         return value
-    }
-
-    private func nextOffset<Value>(
-        for page: QobuzSearchResponse.Items<Value>?,
-        fallbackOffset: Int,
-        requestedLimit: Int
-    ) -> Int? {
-        guard let page, !page.items.isEmpty else { return nil }
-        let candidate = (page.offset ?? fallbackOffset) + page.items.count
-        if let total = page.total { return candidate < total ? candidate : nil }
-        return page.items.count >= requestedLimit ? candidate : nil
     }
 
     private func requireCredentials() throws {

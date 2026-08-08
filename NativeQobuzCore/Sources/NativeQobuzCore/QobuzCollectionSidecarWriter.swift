@@ -13,7 +13,7 @@ struct QobuzCollectionSidecarWriter: @unchecked Sendable {
     ) async throws -> [URL] {
         var visited = Set<QobuzID>()
         var created: [URL] = []
-        for output in outputs where output.item.collection.usesAlbumFolders {
+        for output in outputs where output.item.collection.ownsAlbumFolderSidecars {
             try Task.checkCancellation()
             let album = output.item.album
             guard visited.insert(album.id).inserted, let source = album.bookletURL else { continue }

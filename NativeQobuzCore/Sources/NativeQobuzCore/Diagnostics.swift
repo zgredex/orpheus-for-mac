@@ -173,7 +173,7 @@ public final class QobuzDiagnostics: @unchecked Sendable {
         let currentThreadName = Thread.current.name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let threadName = Thread.isMainThread
             ? "main"
-            : ((currentThreadName?.isEmpty == false) ? currentThreadName! : "background")
+            : (currentThreadName.flatMap { $0.isEmpty ? nil : $0 } ?? "background")
         let nativeError = error.map { $0 as NSError }
         let underlyingErrors = error.map(Self.underlyingErrorDescriptions)
         let entry = QobuzLogEntry(

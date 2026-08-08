@@ -16,12 +16,24 @@ final class NativeDownloadLedger: ObservableObject {
     var operations: [NativeDownloadOperation] { state.operations }
     var activities: [NativeDownloadActivity] { state.activities }
 
-    func restore(operations: [NativeDownloadOperation], root: URL) {
+    func operation(for queueID: UUID) -> NativeDownloadOperation? {
+        state.operation(forQueueID: queueID)
+    }
+
+    func operation(forActivityID activityID: UUID) -> NativeDownloadOperation? {
+        state.operation(forActivityID: activityID)
+    }
+
+    func hasLibraryIndexReceipt(for queueID: UUID) -> Bool {
+        operation(for: queueID)?.hasLibraryIndexReceipt == true
+    }
+
+    func restore(operations: [NativeDownloadOperation]) {
         var restoredState = NativeDownloadStateStore(operations: operations)
         _ = restoredState.normalizeAfterInterruption()
         for operation in restoredState.operations {
             restoredState.mutateOperation(queueID: operation.queueID) {
-                $0.resumablePartial = partialLocator.artifact(for: $0, root: root)
+                $0.resumablePartial = partialLocator.artifact(for: $0)
             }
         }
         state = restoredState
@@ -68,7 +80,7 @@ final class NativeDownloadLedger: ObservableObject {
         if let operation = state.operation(forQueueID: item.id),
            let activityID = operation.activityID,
            operation.status.canResume || operation.status.canRetry {
-            let partial = partialLocator.artifact(for: operation, root: root)
+            let partial = partialLocator.artifact(for: operation)
             let isRetry = operation.status.canRetry
             mutateState { state in
                 state.mutateOperation(queueID: item.id) {
@@ -76,11 +88,12 @@ final class NativeDownloadLedger: ObservableObject {
                         title: item.title,
                         quality: repairFormat == nil ? quality : nil,
                         audioFormat: repairFormat,
+                        downloadRoot: root,
                         phase: partial == nil
                             ? (isRetry ? "Retrying" : "Resuming")
-                            : "Resuming existing partial file"
+                            : "Resuming existing partial file",
+                        resumablePartial: partial
                     )
-                    $0.resumablePartial = partial
                 }
                 state.transition(queueID: item.id, activityID: activityID, to: .queued)
             }
@@ -96,7 +109,9 @@ final class NativeDownloadLedger: ObservableObject {
                     title: item.title,
                     quality: repairFormat == nil ? quality : nil,
                     audioFormat: repairFormat,
-                    phase: "Queued"
+                    downloadRoot: root,
+                    phase: "Queued",
+                    resumablePartial: nil
                 )
             }
         }
@@ -118,29 +133,20 @@ final class NativeDownloadLedger: ObservableObject {
     }
 
     @discardableResult
-    func refreshPartial(for activityID: UUID, root: URL) -> NativePartialDownload? {
+    func refreshPartial(for activityID: UUID) -> NativePartialDownload? {
         guard let operation = state.operation(forActivityID: activityID) else { return nil }
-        let partial = partialLocator.artifact(for: operation, root: root)
+        let partial = partialLocator.artifact(for: operation)
         updateActivity(activityID) { $0.resumablePartial = partial }
         return partial
     }
 
-    func removeActivity(_ activity: NativeDownloadActivity, queueStillExists: Bool) {
-        guard !status(for: activity).isActive else { return }
-        mutateState { $0.removeActivity(activity.id, queueStillExists: queueStillExists) }
-        lastProgressUpdate.removeValue(forKey: activity.id)
+    func recoveryRoot(for queueID: UUID) -> URL? {
+        state.operation(forQueueID: queueID)?.downloadRootURL
     }
 
-    func clearFinished(queueIDs: Set<UUID>) -> Int {
-        let removed = activities.filter { status(for: $0).isClearable }
-        let removedIDs = Set(removed.map(\.id))
-        mutateState { state in
-            for activity in removed {
-                state.removeActivity(activity.id, queueStillExists: queueIDs.contains(activity.queueID))
-            }
-        }
-        lastProgressUpdate = lastProgressUpdate.filter { !removedIDs.contains($0.key) }
-        return removedIDs.count
+    func commitActivityRemoval(_ activityID: UUID, queueStillExists: Bool) {
+        mutateState { $0.removeActivity(activityID, queueStillExists: queueStillExists) }
+        lastProgressUpdate.removeValue(forKey: activityID)
     }
 
     func handle(_ event: QobuzDownloadEvent, activityID: UUID) {
@@ -155,7 +161,7 @@ final class NativeDownloadLedger: ObservableObject {
         let queueID = activity(id: activityID)?.queueID
         let nextStatus: NativeDownloadStatus? = switch event {
         case .checkpoint(let checkpoint): switch checkpoint.phase {
-            case .resolvingCatalog: .resolving
+            case .resolvingCatalog, .resolvingAudio: .resolving
             case .transferringAudio: .downloading
             case .writingTags: .tagging
             case .validatingAudio, .writingProvenance: .validating

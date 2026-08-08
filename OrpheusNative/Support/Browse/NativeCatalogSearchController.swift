@@ -33,7 +33,14 @@ final class NativeCatalogSearchController: ObservableObject {
     }
 
     func configure(client: (any NativeQobuzServicing)?) {
+        reset()
         self.client = client
+    }
+
+    func cancelPendingWork() {
+        cancelTasks()
+        loadingCategories.removeAll()
+        loadingMoreCategories.removeAll()
     }
 
     func search(_ value: String) throws {
@@ -92,6 +99,10 @@ final class NativeCatalogSearchController: ObservableObject {
                 let page = try await QobuzLogScope.withValue(metadata) {
                     try await client.search(query, category: category.coreValue, limit: 30, offset: offset)
                 }
+                _ = try QobuzPageCursor.validatedOffset(
+                    reportedOffset: page.offset,
+                    requestedOffset: offset
+                )
                 guard let self, requestID == id, self.query == query, !Task.isCancelled else { return }
                 results.append(page, for: category)
                 loadingMoreCategories.remove(category)
@@ -156,6 +167,10 @@ final class NativeCatalogSearchController: ObservableObject {
                 let page = try await QobuzLogScope.withValue(metadata) {
                     try await client.search(query, category: category.coreValue, limit: 30, offset: 0)
                 }
+                _ = try QobuzPageCursor.validatedOffset(
+                    reportedOffset: page.offset,
+                    requestedOffset: 0
+                )
                 guard let self, self.requestID == requestID, !Task.isCancelled else { return }
                 apply(page, category: category)
                 qobuzLog.info(
@@ -170,8 +185,8 @@ final class NativeCatalogSearchController: ObservableObject {
                 )
             } catch {
                 guard let self, self.requestID == requestID, !Task.isCancelled else { return }
-                loadingCategories.remove(category)
                 errors[category] = error.localizedDescription
+                settleInitialCategory(category)
                 qobuzLog.error(
                     "browse.search",
                     "Search category failed",
@@ -188,6 +203,10 @@ final class NativeCatalogSearchController: ObservableObject {
 
     private func apply(_ page: QobuzSearchResults, category: NativeBrowseCategory) {
         results.replace(page, for: category)
+        settleInitialCategory(category)
+    }
+
+    private func settleInitialCategory(_ category: NativeBrowseCategory) {
         loadingCategories.remove(category)
         if loadingCategories.isEmpty, self.category == .albums, results.albums.isEmpty {
             self.category = results.firstNonemptyCategory ?? .albums

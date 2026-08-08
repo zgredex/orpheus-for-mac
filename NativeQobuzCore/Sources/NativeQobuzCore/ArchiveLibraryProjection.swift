@@ -64,7 +64,7 @@ public struct QobuzArchiveLibrary: Equatable, Sendable {
                     of: directory,
                     fallback: QobuzPathSafety.filenameStem(of: first.relativePath)
                 )
-                subtitle = "Older download · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
+                subtitle = "Unclassified download · \(sortedTracks.count) file\(sortedTracks.count == 1 ? "" : "s")"
                 relativePath = directory.isEmpty ? first.relativePath : directory
             }
             return QobuzArchiveEntry(

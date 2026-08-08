@@ -6,35 +6,37 @@ import XCTest
 
 @MainActor
 final class NativePersistenceHardeningTests: XCTestCase {
-    func testMalformedSettingsAreQuarantinedAndReplacedWithFreshDefaults() throws {
+    func testMalformedConfigurationIsQuarantinedAndReplacedWithFreshDefaults() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        try Data("not-json".utf8).write(to: fixture.paths.settingsURL)
+        try Data("not-json".utf8).write(to: fixture.paths.configurationURL)
 
-        let settings = try NativeSettingsStore(paths: fixture.paths).load()
+        let configuration = try NativeConfigurationStore(paths: fixture.paths).load()
 
-        XCTAssertEqual(settings.downloadPath, fixture.paths.defaultDownloadRoot.path)
-        XCTAssertEqual(settings.quality, .hiRes)
+        XCTAssertEqual(configuration.settings.downloadPath, fixture.paths.defaultDownloadRoot.path)
+        XCTAssertEqual(configuration.settings.quality, .hiRes)
+        XCTAssertFalse(configuration.credentials.isComplete)
         XCTAssertEqual(
-            try fixture.rejectedFiles(prefix: "settings.rejected-").count,
+            try fixture.rejectedFiles(prefix: "configuration.rejected-").count,
             1
         )
-        XCTAssertEqual(try NativeSettingsStore(paths: fixture.paths).load(), settings)
+        XCTAssertEqual(try NativeConfigurationStore(paths: fixture.paths).load(), configuration)
     }
 
-    func testCredentialSymlinkIsQuarantinedWithoutReadingOrChangingTarget() throws {
+    func testConfigurationSymlinkIsQuarantinedWithoutReadingOrChangingTarget() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let target = fixture.root.appendingPathComponent("outside-credentials.json")
+        let target = fixture.root.appendingPathComponent("outside-configuration.json")
         try Data("outside private data".utf8).write(to: target)
         try FileManager.default.createSymbolicLink(
-            at: fixture.paths.credentialsURL,
+            at: fixture.paths.configurationURL,
             withDestinationURL: target
         )
 
-        XCTAssertNil(try FileCredentialStore(paths: fixture.paths).load())
+        let configuration = try NativeConfigurationStore(paths: fixture.paths).load()
+        XCTAssertFalse(configuration.credentials.isComplete)
         XCTAssertEqual(try Data(contentsOf: target), Data("outside private data".utf8))
-        let rejected = try fixture.rejectedFiles(prefix: "credentials.rejected-")
+        let rejected = try fixture.rejectedFiles(prefix: "configuration.rejected-")
         XCTAssertEqual(rejected.count, 1)
         XCTAssertEqual(
             try FileManager.default.destinationOfSymbolicLink(atPath: rejected[0].path),

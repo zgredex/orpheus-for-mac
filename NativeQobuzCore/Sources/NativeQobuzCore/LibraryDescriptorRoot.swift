@@ -87,6 +87,12 @@ final class LibraryDescriptorRoot: @unchecked Sendable {
                 if result != 0, errno != EEXIST {
                     throw mappedError(operation: "mkdirat", path: displayPath, code: errno)
                 }
+                if result == 0 {
+                    try LibraryDirectoryDurability.synchronize(
+                        [(parent, (displayPath as NSString).deletingLastPathComponent)],
+                        operation: "fsync-parent-after-mkdirat"
+                    )
+                }
             } else {
                 throw mappedError(operation: "fstatat", path: displayPath, code: code)
             }

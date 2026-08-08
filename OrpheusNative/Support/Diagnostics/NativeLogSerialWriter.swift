@@ -109,7 +109,7 @@ final class NativeLogSerialWriter: @unchecked Sendable {
             try handle?.close()
             handle = nil
             let directory = try requireDirectory()
-            for file in try logFiles() { try directory.remove(file) }
+            for file in try directory.clearableFiles() { try directory.remove(file) }
             try openCurrentFile()
         }
     }

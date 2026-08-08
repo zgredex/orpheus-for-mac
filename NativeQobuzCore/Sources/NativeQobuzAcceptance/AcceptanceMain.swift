@@ -8,6 +8,10 @@ private struct CredentialDocument: Decodable {
     let authToken: String
 }
 
+private struct ConfigurationDocument: Decodable {
+    let credentials: CredentialDocument
+}
+
 private struct ResumeRecord: Codable {
     let trackID: String
     let quality: QobuzQuality
@@ -48,7 +52,10 @@ struct NativeQobuzAcceptance {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
             try require(permissions & 0o077 == 0, "Credential file permissions are not owner-only.")
-            return try JSONDecoder().decode(CredentialDocument.self, from: Data(contentsOf: url))
+            return try JSONDecoder().decode(
+                ConfigurationDocument.self,
+                from: Data(contentsOf: url)
+            ).credentials
         }) else {
             _ = try? matrix.finish()
             exit(2)
@@ -494,22 +501,21 @@ struct NativeQobuzAcceptance {
         let outputs = [(item: item, audioURL: audio)]
         let writer = QobuzCollectionAssetWriter()
         let fileSystem = try LibraryFileSystem(rootURL: root)
-        _ = try writer.recordLibraryCollections(
+        _ = try await writer.updateLibraryCollections(
             plan: QobuzDownloadPlan(request: .track(track.id), title: track.displayTitle, tracks: [item], source: .track(track)),
             outputs: outputs,
             fileSystem: fileSystem
         )
-        _ = try writer.recordLibraryCollections(
+        _ = try await writer.updateLibraryCollections(
             plan: QobuzDownloadPlan(request: .album(album.id), title: album.displayTitle, tracks: [item], source: .album(album)),
             outputs: outputs,
             fileSystem: fileSystem
         )
-        _ = try writer.recordLibraryCollections(
+        _ = try await writer.updateLibraryCollections(
             plan: QobuzDownloadPlan(request: .playlist(playlist.id), title: playlist.name, tracks: [item], source: .playlist(playlist)),
             outputs: outputs,
             fileSystem: fileSystem
         )
-        try writer.markLibraryManaged([audio], fileSystem: fileSystem)
         let snapshot = try await QobuzArchiveScanner().scan(root: root)
         try require(snapshot.tracks.count == 1, "Library created duplicate physical track records.")
         try require(snapshot.albumCount == 1, "Album entry was not segregated.")

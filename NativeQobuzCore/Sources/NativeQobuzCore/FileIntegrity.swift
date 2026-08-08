@@ -2,6 +2,10 @@ import CryptoKit
 import Foundation
 
 public enum MusicFileIntegrity {
+    public static func sha256(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     public static func sha256(of fileURL: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
@@ -11,6 +15,7 @@ public enum MusicFileIntegrity {
     public static func sha256(of handle: FileHandle) throws -> String {
         var digest = SHA256()
         while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try Task.checkCancellation()
             digest.update(data: chunk)
         }
         return digest.finalize().map { String(format: "%02x", $0) }.joined()

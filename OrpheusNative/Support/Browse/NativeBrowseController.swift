@@ -7,6 +7,13 @@ import NativeQobuzCore
 /// remains exhaustive in the core catalog service.
 @MainActor
 final class NativeBrowseController: ObservableObject {
+    private enum PageTaskKind { case initial, pagination }
+    private struct PageTaskContext {
+        let id: UUID
+        let pageID: UUID
+        let kind: PageTaskKind
+    }
+
     @Published private(set) var isOpen = false
     @Published private(set) var path: [BrowsePage] = []
 
@@ -15,6 +22,7 @@ final class NativeBrowseController: ObservableObject {
     private var availabilityPolicy = NativeCatalogAvailabilityPolicy(accountRegion: nil)
     private var searchObservation: AnyCancellable?
     private var pageTask: Task<Void, Never>?
+    private var pageTaskContext: PageTaskContext?
 
     init(searchController: NativeCatalogSearchController? = nil) {
         let resolvedSearch = searchController ?? NativeCatalogSearchController()
@@ -41,6 +49,9 @@ final class NativeBrowseController: ObservableObject {
     var tracks: [QobuzTrack] { results.tracks }
 
     func configure(client: (any NativeQobuzServicing)?, accountRegion: String?) {
+        cancelPageTask()
+        path = []
+        isOpen = false
         self.client = client
         searchController.configure(client: client)
         availabilityPolicy.accountRegion = accountRegion
@@ -48,10 +59,17 @@ final class NativeBrowseController: ObservableObject {
 
     func updateAccountRegion(_ accountRegion: String?) {
         availabilityPolicy.accountRegion = accountRegion
+        for index in path.indices {
+            let complete = path[index].pagination?.nextOffset == nil
+            path[index].availability = availabilityPolicy.availability(
+                for: path[index].content,
+                collectionComplete: complete
+            )
+        }
     }
 
     func search(_ value: String) throws {
-        pageTask?.cancel()
+        cancelPageTask()
         path = []
         try searchController.search(value)
         isOpen = true
@@ -59,15 +77,19 @@ final class NativeBrowseController: ObservableObject {
 
     func close() {
         searchController.reset()
-        pageTask?.cancel()
-        pageTask = nil
+        cancelPageTask()
         path = []
         isOpen = false
     }
 
+    func cancelPendingWork() {
+        cancelPageTask()
+        searchController.cancelPendingWork()
+    }
+
     func open(_ destination: BrowseDestination) throws {
         let client = try configuredClient(operation: "browsing")
-        pageTask?.cancel()
+        cancelPageTask()
         let page = BrowsePage(id: UUID(), destination: destination, content: .loading)
         let metadata = Self.metadata(for: destination)
             .merging(["browsePageID": page.id.uuidString]) { _, new in new }
@@ -75,8 +97,10 @@ final class NativeBrowseController: ObservableObject {
         isOpen = true
         qobuzLog.info("browse.page", "Browse page loading started", metadata: metadata)
         let loader = NativeBrowsePageLoader(client: client)
-        let policy = availabilityPolicy
+        let taskID = UUID()
+        pageTaskContext = PageTaskContext(id: taskID, pageID: page.id, kind: .initial)
         pageTask = Task { [weak self] in
+            defer { self?.finishPageTask(taskID) }
             do {
                 let loaded = try await QobuzLogScope.withValue(metadata) {
                     try await loader.initial(destination)
@@ -86,17 +110,20 @@ final class NativeBrowseController: ObservableObject {
                 updatePage(
                     page.id,
                     content: loaded.content,
-                    availability: policy.availability(for: loaded.content, collectionComplete: complete),
+                    availability: self.availabilityPolicy.availability(
+                        for: loaded.content,
+                        collectionComplete: complete
+                    ),
                     pagination: loaded.pagination
                 )
                 qobuzLog.info("browse.page", "Browse page loaded", metadata: metadata)
             } catch {
                 guard let self, !Task.isCancelled else { return }
-                let message = policy.errorMessage(error)
+                let message = self.availabilityPolicy.errorMessage(error)
                 updatePage(
                     page.id,
                     content: .error(message),
-                    availability: policy.failureAvailability(for: error, message: message),
+                    availability: self.availabilityPolicy.failureAvailability(for: error, message: message),
                     pagination: nil
                 )
                 qobuzLog.error("browse.page", "Browse page failed to load", metadata: metadata, error: error)
@@ -105,6 +132,8 @@ final class NativeBrowseController: ObservableObject {
     }
 
     func open(_ request: QobuzRequest) throws {
+        cancelPageTask()
+        path = []
         searchController.reset()
         switch request {
         case .album(let id): try open(BrowseDestination.album(id))
@@ -124,14 +153,16 @@ final class NativeBrowseController: ObservableObject {
         path[index].pagination?.isLoading = true
         path[index].pagination?.errorMessage = nil
         let loader = NativeBrowsePageLoader(client: client)
-        let policy = availabilityPolicy
         let metadata = Self.metadata(for: page.destination).merging([
             "browsePageID": page.id.uuidString,
             "offset": String(offset),
             "limit": String(NativeBrowsePageLoader.pageSize)
         ]) { _, new in new }
         qobuzLog.info("browse.collection.pagination", "Loading next collection page", metadata: metadata)
+        let taskID = UUID()
+        pageTaskContext = PageTaskContext(id: taskID, pageID: page.id, kind: .pagination)
         pageTask = Task { [weak self] in
+            defer { self?.finishPageTask(taskID) }
             do {
                 let next = try await QobuzLogScope.withValue(metadata) {
                     try await loader.next(page.destination, offset: offset)
@@ -139,14 +170,15 @@ final class NativeBrowseController: ObservableObject {
                 let merged = try NativeBrowsePageReducer.append(
                     next,
                     to: page.content,
-                    pageSize: NativeBrowsePageLoader.pageSize
+                    pageSize: NativeBrowsePageLoader.pageSize,
+                    requestedOffset: offset
                 )
                 guard let self,
                       let current = path.firstIndex(where: { $0.id == page.id }),
                       !Task.isCancelled else { return }
                 path[current].content = merged.content
                 path[current].pagination = merged.pagination
-                path[current].availability = policy.availability(
+                path[current].availability = self.availabilityPolicy.availability(
                     for: merged.content,
                     collectionComplete: merged.pagination?.nextOffset == nil
                 )
@@ -175,8 +207,7 @@ final class NativeBrowseController: ObservableObject {
     }
 
     func back() {
-        pageTask?.cancel()
-        pageTask = nil
+        cancelPageTask()
         _ = path.popLast()
         if path.isEmpty, query.isEmpty { close() }
     }
@@ -224,6 +255,23 @@ final class NativeBrowseController: ObservableObject {
         path[index].content = content
         path[index].availability = availability
         path[index].pagination = pagination
+    }
+
+    private func cancelPageTask() {
+        pageTask?.cancel()
+        if let context = pageTaskContext,
+           context.kind == .pagination,
+           let index = path.firstIndex(where: { $0.id == context.pageID }) {
+            path[index].pagination?.isLoading = false
+        }
+        pageTask = nil
+        pageTaskContext = nil
+    }
+
+    private func finishPageTask(_ id: UUID) {
+        guard pageTaskContext?.id == id else { return }
+        pageTask = nil
+        pageTaskContext = nil
     }
 
     private static func metadata(for destination: BrowseDestination) -> [String: String] {

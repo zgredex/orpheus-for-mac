@@ -52,7 +52,7 @@ final class NativeDiagnosticsController: @unchecked Sendable {
     }
 
     func export(snapshot: NativeDiagnosticSnapshot, to parent: URL) async throws -> URL {
-        let report = makeReport(from: snapshot)
+        let report = makeReport(from: snapshot.redacted())
         let exportStartedAt = Date()
         qobuzLog.notice("diagnostics", "Diagnostic export started", metadata: ["destination": parent.path])
         let stamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
@@ -70,21 +70,24 @@ final class NativeDiagnosticsController: @unchecked Sendable {
         return try await Task.detached(priority: .userInitiated) {
             do {
                 try Task.checkCancellation()
-                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
+                try NativeDiagnosticBundleSecurity.createPrivateDirectory(
+                    at: staging,
+                    withIntermediateDirectories: false
+                )
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 encoder.dateEncodingStrategy = .iso8601
-                try encoder.encode(report).write(
-                    to: staging.appendingPathComponent("system-info.json"),
-                    options: .atomic
+                try NativeDiagnosticBundleSecurity.writePrivateFile(
+                    encoder.encode(report),
+                    to: staging.appendingPathComponent("system-info.json")
                 )
                 try Task.checkCancellation()
                 let supplemental = collector.collect(into: staging)
-                try encoder.encode(supplemental).write(
-                    to: staging.appendingPathComponent("collection-status.json"),
-                    options: .atomic
+                try NativeDiagnosticBundleSecurity.writePrivateFile(
+                    encoder.encode(supplemental),
+                    to: staging.appendingPathComponent("collection-status.json")
                 )
-                try Data(
+                try NativeDiagnosticBundleSecurity.writePrivateFile(Data(
                     """
                     Credentials and authentication values are intentionally excluded and redacted from this bundle.
 
@@ -95,7 +98,7 @@ final class NativeDiagnosticsController: @unchecked Sendable {
 
                     Crash reports can contain local file paths and macOS system details. Review the bundle before sharing it publicly.
                     """.utf8
-                ).write(to: staging.appendingPathComponent("README.txt"), options: .atomic)
+                ), to: staging.appendingPathComponent("README.txt"))
                 qobuzLog.notice(
                     "diagnostics",
                     "Diagnostic export artifacts assembled",
@@ -109,6 +112,7 @@ final class NativeDiagnosticsController: @unchecked Sendable {
                 try Task.checkCancellation()
                 try persistentLogStore.copyLogFiles(to: logs)
                 try Task.checkCancellation()
+                try NativeDiagnosticBundleSecurity.secureTree(at: staging)
                 try FileManager.default.moveItem(at: staging, to: destination)
                 qobuzLog.notice(
                     "diagnostics",

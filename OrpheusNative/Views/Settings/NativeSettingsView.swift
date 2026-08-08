@@ -51,7 +51,12 @@ struct NativeSettingsView: View {
                         }
                         Spacer()
                         Button("Inspect Folder…") { inspectExistingLibrary() }
-                            .disabled(isInspectingLibrary || isAdoptingLibrary || downloads.isDownloading)
+                            .disabled(
+                                isInspectingLibrary
+                                    || isAdoptingLibrary
+                                    || downloads.isDownloading
+                                    || libraryManagement.isWorking
+                            )
                     }
                     if isInspectingLibrary {
                         HStack(spacing: DS.Space.s) {
@@ -131,7 +136,11 @@ struct NativeSettingsView: View {
                     adoptExistingLibrary(plan)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isAdoptingLibrary || !draft.credentials.isComplete)
+                .disabled(
+                    isAdoptingLibrary
+                        || !draft.credentials.isComplete
+                        || libraryManagement.isWorking
+                )
             }
         }
         .padding(.vertical, DS.Space.xs)

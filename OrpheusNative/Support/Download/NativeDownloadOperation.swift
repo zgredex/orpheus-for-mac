@@ -10,6 +10,7 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
     var title = ""
     var quality: QobuzQuality?
     var audioFormat: QobuzAudioFormat?
+    var downloadRootPath: String?
     var phase = "Queued"
     var currentTrack: String?
     var progress = 0.0
@@ -32,6 +33,18 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
 
     var id: UUID { queueID }
     var latestOutputURL: URL? { outputURLs.last }
+    var downloadRootURL: URL? {
+        downloadRootPath.map {
+            URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL
+        }
+    }
+    var retainsWritableRecoveryContext: Bool {
+        activityID != nil && (status.isActive || status.canResume || status.canRetry)
+    }
+    var hasLibraryIndexReceipt: Bool {
+        guard status != .completed, !outputURLs.isEmpty else { return false }
+        return checkpoint?.phase == .indexingLibrary || checkpoint?.phase == .complete
+    }
 
     init(
         queueID: UUID,
@@ -48,7 +61,6 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
     mutating func recordCheckpoint(_ value: QobuzDownloadCheckpoint) {
         checkpoint = value
         checkpointUpdatedAt = Date()
-        if let outputURL = value.outputURL { recordOutput(outputURL) }
     }
 
     mutating func recordOutput(_ url: URL) {
@@ -63,24 +75,26 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
         title: String,
         quality: QobuzQuality?,
         audioFormat: QobuzAudioFormat?,
-        phase: String
+        downloadRoot: URL,
+        phase: String,
+        resumablePartial: NativePartialDownload?
     ) {
+        let recoveryCheckpoint = resumablePartial == nil ? nil : checkpoint
+        let recoveryCheckpointDate = resumablePartial == nil ? nil : checkpointUpdatedAt
+        let recoveryOutput = resumablePartial == nil ? nil : latestOutputURL
         self.title = title
         self.quality = quality
         self.audioFormat = audioFormat
+        downloadRootPath = downloadRoot.standardizedFileURL.path
         self.phase = phase
-        bytesPerSecond = nil
-        errorMessage = nil
-        resumablePartial = nil
+        resetAttemptTelemetry()
+        outputURLs = recoveryOutput.map { [$0] } ?? []
+        checkpoint = recoveryCheckpoint
+        checkpointUpdatedAt = recoveryCheckpointDate
+        self.resumablePartial = resumablePartial
     }
 
-    mutating func clearActivity() {
-        activityID = nil
-        status = .ready
-        title = ""
-        quality = nil
-        audioFormat = nil
-        phase = "Queued"
+    private mutating func resetAttemptTelemetry() {
         currentTrack = nil
         progress = 0
         completedTracks = 0
@@ -97,7 +111,18 @@ struct NativeDownloadOperation: Codable, Identifiable, Equatable, Sendable {
         assetURLs = []
         checkpoint = nil
         checkpointUpdatedAt = nil
-        activityCreatedAt = nil
         resumablePartial = nil
+    }
+
+    mutating func clearActivity() {
+        activityID = nil
+        status = .ready
+        title = ""
+        quality = nil
+        audioFormat = nil
+        downloadRootPath = nil
+        phase = "Queued"
+        resetAttemptTelemetry()
+        activityCreatedAt = nil
     }
 }

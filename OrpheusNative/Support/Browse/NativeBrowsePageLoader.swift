@@ -25,7 +25,7 @@ struct NativeBrowsePageLoader {
         }
         return NativeBrowsePageLoad(
             content: content,
-            pagination: NativeBrowsePageReducer.pagination(for: content, pageSize: Self.pageSize)
+            pagination: try NativeBrowsePageReducer.pagination(for: content, pageSize: Self.pageSize)
         )
     }
 

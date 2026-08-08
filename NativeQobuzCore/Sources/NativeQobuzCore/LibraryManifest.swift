@@ -49,6 +49,45 @@ public struct QobuzLibraryCollectionRecord: Codable, Equatable, Identifiable, Se
     }
 }
 
+enum QobuzLibraryTrackMembership {
+    static func unique(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        return paths.filter { seen.insert($0).inserted }
+    }
+}
+
+extension QobuzLibraryCollectionRecord {
+    func replacingTrackPaths(_ paths: [String]) -> QobuzLibraryCollectionRecord {
+        let paths = kind == .playlist ? paths : QobuzLibraryTrackMembership.unique(paths)
+        return QobuzLibraryCollectionRecord(
+            id: id,
+            kind: kind,
+            qobuzID: qobuzID,
+            title: title,
+            subtitle: subtitleWithTrackCount(paths.count),
+            relativePath: relativePath,
+            trackPaths: paths,
+            artworkRelativePath: artworkRelativePath,
+            collectionDescription: collectionDescription,
+            owner: owner,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            duration: duration,
+            sourceTrackCount: sourceTrackCount
+        )
+    }
+
+    private func subtitleWithTrackCount(_ count: Int) -> String {
+        guard kind == .album || kind == .playlist,
+              let range = subtitle.range(
+                of: #"\s·\s\d+\stracks?$"#,
+                options: .regularExpression
+              ) else { return subtitle }
+        let countText = " · \(count) track\(count == 1 ? "" : "s")"
+        return subtitle.replacingCharacters(in: range, with: countText)
+    }
+}
+
 public struct QobuzLibraryManifest: Codable, Equatable, Sendable {
     public let version: Int
     public var collections: [QobuzLibraryCollectionRecord]
@@ -61,6 +100,12 @@ public struct QobuzLibraryManifest: Codable, Equatable, Sendable {
 
 public enum QobuzLibraryManifestIO {
     public static let filename = ".orpheus-library.json"
+
+    static func encode(_ manifest: QobuzLibraryManifest) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(manifest)
+    }
 
     public static func load(in fileSystem: LibraryFileSystem) throws -> QobuzLibraryManifest {
         let path = try LibraryRelativePath(filename)
@@ -113,11 +158,9 @@ public enum QobuzLibraryManifestIO {
         _ manifest: QobuzLibraryManifest,
         in fileSystem: LibraryFileSystem
     ) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let destination = try LibraryRelativePath(filename)
         do {
-            try fileSystem.writeAtomically(encoder.encode(manifest), to: destination)
+            try fileSystem.writeAtomically(encode(manifest), to: destination)
             qobuzLog.info(
                 "library.manifest",
                 "Library manifest saved",

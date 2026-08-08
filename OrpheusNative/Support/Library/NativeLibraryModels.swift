@@ -103,12 +103,15 @@ struct NativeLibraryFileProblem: Identifiable, Equatable {
     }
 
     var isAutomaticallyRepairable: Bool {
-        track.integrity != .verified && track.audioFormat != nil
+        track.isAutomaticallyRepairable
     }
 
     var repairabilityDetail: String {
         if isAutomaticallyRepairable {
             return "Orpheus can restore this exact Qobuz track at its archived quality and path."
+        }
+        if track.integrity == .unreadable {
+            return "This filesystem object is unreadable or unsafe to replace automatically. Resolve it manually, then verify again."
         }
         return "Archived format \(track.formatID) is not supported for automatic repair."
     }

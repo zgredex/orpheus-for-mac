@@ -13,6 +13,11 @@ extension QobuzCollection {
         true
     }
 
+    var ownsAlbumFolderSidecars: Bool {
+        if case .playlist = self { return false }
+        return true
+    }
+
     var writesAlbumCollectionAssets: Bool {
         switch self {
         case .album, .artist, .label: true

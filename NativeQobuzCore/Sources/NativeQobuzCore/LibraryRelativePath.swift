@@ -16,6 +16,18 @@ public struct LibraryRelativePath: Hashable, Codable, Sendable, CustomStringConv
         self.rawValue = rawValue
     }
 
+    private enum CodingKeys: String, CodingKey { case rawValue }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(container.decode(String.self, forKey: .rawValue))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(rawValue, forKey: .rawValue)
+    }
+
     init(components: [String]) {
         rawValue = components.isEmpty ? "." : components.joined(separator: "/")
     }
@@ -46,6 +58,7 @@ public struct LibraryRelativePath: Hashable, Codable, Sendable, CustomStringConv
 
 public enum LibraryFileKind: String, Codable, Equatable, Sendable {
     case regularFile
+    case hardLink
     case directory
     case symbolicLink
     case other
@@ -97,6 +110,7 @@ public enum LibraryFileSystemError: Error, Equatable, LocalizedError, Sendable {
     case unsafePath(String)
     case missing(String)
     case symbolicLink(String)
+    case hardLink(String)
     case notDirectory(String)
     case notRegularFile(String)
     case tooLarge(path: String, maximumBytes: Int, actualBytes: Int64)
@@ -107,6 +121,7 @@ public enum LibraryFileSystemError: Error, Equatable, LocalizedError, Sendable {
         case .unsafePath(let path): "Unsafe Library path: \(path)"
         case .missing(let path): "Library item is missing: \(path)"
         case .symbolicLink(let path): "Symbolic links are not allowed in the Library: \(path)"
+        case .hardLink(let path): "Hard-linked files are not allowed in the Library: \(path)"
         case .notDirectory(let path): "Expected a Library directory: \(path)"
         case .notRegularFile(let path): "Expected a regular Library file: \(path)"
         case .tooLarge(let path, let maximumBytes, let actualBytes):

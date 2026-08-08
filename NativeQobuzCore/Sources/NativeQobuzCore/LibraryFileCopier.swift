@@ -8,6 +8,11 @@ struct LibraryFileCopyResult: Equatable {
 
 struct LibraryFileCopier {
     private let chunkSize = 1_048_576
+    private let afterDestinationOpen: @Sendable (LibraryRelativePath) throws -> Void
+
+    init(afterDestinationOpen: @escaping @Sendable (LibraryRelativePath) throws -> Void = { _ in }) {
+        self.afterDestinationOpen = afterDestinationOpen
+    }
 
     func copy(
         _ path: LibraryRelativePath,
@@ -22,6 +27,7 @@ struct LibraryFileCopier {
             try? output.close()
             if !completed { try? destination.removeFile(path, ifPresent: true) }
         }
+        try afterDestinationOpen(path)
 
         var digest = SHA256()
         var byteCount: Int64 = 0

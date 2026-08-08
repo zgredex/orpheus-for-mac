@@ -23,23 +23,29 @@ final class NativeLibraryManagementController: ObservableObject {
 
     private let account: NativeAccountController
     private let library: NativeLibraryController
+    private let downloads: NativeDownloadController
     private let maintenance: any QobuzLibraryMaintaining
 
     init(
         account: NativeAccountController,
         library: NativeLibraryController,
+        downloads: NativeDownloadController,
         maintenance: any QobuzLibraryMaintaining
     ) {
         self.account = account
         self.library = library
+        self.downloads = downloads
         self.maintenance = maintenance
     }
 
     var isWorking: Bool { phase != .idle }
+    var isBlockedByDownloadRecovery: Bool {
+        downloads.hasLibraryMutationConflict(at: account.downloadRoot)
+    }
 
-    func relocate(to destination: URL, downloadIsActive: Bool) async throws -> String {
+    func relocate(to destination: URL) async throws -> String {
         let source = account.downloadRoot
-        let snapshot = try availableSnapshot(downloadIsActive: downloadIsActive)
+        let snapshot = try availableSnapshot()
         guard !snapshot.tracks.isEmpty else {
             throw NativeQobuzError.unavailable("There is no indexed Library content to relocate.")
         }
@@ -62,6 +68,7 @@ final class NativeLibraryManagementController: ObservableObject {
             )
             try library.install(result.snapshot, open: library.isOpen)
         } catch {
+            let activationError = error
             qobuzLog.critical(
                 "library.relocation.activation",
                 "Verified relocation could not become the active Library; rollback started",
@@ -71,13 +78,41 @@ final class NativeLibraryManagementController: ObservableObject {
                 ],
                 error: error
             )
-            _ = try? account.save(
-                credentials: account.credentials,
-                settings: previousSettings,
-                downloadIsActive: false
-            )
-            _ = try? await maintenance.deleteLibrary(at: destination, snapshot: result.snapshot)
-            throw error
+            do {
+                _ = try account.save(
+                    credentials: account.credentials,
+                    settings: previousSettings,
+                    downloadIsActive: false
+                )
+                try library.install(snapshot, open: library.isOpen)
+            } catch {
+                qobuzLog.critical(
+                    "library.relocation.activation.rollback",
+                    "Relocation activation rollback failed; verified destination was preserved",
+                    metadata: [
+                        "sourceRoot": source.path,
+                        "destinationRoot": destination.path,
+                        "activationError": activationError.localizedDescription,
+                        "rollbackError": error.localizedDescription
+                    ],
+                    error: error
+                )
+                throw NativeQobuzError.fileSystem(
+                    "Relocation activation failed and could not be rolled back completely. The verified copy was preserved at \(destination.path). Activation: \(activationError.localizedDescription) Rollback: \(error.localizedDescription)"
+                )
+            }
+            do {
+                _ = try await maintenance.deleteLibrary(at: destination, snapshot: result.snapshot)
+            } catch {
+                logRelocationCleanupFailure(
+                    event: "library.relocation.activation.cleanup",
+                    message: "Rolled-back relocation left its verified destination copy in place",
+                    source: source,
+                    destination: destination,
+                    error: error
+                )
+            }
+            throw activationError
         }
 
         do {
@@ -95,21 +130,19 @@ final class NativeLibraryManagementController: ObservableObject {
             )
             return "Library relocated and verified."
         } catch {
-            qobuzLog.error(
-                "library.relocation.cleanup",
-                "Relocation succeeded but old managed content could not be fully removed",
-                metadata: [
-                    "sourceRoot": source.path,
-                    "destinationRoot": destination.path
-                ],
+            logRelocationCleanupFailure(
+                event: "library.relocation.cleanup",
+                message: "Relocation succeeded but old managed content could not be fully removed",
+                source: source,
+                destination: destination,
                 error: error
             )
             return "Library relocated and verified. Some managed files remain in the old folder."
         }
     }
 
-    func pruneProblems(downloadIsActive: Bool) async throws -> QobuzLibraryPruneResult {
-        let snapshot = try availableSnapshot(downloadIsActive: downloadIsActive)
+    func pruneProblems() async throws -> QobuzLibraryPruneResult {
+        let snapshot = try availableSnapshot()
         phase = .pruning
         defer { phase = .idle }
         let result = try await maintenance.pruneProblems(
@@ -120,8 +153,8 @@ final class NativeLibraryManagementController: ObservableObject {
         return result
     }
 
-    func deleteLibrary(downloadIsActive: Bool) async throws -> QobuzLibraryPruneResult {
-        let snapshot = try availableSnapshot(downloadIsActive: downloadIsActive)
+    func deleteLibrary() async throws -> QobuzLibraryPruneResult {
+        let snapshot = try availableSnapshot()
         phase = .deleting
         defer { phase = .idle }
         let result = try await maintenance.deleteLibrary(
@@ -132,17 +165,40 @@ final class NativeLibraryManagementController: ObservableObject {
         return result
     }
 
-    private func availableSnapshot(downloadIsActive: Bool) throws -> QobuzArchiveSnapshot {
-        guard !downloadIsActive else {
-            throw NativeQobuzError.unavailable("Library management is unavailable during a download.")
+    private func availableSnapshot() throws -> QobuzArchiveSnapshot {
+        guard !isBlockedByDownloadRecovery else {
+            throw NativeQobuzError.unavailable(
+                "Library management is unavailable while a download can still write to this Library. Complete or remove its Activity item first."
+            )
         }
         guard !isWorking else {
             throw NativeQobuzError.unavailable("Another Library operation is already running.")
+        }
+        guard !library.isScanning, !library.isPerformingAdoption else {
+            throw NativeQobuzError.unavailable("Wait for the current Library operation to finish before managing it.")
         }
         guard let snapshot = library.snapshot,
               snapshot.rootPath == account.downloadRoot.path else {
             throw NativeQobuzError.unavailable("Verify the current Library before managing it.")
         }
         return snapshot
+    }
+
+    private func logRelocationCleanupFailure(
+        event: String,
+        message: String,
+        source: URL,
+        destination: URL,
+        error: Error
+    ) {
+        qobuzLog.error(
+            event,
+            message,
+            metadata: [
+                "sourceRoot": source.path,
+                "destinationRoot": destination.path
+            ],
+            error: error
+        )
     }
 }

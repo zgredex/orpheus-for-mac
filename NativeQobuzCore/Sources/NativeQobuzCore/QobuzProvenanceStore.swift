@@ -44,26 +44,19 @@ struct QobuzProvenanceStore: Sendable {
         var grouped: [LibraryRelativePath: [(name: String, sha256: String)]] = [:]
         for output in outputs {
             let audioPath = try fileSystem.relativePath(for: output.audioURL)
-            grouped[audioPath.parent, default: []].append((audioPath.lastComponent!, output.sha256))
+            grouped[audioPath.parent, default: []].append((try audioLeafName(audioPath), output.sha256))
         }
-        var manifests: [URL] = []
+        var updates: [(path: LibraryRelativePath, data: Data)] = []
         for folder in grouped.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
             let destination = try folder.appending(QobuzChecksumManifest.filename)
-            var entries: [String: String]
-            do {
-                entries = try QobuzChecksumManifest.load(at: destination, in: fileSystem)
-            } catch {
-                entries = [:]
-                qobuzLog.warning(
-                    "asset.checksum",
-                    "Existing checksum manifest could not be read and will be rebuilt",
-                    metadata: ["manifestPath": destination.rawValue],
-                    error: error
-                )
-            }
+            var entries = try QobuzChecksumManifest.load(at: destination, in: fileSystem)
             for entry in grouped[folder, default: []] { entries[entry.name] = entry.sha256 }
-            try fileSystem.writeAtomically(QobuzChecksumManifest.encode(entries), to: destination)
-            manifests.append(fileSystem.displayURL(for: destination))
+            updates.append((destination, QobuzChecksumManifest.encode(entries)))
+        }
+        var manifests: [URL] = []
+        for update in updates {
+            try fileSystem.writeAtomically(update.data, to: update.path)
+            manifests.append(fileSystem.displayURL(for: update.path))
         }
         return manifests
     }
@@ -71,12 +64,12 @@ struct QobuzProvenanceStore: Sendable {
     func expectedChecksum(for audioURL: URL, fileSystem: LibraryFileSystem) throws -> String? {
         let audioPath = try fileSystem.relativePath(for: audioURL)
         let manifest = try audioPath.parent.appending(QobuzChecksumManifest.filename)
-        return try QobuzChecksumManifest.load(at: manifest, in: fileSystem)[audioPath.lastComponent!]
+        return try QobuzChecksumManifest.load(at: manifest, in: fileSystem)[audioLeafName(audioPath)]
     }
 
     func provenance(for audioURL: URL, fileSystem: LibraryFileSystem) throws -> QobuzFileProvenance? {
         let audioPath = try fileSystem.relativePath(for: audioURL)
-        return try provenanceManifest(in: audioPath.parent, fileSystem: fileSystem).files[audioPath.lastComponent!]
+        return try provenanceManifest(in: audioPath.parent, fileSystem: fileSystem).files[audioLeafName(audioPath)]
     }
 
     func record(
@@ -84,24 +77,84 @@ struct QobuzProvenanceStore: Sendable {
         for audioURL: URL,
         fileSystem: LibraryFileSystem
     ) throws {
+        let mutation = try mutation(
+            recording: provenance,
+            for: audioURL,
+            fileSystem: fileSystem
+        )
+        guard case .data(let data) = mutation.finalState else {
+            throw NativeQobuzError.invalidResponse("The provenance update was not a data mutation.")
+        }
+        try fileSystem.writeAtomically(data, to: mutation.path)
         let audioPath = try fileSystem.relativePath(for: audioURL)
-        var manifest: QobuzProvenanceManifest
-        do {
-            manifest = try provenanceManifest(in: audioPath.parent, fileSystem: fileSystem)
-        } catch {
-            manifest = QobuzProvenanceManifest()
-            qobuzLog.warning(
-                "asset.provenance",
-                "Existing provenance could not be read and will be rebuilt",
-                metadata: [
-                    "manifestPath": (try? provenancePath(in: audioPath.parent).rawValue) ?? audioPath.parent.rawValue
-                ],
-                error: error
+        logRecorded(provenance, audioPath: audioPath)
+    }
+
+    func mutation(
+        recording provenance: QobuzFileProvenance,
+        for audioURL: URL,
+        fileSystem: LibraryFileSystem
+    ) throws -> LibraryFileTransactionMutation {
+        let audioPath = try fileSystem.relativePath(for: audioURL)
+        var manifest = try provenanceManifest(in: audioPath.parent, fileSystem: fileSystem)
+        manifest.files[try audioLeafName(audioPath)] = provenance
+        let path = try provenancePath(in: audioPath.parent)
+        return try LibraryFileTransactionMutation.capture(
+            path: path,
+            finalState: .data(try QobuzProvenanceManifestIO.encode(manifest)),
+            in: fileSystem
+        )
+    }
+
+    func mutationsMarkingLibraryManaged(
+        _ audioURLs: [URL],
+        fileSystem: LibraryFileSystem
+    ) throws -> [LibraryFileTransactionMutation] {
+        var grouped: [LibraryRelativePath: Set<String>] = [:]
+        for audioURL in audioURLs {
+            let audioPath = try fileSystem.relativePath(for: audioURL)
+            grouped[audioPath.parent, default: []].insert(try audioLeafName(audioPath))
+        }
+        return try grouped.keys.sorted(by: { $0.rawValue < $1.rawValue }).compactMap { folder in
+            var manifest = try provenanceManifest(in: folder, fileSystem: fileSystem)
+            var changed = false
+            for filename in grouped[folder, default: []].sorted() {
+                guard let provenance = manifest.files[filename] else {
+                    throw NativeQobuzError.invalidResponse(
+                        "Downloaded audio is missing provenance and cannot enter the Library."
+                    )
+                }
+                guard !provenance.isLibraryManaged else { continue }
+                manifest.files[filename] = provenance.markingLibraryManaged()
+                changed = true
+            }
+            guard changed else { return nil }
+            let path = try provenancePath(in: folder)
+            return try LibraryFileTransactionMutation.capture(
+                path: path,
+                finalState: .data(try QobuzProvenanceManifestIO.encode(manifest)),
+                in: fileSystem
             )
         }
-        manifest.files[audioPath.lastComponent!] = provenance
-        let path = try provenancePath(in: audioPath.parent)
-        try fileSystem.writeAtomically(try QobuzProvenanceManifestIO.encode(manifest), to: path)
+    }
+
+    func validateLibraryManaged(
+        _ audioURLs: [URL],
+        fileSystem: LibraryFileSystem
+    ) throws {
+        for audioURL in audioURLs {
+            guard try provenance(for: audioURL, fileSystem: fileSystem)?.isLibraryManaged == true else {
+                throw NativeQobuzError.invalidResponse(
+                    "Library membership was published without managed audio provenance."
+                )
+            }
+        }
+    }
+
+    private func logRecorded(
+        _ provenance: QobuzFileProvenance,
+        audioPath: LibraryRelativePath
+    ) {
         qobuzLog.debug(
             "asset.provenance",
             "Audio provenance recorded",
@@ -113,17 +166,6 @@ struct QobuzProvenanceStore: Sendable {
                 "sha256": provenance.sha256
             ]
         )
-    }
-
-    func markLibraryManaged(_ audioURLs: [URL], fileSystem: LibraryFileSystem) throws {
-        var visited = Set<LibraryRelativePath>()
-        for audioURL in audioURLs {
-            let path = try fileSystem.relativePath(for: audioURL)
-            guard visited.insert(path).inserted,
-                  let provenance = try provenance(for: audioURL, fileSystem: fileSystem),
-                  !provenance.isLibraryManaged else { continue }
-            try record(provenance.markingLibraryManaged(), for: audioURL, fileSystem: fileSystem)
-        }
     }
 
     private func provenanceManifest(
@@ -141,5 +183,12 @@ struct QobuzProvenanceStore: Sendable {
 
     private func provenancePath(in folder: LibraryRelativePath) throws -> LibraryRelativePath {
         try folder.appending(QobuzProvenanceManifestIO.filename)
+    }
+
+    private func audioLeafName(_ path: LibraryRelativePath) throws -> String {
+        guard let name = path.lastComponent else {
+            throw LibraryFileSystemError.unsafePath(path.rawValue)
+        }
+        return name
     }
 }

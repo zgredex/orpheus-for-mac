@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 enum FileDialog {
     static func chooseLinksFile() -> URL? {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText, UTType(filenameExtension: "m3u")!, UTType(filenameExtension: "m3u8")!]
+        panel.allowedContentTypes = [.plainText] + ["m3u", "m3u8"].compactMap {
+            UTType(filenameExtension: $0)
+        }
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK else { return nil }
         return panel.url

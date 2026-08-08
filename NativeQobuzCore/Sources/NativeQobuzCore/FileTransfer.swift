@@ -43,7 +43,7 @@ public struct URLSessionFileTransferClient: FileTransferClient, Sendable {
         to destination: URL,
         fileSystem: LibraryFileSystem
     ) -> AsyncThrowingStream<FileTransferEvent, Error> {
-        AsyncThrowingStream { continuation in
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let operation = LibraryFileTransferOperation(
                 source: source,
                 destination: destination,

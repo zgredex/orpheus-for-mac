@@ -41,9 +41,30 @@ public struct QobuzLibraryAdoptionResult: Equatable, Sendable {
     }
 }
 
+public struct QobuzPreparedLibraryAdoption: Equatable, Sendable {
+    public let result: QobuzLibraryAdoptionResult
+    let transaction: LibraryFileTransactionToken?
+
+    public init(result: QobuzLibraryAdoptionResult) {
+        self.result = result
+        transaction = nil
+    }
+
+    init(
+        result: QobuzLibraryAdoptionResult,
+        transaction: LibraryFileTransactionToken?
+    ) {
+        self.result = result
+        self.transaction = transaction
+    }
+}
+
 public protocol QobuzLibraryAdopting: Sendable {
     func inspect(root: URL) async throws -> QobuzLibraryAdoptionPlan
-    func adopt(root: URL) async throws -> QobuzLibraryAdoptionResult
+    func prepare(root: URL) async throws -> QobuzPreparedLibraryAdoption
+    func prepareCommit(_ adoption: QobuzPreparedLibraryAdoption) throws
+    func finishCommit(_ adoption: QobuzPreparedLibraryAdoption) throws
+    func rollback(_ adoption: QobuzPreparedLibraryAdoption) throws
 }
 
 /// Reconciles the portable, per-folder provenance records with the logical
@@ -69,6 +90,7 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
             qobuzLog.warning("library.adoption.inspect", "Library candidate is not a folder", metadata: metadata)
             throw NativeQobuzError.fileSystem("The selected Library folder does not exist.")
         }
+        try LibraryFileTransaction.recoverInterruptedTransactions(in: fileSystem)
 
         let snapshot = try await QobuzLogScope.withValue(["libraryAdoptionID": adoptionID]) {
             try await scanner.scan(root: root)
@@ -91,25 +113,41 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
         }
         let manifestExists = manifestMetadata != nil
         let existingManifest: QobuzLibraryManifest?
-        let unreadableManifest: Bool
+        var existingCollectionCount = 0
+        let invalidManifest: Bool
         do {
-            existingManifest = manifestExists
+            let decoded = manifestExists
                 ? try QobuzLibraryManifestIO.load(in: fileSystem)
                 : nil
-            unreadableManifest = false
+            existingCollectionCount = decoded?.collections.count ?? 0
+            if let decoded {
+                try QobuzArchiveSnapshotValidation.validateCollectionStructure(decoded.collections)
+            }
+            existingManifest = decoded
+            invalidManifest = false
         } catch {
             existingManifest = nil
-            unreadableManifest = true
+            invalidManifest = true
+            qobuzLog.warning(
+                "library.adoption.inspect",
+                "Existing Library index failed semantic validation and will be rebuilt",
+                metadata: metadata,
+                error: error
+            )
         }
 
         let proposed = QobuzLibraryManifest(
-            collections: QobuzLibraryCollectionReconciler(fileSystem: fileSystem).reconcile(
+            collections: try QobuzLibraryCollectionReconciler(fileSystem: fileSystem).reconcile(
                 snapshot: snapshot,
                 existing: existingManifest?.collections ?? []
             )
         )
+        try QobuzArchiveSnapshotValidation.validateCollections(
+            proposed.collections,
+            physicalTrackPaths: Set(snapshot.tracks.map(\.relativePath))
+        )
         let action: QobuzLibraryManifestAction
-        if unreadableManifest {
+        if invalidManifest {
             action = .repair
         } else if !manifestExists {
             action = .create
@@ -123,7 +161,7 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
             root: root,
             snapshot: snapshot,
             manifestAction: action,
-            existingCollectionCount: existingManifest?.collections.count ?? 0,
+            existingCollectionCount: existingCollectionCount,
             proposedManifest: proposed
         )
         qobuzLog.notice(
@@ -141,7 +179,7 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
         return plan
     }
 
-    public func adopt(root: URL) async throws -> QobuzLibraryAdoptionResult {
+    public func prepare(root: URL) async throws -> QobuzPreparedLibraryAdoption {
         let plan = try await inspect(root: root)
         let metadata = [
             "candidateRoot": plan.root.path,
@@ -149,25 +187,13 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
             "collectionCount": String(plan.proposedCollectionCount)
         ]
         qobuzLog.notice("library.adoption.apply", "Existing Library adoption started", metadata: metadata)
-        if plan.manifestAction != .none {
-            let fileSystem = try LibraryFileSystem(rootURL: plan.root, createIfMissing: false)
-            try QobuzLibraryManifestIO.save(
-                plan.proposedManifest,
-                in: fileSystem
-            )
+        let fileSystem = try LibraryFileSystem(rootURL: plan.root, createIfMissing: false)
+        let prepared = try await QobuzLibraryAdoptionManifestTransaction(fileSystem: fileSystem).prepare(
+            plan: plan
+        ) {
+            try await scanner.scan(root: plan.root)
         }
-
-        let verifiedSnapshot = try await scanner.scan(root: plan.root)
-        guard verifiedSnapshot.collections == plan.proposedManifest.collections else {
-            qobuzLog.error(
-                "library.adoption.apply",
-                "Adopted Library index did not verify after writing",
-                metadata: metadata.merging([
-                    "verifiedCollectionCount": String(verifiedSnapshot.collections.count)
-                ]) { _, new in new }
-            )
-            throw NativeQobuzError.fileSystem("The rebuilt Library index did not verify after writing.")
-        }
+        let verifiedSnapshot = prepared.snapshot
         qobuzLog.notice(
             "library.adoption.apply",
             "Existing Library adoption completed and verified",
@@ -177,6 +203,36 @@ public struct QobuzLibraryAdopter: QobuzLibraryAdopting, @unchecked Sendable {
                 "problemCount": String(verifiedSnapshot.problemCount)
             ]) { _, new in new }
         )
-        return QobuzLibraryAdoptionResult(plan: plan, snapshot: verifiedSnapshot)
+        return QobuzPreparedLibraryAdoption(
+            result: QobuzLibraryAdoptionResult(plan: plan, snapshot: verifiedSnapshot),
+            transaction: prepared.token
+        )
+    }
+
+    public func prepareCommit(_ adoption: QobuzPreparedLibraryAdoption) throws {
+        guard let transaction = adoption.transaction else { return }
+        try QobuzLibraryAdoptionManifestTransaction(fileSystem: transaction.fileSystem()).prepareCommit(transaction)
+    }
+
+    public func finishCommit(_ adoption: QobuzPreparedLibraryAdoption) throws {
+        guard let transaction = adoption.transaction else { return }
+        try QobuzLibraryAdoptionManifestTransaction(fileSystem: transaction.fileSystem()).finishCommit(transaction)
+    }
+
+    public func rollback(_ adoption: QobuzPreparedLibraryAdoption) throws {
+        guard let transaction = adoption.transaction else { return }
+        try QobuzLibraryAdoptionManifestTransaction(fileSystem: transaction.fileSystem()).rollback(transaction)
+    }
+
+    public func adopt(root: URL) async throws -> QobuzLibraryAdoptionResult {
+        let prepared = try await prepare(root: root)
+        do {
+            try prepareCommit(prepared)
+        } catch {
+            try? rollback(prepared)
+            throw error
+        }
+        try finishCommit(prepared)
+        return prepared.result
     }
 }

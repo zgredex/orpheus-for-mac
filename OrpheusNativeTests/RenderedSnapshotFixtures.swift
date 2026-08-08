@@ -104,7 +104,6 @@ enum RenderedSnapshotFixtures {
         )
         failedItem.subtitle = "Orkiestra Diagnostyczna"
         failedItem.downloadQuality = .hiRes
-        failedItem.downloadRootPath = downloadRoot.path
 
         var pausedItem = NativeQueueItem(
             request: .album(QobuzID("paused-album")),
@@ -112,7 +111,6 @@ enum RenderedSnapshotFixtures {
         )
         pausedItem.subtitle = "Artysta z bardzo długą nazwą"
         pausedItem.downloadQuality = .hiRes
-        pausedItem.downloadRootPath = downloadRoot.path
 
         let failed = try recoveryOperation(
             item: failedItem,
@@ -146,7 +144,10 @@ enum RenderedSnapshotFixtures {
         )
         let viewModel = NativeViewModel(
             paths: paths,
-            credentialStore: MemoryCredentialStore(credentials: loadPreview ? .complete : nil),
+            configurationStore: MemoryConfigurationStore(
+                paths: paths,
+                credentials: loadPreview ? .complete : nil
+            ),
             archiveStore: MemoryArchiveStore(),
             sessionStore: MemorySessionStore(snapshot: session),
             connectivityMonitor: FakeConnectivityMonitor(),
@@ -168,7 +169,20 @@ enum RenderedSnapshotFixtures {
         notices: [String]
     ) throws -> NativeDownloadOperation {
         let output = root.appendingPathComponent("\(stem).flac")
-        let partial = QobuzDownloadArtifacts.partialURL(for: output, formatID: 27)
+        let albumID = QobuzID("snapshot-album")
+        let trackID = QobuzID("snapshot-track")
+        let partial = QobuzDownloadArtifacts.partialURL(
+            for: output,
+            formatID: 27,
+            albumID: albumID,
+            trackID: trackID
+        )
+        let processing = QobuzDownloadArtifacts.processingURL(
+            for: output,
+            formatID: 27,
+            albumID: albumID,
+            trackID: trackID
+        )
         try Data(repeating: 0x5a, count: 24_576).write(to: partial)
         var operation = NativeDownloadOperation(
             queueID: item.id,
@@ -178,6 +192,7 @@ enum RenderedSnapshotFixtures {
         )
         operation.quality = .hiRes
         operation.audioFormat = .hiRes
+        operation.downloadRootPath = root.path
         operation.phase = phase
         operation.progress = status.canRetry ? 0.71 : 0.43
         operation.completedTracks = status.canRetry ? 8 : 3
@@ -187,6 +202,12 @@ enum RenderedSnapshotFixtures {
         operation.warnings = warnings
         operation.notices = notices
         operation.outputURLs = [output]
+        operation.checkpoint = QobuzDownloadCheckpoint(
+            phase: .transferringAudio,
+            trackID: trackID,
+            albumID: albumID,
+            outputURL: processing
+        )
         operation.activityCreatedAt = createdAt
         return operation
     }

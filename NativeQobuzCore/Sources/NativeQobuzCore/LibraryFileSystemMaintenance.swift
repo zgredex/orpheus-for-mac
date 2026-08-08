@@ -20,6 +20,7 @@ public extension LibraryFileSystem {
             throw LibraryFileSystemError.missing(path.rawValue)
         }
         if metadata.kind == .symbolicLink { throw LibraryFileSystemError.symbolicLink(path.rawValue) }
+        if metadata.kind == .hardLink { throw LibraryFileSystemError.hardLink(path.rawValue) }
         guard metadata.kind == .directory else { throw LibraryFileSystemError.notDirectory(path.rawValue) }
         return try root.withParent(of: path) { parent, leaf in
             let result = leaf.withCString { unlinkat(parent, $0, AT_REMOVEDIR) }
@@ -27,7 +28,23 @@ public extension LibraryFileSystem {
             guard result == 0 else {
                 throw mappedError(operation: "unlinkat-directory", path: path.rawValue, code: errno)
             }
+            try LibraryDirectoryDurability.synchronize(
+                [(parent, path.parent.rawValue)],
+                operation: "fsync-parent-after-directory-removal"
+            )
             return true
+        }
+    }
+
+    func setDirectoryPermissions(_ permissions: UInt16, at path: LibraryRelativePath) throws {
+        guard !path.isRoot else {
+            try setRootPermissions(permissions)
+            return
+        }
+        try root.withDirectory(path) { descriptor in
+            guard fchmod(descriptor, mode_t(permissions)) == 0 else {
+                throw mappedError(operation: "fchmod-directory", path: path.rawValue, code: errno)
+            }
         }
     }
 }

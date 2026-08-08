@@ -59,11 +59,14 @@ struct QobuzRetryScheduler: Sendable {
         return min(withJitter, maximumSeconds)
     }
 
-    private var clampedJitter: Double { min(max(jitter(), 0), 1) }
+    private var clampedJitter: Double {
+        let value = jitter()
+        return value.isFinite ? min(max(value, 0), 1) : 0.5
+    }
     private var maximumSeconds: Double { max(seconds(policy.maximumRetryAfter), 0) }
 
     private func retryAfterSeconds(_ value: String) -> TimeInterval? {
-        if let seconds = Double(value) { return seconds }
+        if let seconds = Double(value), seconds.isFinite { return seconds }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
@@ -86,6 +89,7 @@ struct QobuzRetryScheduler: Sendable {
     }
 
     private func duration(seconds: Double) -> Duration {
-        .milliseconds(Int64((seconds * 1_000).rounded()))
+        guard seconds.isFinite else { return .zero }
+        return .milliseconds(Int64((seconds * 1_000).rounded()))
     }
 }

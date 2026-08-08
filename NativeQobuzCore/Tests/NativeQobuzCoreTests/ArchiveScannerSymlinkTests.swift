@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import NativeQobuzCore
@@ -72,6 +73,30 @@ final class ArchiveScannerSymlinkTests: XCTestCase {
         XCTAssertTrue(snapshot.tracks.isEmpty)
         XCTAssertTrue(snapshot.issues.contains {
             $0.relativePath == "Artist/Album/\(QobuzProvenanceManifestIO.filename)"
+        })
+    }
+
+    func testHardLinkedAudioIsUnreadableWithoutHashingSharedInode() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let album = try fixture.libraryDirectory("Artist/Album")
+        let externalAudio = fixture.external.appendingPathComponent("outside.flac")
+        try Data("shared outside audio must not be opened".utf8).write(to: externalAudio)
+        let audio = album.appendingPathComponent("01. Track.flac")
+        let result = externalAudio.path.withCString { source in
+            audio.path.withCString { destination in Darwin.link(source, destination) }
+        }
+        XCTAssertEqual(result, 0)
+        try fixture.writeManifest(in: album, filename: "01. Track.flac")
+
+        let snapshot = try await QobuzArchiveScanner().scan(root: fixture.root)
+        let track = try XCTUnwrap(snapshot.tracks.first)
+
+        XCTAssertEqual(track.integrity, .unreadable)
+        XCTAssertNil(track.actualSHA256)
+        XCTAssertTrue(snapshot.issues.contains {
+            $0.relativePath == "Artist/Album/01. Track.flac"
+                && $0.message.localizedCaseInsensitiveContains("hard-link")
         })
     }
 }

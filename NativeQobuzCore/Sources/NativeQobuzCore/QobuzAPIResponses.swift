@@ -25,6 +25,17 @@ struct QobuzAccountResponse: Decodable {
     let country: String?
     let credential: Credential?
 
+    private enum CodingKeys: String, CodingKey {
+        case country
+        case credential
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        country = container.qobuzTolerant(String.self, forKey: .country)
+        credential = try container.decodeIfPresent(Credential.self, forKey: .credential)
+    }
+
     struct Credential: Decodable {
         let parameters: [String: QobuzJSONFragment]?
     }

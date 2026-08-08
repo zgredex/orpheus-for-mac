@@ -2,7 +2,7 @@ import Foundation
 import NativeQobuzCore
 
 struct NativeSessionSnapshot: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 6
 
     let schemaVersion: Int
     var queue: [NativeQueueItem]
@@ -43,8 +43,11 @@ struct NativeSessionSnapshot: Codable, Equatable, Sendable {
 
     func validate() throws {
         let queueIDs = queue.map(\.id)
+        let queueURLs = queue.map { $0.canonicalURL.absoluteString }
         let operationQueueIDs = operations.map(\.queueID)
         let operationActivityIDs = operations.compactMap(\.activityID)
+        let inboxIDs = linkInbox.map(\.id)
+        let inboxURLs = linkInbox.map { $0.canonicalURL.absoluteString }
 
         guard schemaVersion == Self.currentSchemaVersion else {
             throw NativeQobuzError.invalidResponse(
@@ -54,11 +57,20 @@ struct NativeSessionSnapshot: Codable, Equatable, Sendable {
         guard Set(queueIDs).count == queueIDs.count else {
             throw NativeQobuzError.invalidResponse("The download session contains duplicate queue IDs.")
         }
+        guard Set(queueURLs).count == queueURLs.count else {
+            throw NativeQobuzError.invalidResponse("The download session contains duplicate queued Qobuz items.")
+        }
         guard Set(operationQueueIDs).count == operationQueueIDs.count else {
             throw NativeQobuzError.invalidResponse("The download session contains duplicate operation queue IDs.")
         }
         guard Set(operationActivityIDs).count == operationActivityIDs.count else {
             throw NativeQobuzError.invalidResponse("The download session contains duplicate operation Activity IDs.")
+        }
+        guard Set(inboxIDs).count == inboxIDs.count else {
+            throw NativeQobuzError.invalidResponse("The download session contains duplicate link inbox IDs.")
+        }
+        guard Set(inboxURLs).count == inboxURLs.count else {
+            throw NativeQobuzError.invalidResponse("The download session contains duplicate link inbox items.")
         }
 
         let queueIDSet = Set(queueIDs)
@@ -73,6 +85,22 @@ struct NativeSessionSnapshot: Codable, Equatable, Sendable {
             if operation.activityID == nil, !queueIDSet.contains(operation.queueID) {
                 throw NativeQobuzError.invalidResponse("A download operation has no queue or Activity owner.")
             }
+            if operation.status.isActive, operation.activityID == nil {
+                throw NativeQobuzError.invalidResponse("An active download operation has no Activity owner.")
+            }
+            try operation.validateStoredLibraryPaths()
+        }
+    }
+
+    func validate(restoringAt configuredRoot: URL) throws {
+        let expected = configuredRoot.standardizedFileURL
+        for operation in operations
+        where operation.retainsWritableRecoveryContext || operation.hasLibraryIndexReceipt {
+            guard operation.downloadRootURL == expected else {
+                throw NativeQobuzError.invalidResponse(
+                    "A recoverable download belongs to a different Library than the configured download folder."
+                )
+            }
         }
     }
 }
@@ -80,6 +108,11 @@ struct NativeSessionSnapshot: Codable, Equatable, Sendable {
 protocol NativeSessionStoring: Sendable {
     func load() throws -> NativeSessionSnapshot?
     func save(_ snapshot: NativeSessionSnapshot) throws
+    func rejectLoadedSnapshot(cause: Error) throws
+}
+
+extension NativeSessionStoring {
+    func rejectLoadedSnapshot(cause: Error) throws {}
 }
 
 struct NativeSessionStore: NativeSessionStoring, Sendable {
@@ -109,29 +142,12 @@ struct NativeSessionStore: NativeSessionStoring, Sendable {
             )
             return snapshot
         } catch {
+            let rejectionCause = error
             do {
-                let rejectedURL = try files.quarantine(
-                    .session,
-                    rejectedPrefix: "download-session.rejected"
-                )
-                qobuzLog.error(
-                    "persistence.session",
-                    "Rejected download session was quarantined; the app will start with a clean session",
-                    metadata: [
-                        "sessionPath": paths.sessionURL.path,
-                        "rejectedPath": rejectedURL.path
-                    ],
-                    error: error
-                )
+                try rejectLoadedSnapshot(cause: rejectionCause)
                 return nil
-            } catch let quarantineError {
-                qobuzLog.error(
-                    "persistence.session",
-                    "Invalid download session could not be quarantined",
-                    metadata: ["sessionPath": paths.sessionURL.path],
-                    error: quarantineError
-                )
-                throw error
+            } catch {
+                throw rejectionCause
             }
         }
     }
@@ -144,6 +160,32 @@ struct NativeSessionStore: NativeSessionStoring, Sendable {
             "Download session saved",
             metadata: diagnosticMetadata(for: snapshot)
         )
+    }
+
+    func rejectLoadedSnapshot(cause: Error) throws {
+        do {
+            let rejectedURL = try files.quarantine(
+                .session,
+                rejectedPrefix: "download-session.rejected"
+            )
+            qobuzLog.error(
+                "persistence.session",
+                "Rejected download session was quarantined; the app will start with a clean session",
+                metadata: [
+                    "sessionPath": paths.sessionURL.path,
+                    "rejectedPath": rejectedURL.path
+                ],
+                error: cause
+            )
+        } catch {
+            qobuzLog.error(
+                "persistence.session",
+                "Rejected download session could not be quarantined",
+                metadata: ["sessionPath": paths.sessionURL.path],
+                error: error
+            )
+            throw error
+        }
     }
 
     private func diagnosticMetadata(for snapshot: NativeSessionSnapshot) -> [String: String] {

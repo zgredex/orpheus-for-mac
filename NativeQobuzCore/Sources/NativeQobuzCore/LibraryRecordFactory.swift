@@ -13,7 +13,8 @@ public enum QobuzLibraryRecordFactory {
         description: String? = nil,
         duration: Int? = nil
     ) -> QobuzLibraryCollectionRecord {
-        QobuzLibraryCollectionRecord(
+        let trackPaths = QobuzLibraryTrackMembership.unique(trackPaths)
+        return QobuzLibraryCollectionRecord(
             id: "album|\(qobuzID)",
             kind: .album,
             qobuzID: qobuzID,
@@ -32,9 +33,10 @@ public enum QobuzLibraryRecordFactory {
         title: String,
         artist: String,
         relativePath: String,
+        artworkRelativePath: String? = nil,
         duration: Int? = nil
     ) -> QobuzLibraryCollectionRecord {
-        QobuzLibraryCollectionRecord(
+        return QobuzLibraryCollectionRecord(
             id: "track|\(qobuzID)",
             kind: .track,
             qobuzID: qobuzID,
@@ -42,6 +44,7 @@ public enum QobuzLibraryRecordFactory {
             subtitle: artist,
             relativePath: relativePath,
             trackPaths: [relativePath],
+            artworkRelativePath: artworkRelativePath,
             duration: duration
         )
     }
@@ -59,7 +62,7 @@ public enum QobuzLibraryRecordFactory {
         duration: Int? = nil,
         sourceTrackCount: Int? = nil
     ) -> QobuzLibraryCollectionRecord {
-        QobuzLibraryCollectionRecord(
+        return QobuzLibraryCollectionRecord(
             id: "playlist|\(qobuzID)",
             kind: .playlist,
             qobuzID: qobuzID,

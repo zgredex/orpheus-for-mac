@@ -29,29 +29,6 @@ public struct QobuzFileProvenance: Codable, Equatable, Sendable {
         self.isLibraryManaged = isLibraryManaged
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case qobuzTrackID
-        case qobuzAlbumID
-        case formatID
-        case bitDepth
-        case samplingRate
-        case sha256
-        case archiveKind
-        case isLibraryManaged
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        qobuzTrackID = try container.decode(String.self, forKey: .qobuzTrackID)
-        qobuzAlbumID = try container.decode(String.self, forKey: .qobuzAlbumID)
-        formatID = try container.decode(Int.self, forKey: .formatID)
-        bitDepth = try container.decodeIfPresent(Int.self, forKey: .bitDepth)
-        samplingRate = try container.decodeIfPresent(Double.self, forKey: .samplingRate)
-        sha256 = try container.decode(String.self, forKey: .sha256)
-        archiveKind = try container.decodeIfPresent(QobuzArchiveKind.self, forKey: .archiveKind) ?? .unclassified
-        isLibraryManaged = try container.decodeIfPresent(Bool.self, forKey: .isLibraryManaged) ?? false
-    }
-
     public func belongs(to item: QobuzResolvedTrack) -> Bool {
         qobuzTrackID == item.track.id.rawValue && qobuzAlbumID == item.album.id.rawValue
     }

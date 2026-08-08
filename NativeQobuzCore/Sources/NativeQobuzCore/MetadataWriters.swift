@@ -170,6 +170,7 @@ struct FLACMetadataWriter: AudioMetadataFileRewriter {
         var retained: [Block] = []
         var isLast = false
         while !isLast {
+            try Task.checkCancellation()
             let header = try readExactly(4, from: input)
             isLast = (header[0] & 0x80) != 0
             let type = header[0] & 0x7F
@@ -186,6 +187,7 @@ struct FLACMetadataWriter: AudioMetadataFileRewriter {
         return try AtomicFileEditor.rewrite(path, fileSystem: fileSystem) { output in
             try output.write(contentsOf: Data("fLaC".utf8))
             for (index, block) in blocks.enumerated() {
+                try Task.checkCancellation()
                 guard block.data.count <= 0xFF_FFFF else {
                     throw NativeQobuzError.fileSystem("FLAC metadata block is too large")
                 }
@@ -294,6 +296,7 @@ private enum AtomicFileEditor {
 
     static func copy(_ input: FileHandle, to output: HashingFileWriter) throws {
         while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try Task.checkCancellation()
             try output.write(contentsOf: chunk)
         }
     }

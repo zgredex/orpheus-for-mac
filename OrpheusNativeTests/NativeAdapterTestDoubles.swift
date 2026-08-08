@@ -4,7 +4,7 @@ import NativeQobuzCore
 @testable import OrpheusNative
 #endif
 
-final class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable {
+class FakeQobuzService: NativeQobuzServicing, @unchecked Sendable {
     private let paginatedSearch: Bool
     private let paginatedCollections: Bool
 

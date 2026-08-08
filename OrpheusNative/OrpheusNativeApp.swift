@@ -80,6 +80,7 @@ struct OrpheusNativeApp: App {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") { viewModel.showSettings = true }
                     .keyboardShortcut(",", modifiers: [.command])
+                    .disabled(!viewModel.canEditConfiguration)
             }
             CommandMenu("Queue") {
                 Button("Download Selected") { viewModel.downloadSelected() }

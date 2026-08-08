@@ -10,7 +10,6 @@ struct NativeQueueItem: Codable, Identifiable, Equatable, Sendable {
     var expectedTrackIDs: [QobuzID]?
     var repairTarget: QobuzArchiveTrack?
     var downloadQuality: QobuzQuality?
-    var downloadRootPath: String?
     /// Metadata used by the queue inspector. `nil` until the item has been resolved.
     var trackPlan: [NativeQueueTrack]?
     /// `nil` means every available track. An empty set intentionally blocks starting.

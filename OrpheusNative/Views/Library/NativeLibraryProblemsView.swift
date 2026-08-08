@@ -102,7 +102,7 @@ struct NativeLibraryProblemsView: View {
     }
 
     private var repairableTracks: [QobuzArchiveTrack] {
-        snapshot.tracks.filter { $0.integrity != .verified && $0.audioFormat != nil }
+        snapshot.tracks.filter(\.isAutomaticallyRepairable)
     }
 
     private var selectedRepairTracks: [QobuzArchiveTrack] {

@@ -20,18 +20,15 @@ final class NativeUnifiedLogExporter: NativeUnifiedLogExporting, @unchecked Send
     private let subsystem: String
     private let maximumEntries: Int
     private let sessionStartedAt: @Sendable () -> Date
-    private let fileManager: FileManager
 
     init(
         subsystem: String = "com.orpheus.formac",
         maximumEntries: Int = 20_000,
-        sessionStartedAt: @escaping @Sendable () -> Date = { QobuzDiagnostics.shared.sessionStartedAt },
-        fileManager: FileManager = .default
+        sessionStartedAt: @escaping @Sendable () -> Date = { QobuzDiagnostics.shared.sessionStartedAt }
     ) {
         self.subsystem = subsystem
         self.maximumEntries = max(maximumEntries, 1)
         self.sessionStartedAt = sessionStartedAt
-        self.fileManager = fileManager
     }
 
     func export(to destination: URL) throws -> NativeDiagnosticArtifactOutcome {
@@ -80,11 +77,11 @@ final class NativeUnifiedLogExporter: NativeUnifiedLogExporting, @unchecked Send
             data.append(try encoder.encode(record))
             data.append(0x0A)
         }
-        try fileManager.createDirectory(
+        try NativeDiagnosticBundleSecurity.createPrivateDirectory(
             at: destination.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try data.write(to: destination, options: [.atomic])
+        try NativeDiagnosticBundleSecurity.writePrivateFile(data, to: destination)
         return NativeDiagnosticArtifactOutcome(
             itemCount: records.count,
             messages: wasLimited

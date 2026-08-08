@@ -145,7 +145,7 @@ final class RenderedUISnapshotTests: XCTestCase {
             fixture.viewModel.prepareForTermination()
             try? FileManager.default.removeItem(at: fixture.root)
         }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
+        try await Task.sleep(for: .milliseconds(150))
 
         let target = NativeContentView()
             .nativeApplicationEnvironment(fixture.viewModel)

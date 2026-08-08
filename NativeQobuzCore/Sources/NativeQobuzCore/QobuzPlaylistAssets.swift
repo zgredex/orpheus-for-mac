@@ -10,13 +10,14 @@ struct QobuzPlaylistFolderPlanner: Sendable {
     func folder(title: String, id: QobuzID, root: URL) -> URL {
         root
             .appendingPathComponent("Playlists", isDirectory: true)
-            .appendingPathComponent(
-                QobuzFilenameComponent.make(
-                    stem: outputPlanner.sanitize(title),
-                    suffix: " [\(QobuzFilenameComponent.truncate(outputPlanner.sanitize(id.rawValue), toUTF8Bytes: 64))]"
-                ),
-                isDirectory: true
-            )
+            .appendingPathComponent(folderName(title: title, id: id), isDirectory: true)
+    }
+
+    func folderName(title: String, id: QobuzID) -> String {
+        QobuzFilenameComponent.make(
+            stem: outputPlanner.sanitize(title),
+            suffix: " [\(QobuzFilenameComponent.truncate(outputPlanner.sanitize(id.rawValue), toUTF8Bytes: 64))]"
+        )
     }
 }
 
@@ -35,27 +36,34 @@ struct QobuzPlaylistAssets: @unchecked Sendable {
         self.folderPlanner = folderPlanner
     }
 
-    func writePlaylist(
+    func playlistMutation(
         plan: QobuzDownloadPlan,
-        outputs: [(item: QobuzResolvedTrack, audioURL: URL)],
+        membership: [QobuzPlaylistMembership]?,
         fileSystem: LibraryFileSystem
-    ) throws -> URL? {
-        guard case .playlist(let id) = plan.request, !outputs.isEmpty else { return nil }
+    ) throws -> LibraryFileTransactionMutation? {
+        guard case .playlist(let id) = plan.request,
+              let membership,
+              !membership.isEmpty else { return nil }
         let folder = folderPlanner.folder(title: plan.title, id: id, root: fileSystem.rootURL)
         let folderPath = try fileSystem.relativePath(for: folder)
         let destination = try folderPath.appending(
-            "\(outputPlanner.sanitize(plan.title)).\(QobuzManagedLibraryAssetPolicy.preferredPlaylistExtension)"
+            QobuzManagedLibraryAssetPolicy.playlistFilename(
+                title: plan.title,
+                outputPlanner: outputPlanner
+            )
         )
-        var lines = ["#EXTM3U"]
-        for output in outputs {
-            let duration = output.item.track.duration ?? -1
-            let artist = output.item.track.performer?.name ?? output.item.album.artist.name
-            lines.append("#EXTINF:\(duration), \(artist) - \(output.item.track.displayTitle)")
-            lines.append(try portableRelativePath(from: folderPath, to: output.audioURL, fileSystem: fileSystem))
-            lines.append("")
+        let entries = membership.map { item in
+            let fallback = QobuzPathSafety.filenameStem(of: item.path.rawValue)
+            return QobuzM3UPlaylist.Entry(
+                path: QobuzM3UPlaylist.portableRelativePath(from: folderPath, to: item.path),
+                extendedInfo: "#EXTINF:\(item.presentation?.duration ?? -1), \(item.presentation?.label ?? fallback)"
+            )
         }
-        try fileSystem.writeAtomically(Data(lines.joined(separator: "\n").utf8), to: destination)
-        return fileSystem.displayURL(for: destination)
+        return try LibraryFileTransactionMutation.capture(
+            path: destination,
+            finalState: .data(Data(QobuzM3UPlaylist.contents(for: entries).utf8)),
+            in: fileSystem
+        )
     }
 
     func writeMetadata(plan: QobuzDownloadPlan, fileSystem: LibraryFileSystem) async throws -> [URL] {
@@ -87,21 +95,6 @@ struct QobuzPlaylistAssets: @unchecked Sendable {
             }
         }
         return created
-    }
-
-    private func portableRelativePath(
-        from folder: LibraryRelativePath,
-        to target: URL,
-        fileSystem: LibraryFileSystem
-    ) throws -> String {
-        let folderParts = folder.components
-        let targetParts = try fileSystem.relativePath(for: target).components
-        var shared = 0
-        while shared < folderParts.count,
-              shared < targetParts.count,
-              folderParts[shared] == targetParts[shared] { shared += 1 }
-        let parents = Array(repeating: "..", count: folderParts.count - shared)
-        return (parents + Array(targetParts.dropFirst(shared))).joined(separator: "/")
     }
 
     private func existingArtwork(

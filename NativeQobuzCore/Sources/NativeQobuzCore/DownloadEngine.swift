@@ -19,7 +19,8 @@ public final class NativeQobuzDownloadEngine: @unchecked Sendable {
         let deliveryPolicy = QobuzDeliveryPolicy()
         let destinationResolver = QobuzDownloadDestinationResolver(
             outputPlanner: outputPlanner,
-            assetWriter: assetWriter
+            assetWriter: assetWriter,
+            reuseRegistry: reuseRegistry
         )
         let existingVerifier = QobuzExistingAudioVerifier(
             validator: validator,

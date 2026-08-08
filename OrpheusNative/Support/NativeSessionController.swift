@@ -3,15 +3,21 @@ import NativeQobuzCore
 
 @MainActor
 final class NativeSessionController {
+    private enum Phase: Equatable {
+        case idle
+        case restoring(UUID)
+        case active
+        case failed
+        case terminating(persistRestoredState: Bool)
+    }
+
     private let store: any NativeSessionStoring
     private let queue: NativeQueueController
     private let downloads: NativeDownloadController
     private let linkInbox: NativeLinkInboxController
     private let writer: NativeSessionPersistenceWriter
     private var persistenceTask: Task<Void, Never>?
-    private var isActive = false
-    private var isRestoring = false
-    private var isTerminating = false
+    private var phase: Phase = .idle
     private var onFailure: ((String) -> Void)?
 
     init(
@@ -31,28 +37,53 @@ final class NativeSessionController {
         self.onFailure = onFailure
     }
 
-    func activate() {
-        isActive = true
-    }
-
     func restore(root: URL) async throws {
+        guard phase == .idle || phase == .failed else {
+            throw NativeQobuzError.unavailable("The download session is not ready to restore.")
+        }
+        let restorationID = UUID()
+        phase = .restoring(restorationID)
         let store = store
-        let restored = try await Task.detached(priority: .userInitiated) {
-            try store.load()
-        }.value
-        guard let snapshot = restored else { return }
-        try snapshot.validate()
-        writer.setBaseline(snapshot)
-        isRestoring = true
-        defer { isRestoring = false }
-
-        downloads.restore(operations: snapshot.operations, root: root)
-        linkInbox.restore(snapshot.linkInbox)
-        queue.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
+        do {
+            let restored = try await Task.detached(priority: .userInitiated) {
+                try store.load()
+            }.value
+            try Task.checkCancellation()
+            guard phase == .restoring(restorationID) else { throw CancellationError() }
+            if let snapshot = restored {
+                try snapshot.validate()
+                do {
+                    try snapshot.validate(restoringAt: root)
+                } catch {
+                    try store.rejectLoadedSnapshot(cause: error)
+                    writer.setBaseline(nil)
+                    qobuzLog.warning(
+                        "persistence.session",
+                        "Saved recovery state was not applied because it belongs to another Library",
+                        metadata: ["configuredRoot": root.standardizedFileURL.path],
+                        error: error
+                    )
+                    guard phase == .restoring(restorationID) else { throw CancellationError() }
+                    phase = .active
+                    return
+                }
+                writer.setBaseline(snapshot)
+                downloads.restore(operations: snapshot.operations)
+                linkInbox.restore(snapshot.linkInbox)
+                queue.restore(items: snapshot.queue, selectedID: snapshot.selectedQueueID)
+            } else {
+                writer.setBaseline(nil)
+            }
+            guard phase == .restoring(restorationID) else { throw CancellationError() }
+            phase = .active
+        } catch {
+            if phase == .restoring(restorationID) { phase = .failed }
+            throw error
+        }
     }
 
     func schedulePersistence() {
-        guard isActive, !isRestoring, !isTerminating else { return }
+        guard phase == .active else { return }
         guard persistenceTask == nil else { return }
         persistenceTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
@@ -63,11 +94,21 @@ final class NativeSessionController {
     }
 
     func persistCheckpoint() {
-        guard isActive, !isRestoring, !isTerminating else { return }
+        guard phase == .active else { return }
         enqueueCurrentSnapshot(reportErrors: false)
     }
 
     func persistNow(reportErrors: Bool = true) {
+        guard phase == .active else { return }
+        flushCurrentSnapshot(reportErrors: reportErrors)
+    }
+
+    func persistForTermination() {
+        guard phase == .terminating(persistRestoredState: true) else { return }
+        flushCurrentSnapshot(reportErrors: false)
+    }
+
+    private func flushCurrentSnapshot(reportErrors: Bool) {
         persistenceTask?.cancel()
         persistenceTask = nil
         do {
@@ -106,8 +147,12 @@ final class NativeSessionController {
     }
 
     func beginTermination() {
-        guard !isTerminating else { return }
-        isTerminating = true
+        guard case .terminating = phase else {
+            phase = .terminating(persistRestoredState: phase == .active)
+            persistenceTask?.cancel()
+            persistenceTask = nil
+            return
+        }
         persistenceTask?.cancel()
         persistenceTask = nil
     }

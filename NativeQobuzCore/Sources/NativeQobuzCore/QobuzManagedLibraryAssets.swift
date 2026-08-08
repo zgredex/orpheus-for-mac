@@ -36,10 +36,10 @@ struct QobuzManagedLibraryAssets {
                     candidates: &candidates
                 )
             }
-            let collectionPath = try LibraryRelativePath(collection.relativePath)
+            let collectionPath = try QobuzManagedLibraryAssetPolicy.assetFolder(for: collection)
             guard try fileSystem.metadata(at: collectionPath)?.kind == .directory else { continue }
             for entry in try fileSystem.entries(in: collectionPath)
-            where QobuzManagedLibraryAssetPolicy.isSidecar(entry.path) {
+            where QobuzManagedLibraryAssetPolicy.isSidecar(entry.path, for: collection) {
                 try Self.includeIfPresent(entry.path, in: fileSystem, candidates: &candidates)
             }
         }

@@ -10,6 +10,7 @@ enum NativeArchiveIndexLoadResult: Equatable, Sendable {
 protocol NativeArchiveIndexStoring: Sendable {
     func load() throws -> NativeArchiveIndexLoadResult
     func save(_ snapshot: QobuzArchiveSnapshot) throws
+    func remove() throws
 }
 
 struct NativeArchiveIndexStore: NativeArchiveIndexStoring, Sendable {
@@ -49,6 +50,15 @@ struct NativeArchiveIndexStore: NativeArchiveIndexStoring, Sendable {
             "persistence.archive",
             "Archive index cache saved",
             metadata: cacheMetadata(snapshot)
+        )
+    }
+
+    func remove() throws {
+        try files.remove(.archiveIndex)
+        qobuzLog.info(
+            "persistence.archive",
+            "Archive index cache removed",
+            metadata: ["archivePath": paths.archiveIndexURL.path]
         )
     }
 

@@ -36,9 +36,12 @@ struct NativeLibraryCategoryView: View {
                         .tag(track.id)
                     } else {
                         DisclosureGroup {
-                            ForEach(entry.tracks) { track in
-                                NativeLibraryTrackRow(track: track, onReveal: { onRevealTrack(track) })
-                                    .tag(track.id)
+                            ForEach(trackOccurrences(in: entry)) { occurrence in
+                                NativeLibraryTrackRow(
+                                    track: occurrence.track,
+                                    onReveal: { onRevealTrack(occurrence.track) }
+                                )
+                                .tag(occurrence.track.id)
                             }
                         } label: {
                             NativeLibraryEntryRow(entry: entry, onReveal: { onRevealEntry(entry) })
@@ -49,4 +52,15 @@ struct NativeLibraryCategoryView: View {
             .listStyle(.inset)
         }
     }
+
+    private func trackOccurrences(in entry: QobuzArchiveEntry) -> [TrackOccurrence] {
+        entry.tracks.enumerated().map {
+            TrackOccurrence(id: "\(entry.id)#\($0.offset)", track: $0.element)
+        }
+    }
+}
+
+private struct TrackOccurrence: Identifiable {
+    let id: String
+    let track: QobuzArchiveTrack
 }

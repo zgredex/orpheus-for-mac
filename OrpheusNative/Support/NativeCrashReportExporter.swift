@@ -8,14 +8,13 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
     }
 
     private let sourceDirectories: [URL]
-    private let bundleIdentifier: String
-    private let processNames: [String]
     private let maximumReports: Int
     private let maximumAge: TimeInterval
     private let maximumReportBytes: Int64
     private let maximumScannedFiles: Int
     private let now: @Sendable () -> Date
     private let fileManager: FileManager
+    private let identityMatcher: NativeCrashReportIdentityMatcher
 
     init(
         sourceDirectories: [URL] = NativeCrashReportExporter.defaultSourceDirectories(),
@@ -29,8 +28,6 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
         fileManager: FileManager = .default
     ) {
         self.sourceDirectories = sourceDirectories
-        self.bundleIdentifier = bundleIdentifier
-        self.processNames = processNames
         self.maximumReports = max(maximumReports, 1)
         self.maximumAge = maximumAge
         self.maximumReportBytes = max(
@@ -40,6 +37,10 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
         self.maximumScannedFiles = max(maximumScannedFiles, 1)
         self.now = now
         self.fileManager = fileManager
+        identityMatcher = NativeCrashReportIdentityMatcher(
+            bundleIdentifier: bundleIdentifier,
+            processNames: processNames
+        )
     }
 
     func export(to destination: URL) throws -> NativeDiagnosticArtifactOutcome {
@@ -53,7 +54,10 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
         guard !selected.isEmpty else {
             return NativeDiagnosticArtifactOutcome(itemCount: 0, messages: messages)
         }
-        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        try NativeDiagnosticBundleSecurity.createPrivateDirectory(
+            at: destination,
+            withIntermediateDirectories: true
+        )
         var exported = 0
         for candidate in selected {
             do {
@@ -61,13 +65,17 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
                     candidate.url,
                     maximumBytes: Int(maximumReportBytes)
                 )
+                guard identityMatcher.matches(data) else {
+                    messages.append("Skipped crash report whose application identity changed during export.")
+                    continue
+                }
                 let redacted = QobuzDiagnostics.redact(String(decoding: data, as: UTF8.self))
                 let target = uniqueDestination(
-                    for: candidate.url.lastPathComponent,
+                    for: QobuzDiagnostics.redact(candidate.url.lastPathComponent),
                     in: destination,
                     sequence: exported
                 )
-                try Data(redacted.utf8).write(to: target, options: [.atomic])
+                try NativeDiagnosticBundleSecurity.writePrivateFile(Data(redacted.utf8), to: target)
                 exported += 1
             } catch {
                 let native = error as NSError
@@ -149,12 +157,8 @@ final class NativeCrashReportExporter: NativeCrashReportExporting, @unchecked Se
     }
 
     private func matchesApplication(_ url: URL) throws -> Bool {
-        let filename = url.deletingPathExtension().lastPathComponent.localizedLowercase
-        if processNames.contains(where: { filename.contains($0.localizedLowercase) }) { return true }
         let prefix = try NativeBoundedFileReader.readPrefix(url, maximumBytes: 256 * 1_024)
-        let text = String(decoding: prefix, as: UTF8.self).localizedLowercase
-        return text.contains(bundleIdentifier.localizedLowercase)
-            || processNames.contains(where: { text.contains($0.localizedLowercase) })
+        return identityMatcher.matches(prefix)
     }
 
     private func uniqueDestination(for filename: String, in directory: URL, sequence: Int) -> URL {

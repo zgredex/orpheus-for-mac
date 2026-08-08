@@ -13,6 +13,7 @@ struct NativeContentView: View {
     var body: some View {
         GeometryReader { geometry in
             content(activityPaneHeight: activityPaneHeight(totalWidth: geometry.size.width))
+                .disabled(!vm.canInteractWithContent)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
@@ -40,6 +41,7 @@ struct NativeContentView: View {
                     Image(systemName: "books.vertical")
                 }
                 .help(library.isOpen ? "Close Library" : "Open Library")
+                .disabled(!vm.canInteractWithContent)
             }
             ToolbarItem {
                 Button { vm.showDiagnostics = true } label: { Image(systemName: "waveform.path.ecg.rectangle") }
@@ -48,6 +50,7 @@ struct NativeContentView: View {
             ToolbarItem {
                 Button { vm.showSettings = true } label: { Image(systemName: "gearshape") }
                     .help("Settings")
+                    .disabled(!vm.canEditConfiguration)
             }
         }
         .sheet(isPresented: $vm.showSettings) { NativeSettingsView(draft: vm.settingsDraft) }
@@ -56,12 +59,12 @@ struct NativeContentView: View {
             get: { vm.notice != nil },
             set: { if !$0 { vm.notice = nil } }
         )) {
+            if vm.canRetryStartup {
+                Button("Retry Startup") { Task { await vm.start() } }
+            }
             Button("OK") { vm.notice = nil }
         } message: {
             Text(vm.notice ?? "")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            vm.prepareForTermination()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             qobuzLog.info("lifecycle.window", "App became active")

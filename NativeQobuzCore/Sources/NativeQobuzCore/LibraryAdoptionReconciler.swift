@@ -6,14 +6,16 @@ struct QobuzLibraryCollectionReconciler {
     func reconcile(
         snapshot: QobuzArchiveSnapshot,
         existing: [QobuzLibraryCollectionRecord]
-    ) -> [QobuzLibraryCollectionRecord] {
+    ) throws -> [QobuzLibraryCollectionRecord] {
         let physicalPaths = Set(snapshot.tracks.map(\.relativePath))
-        let inferred = inferredCollections(snapshot: snapshot)
+        let inferred = try inferredCollections(snapshot: snapshot)
         let inferredByID = Dictionary(inferred.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var records: [String: QobuzLibraryCollectionRecord] = [:]
 
-        for record in existing where isCurrent(record, physicalPaths: physicalPaths) {
-            records[record.id] = record
+        for record in existing {
+            if try isCurrent(record, physicalPaths: physicalPaths) {
+                records[record.id] = record
+            }
         }
         for inferredRecord in inferred {
             if let existingRecord = existing.first(where: { $0.id == inferredRecord.id }) {
@@ -23,7 +25,7 @@ struct QobuzLibraryCollectionReconciler {
             }
         }
         for record in existing where records[record.id] == nil {
-            if isCurrent(record, physicalPaths: physicalPaths) {
+            if try isCurrent(record, physicalPaths: physicalPaths) {
                 records[record.id] = record
             } else if let physical = inferredByID[record.id] {
                 records[record.id] = mergingPresentation(from: record, physicalRecord: physical)
@@ -32,7 +34,7 @@ struct QobuzLibraryCollectionReconciler {
         return records.values.sorted { $0.id < $1.id }
     }
 
-    private func inferredCollections(snapshot: QobuzArchiveSnapshot) -> [QobuzLibraryCollectionRecord] {
+    private func inferredCollections(snapshot: QobuzArchiveSnapshot) throws -> [QobuzLibraryCollectionRecord] {
         var records: [QobuzLibraryCollectionRecord] = []
         let albums = Dictionary(grouping: snapshot.tracks.filter { $0.archiveKind == .album }, by: \.qobuzAlbumID)
         for albumID in albums.keys.sorted() {
@@ -48,7 +50,7 @@ struct QobuzLibraryCollectionReconciler {
                 ),
                 relativePath: folder,
                 trackPaths: sortedTracks.map(\.relativePath),
-                artworkRelativePath: existingArtworkRelativePath(folder: folder)
+                artworkRelativePath: try existingArtworkRelativePath(folder: folder)
             ))
         }
 
@@ -60,23 +62,24 @@ struct QobuzLibraryCollectionReconciler {
                 qobuzID: trackID,
                 title: filenameTitle(track.relativePath),
                 artist: QobuzPathSafety.lastComponent(of: folder, fallback: "Standalone track"),
-                relativePath: track.relativePath
+                relativePath: track.relativePath,
+                artworkRelativePath: try existingArtworkRelativePath(folder: folder)
             ))
         }
-        records.append(contentsOf: QobuzLibraryPlaylistInference(fileSystem: fileSystem).infer(snapshot: snapshot))
+        records.append(contentsOf: try QobuzLibraryPlaylistInference(fileSystem: fileSystem).infer(snapshot: snapshot))
         return records
     }
 
     private func isCurrent(
         _ record: QobuzLibraryCollectionRecord,
         physicalPaths: Set<String>
-    ) -> Bool {
+    ) throws -> Bool {
         let paths = [record.relativePath] + record.trackPaths + [record.artworkRelativePath].compactMap { $0 }
         guard paths.allSatisfy(QobuzPathSafety.isSafeRelativePath),
               !record.trackPaths.isEmpty,
-              record.trackPaths.allSatisfy(physicalPaths.contains),
-              let path = try? LibraryRelativePath(record.relativePath),
-              let metadata = try? fileSystem.metadata(at: path) else { return false }
+              record.trackPaths.allSatisfy(physicalPaths.contains) else { return false }
+        let path = try LibraryRelativePath(record.relativePath)
+        guard let metadata = try fileSystem.metadata(at: path) else { return false }
         return metadata.kind != .symbolicLink
     }
 
@@ -102,11 +105,11 @@ struct QobuzLibraryCollectionReconciler {
         )
     }
 
-    private func existingArtworkRelativePath(folder: String) -> String? {
-        guard let folderPath = try? LibraryRelativePath(folder) else { return nil }
+    private func existingArtworkRelativePath(folder: String) throws -> String? {
+        let folderPath = try LibraryRelativePath(folder)
         for filename in EmbeddedArtwork.externalFilenames {
-            guard let path = try? folderPath.appending(filename),
-                  let metadata = try? fileSystem.metadata(at: path),
+            let path = try folderPath.appending(filename)
+            guard let metadata = try fileSystem.metadata(at: path),
                   metadata.kind == .regularFile else { continue }
             return path.rawValue
         }

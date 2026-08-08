@@ -19,7 +19,7 @@ struct QobuzArtworkAssets: @unchecked Sendable {
         audioURL: URL,
         fileSystem: LibraryFileSystem
     ) throws -> URL? {
-        guard item.collection.usesAlbumFolders else { return nil }
+        guard item.collection.ownsAlbumFolderSidecars else { return nil }
         let folder = try fileSystem.relativePath(for: audioURL).parent
         for filename in EmbeddedArtwork.externalFilenames {
             let candidate = try folder.appending(filename)

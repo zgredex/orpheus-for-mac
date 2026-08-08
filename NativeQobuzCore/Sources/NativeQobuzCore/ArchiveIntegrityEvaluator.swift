@@ -22,19 +22,35 @@ struct QobuzArchiveIntegrityEvaluator {
             $0.caseInsensitiveCompare(provenance.sha256) != .orderedSame
         } ?? false
         let relativePath = audioPath.rawValue
-        guard let fileMetadata = try? fileSystem.metadata(at: audioPath) else {
-            return QobuzArchiveIntegrityEvaluation(
-                actualChecksum: nil,
-                byteCount: nil,
-                modificationDate: nil,
-                integrity: .missing,
-                reusedChecksum: false,
-                issueMessage: nil
+        let fileMetadata: LibraryFileMetadata
+        do {
+            guard let metadata = try fileSystem.metadata(at: audioPath) else {
+                return QobuzArchiveIntegrityEvaluation(
+                    actualChecksum: nil,
+                    byteCount: nil,
+                    modificationDate: nil,
+                    integrity: .missing,
+                    reusedChecksum: false,
+                    issueMessage: nil
+                )
+            }
+            fileMetadata = metadata
+        } catch {
+            return unreadable(
+                error,
+                relativePath: relativePath,
+                logMetadata: logMetadata
             )
         }
 
         do {
             guard fileMetadata.kind == .regularFile else {
+                if fileMetadata.kind == .symbolicLink {
+                    throw LibraryFileSystemError.symbolicLink(relativePath)
+                }
+                if fileMetadata.kind == .hardLink {
+                    throw LibraryFileSystemError.hardLink(relativePath)
+                }
                 throw LibraryFileSystemError.notRegularFile(relativePath)
             }
             let byteCount = fileMetadata.byteCount
@@ -75,21 +91,29 @@ struct QobuzArchiveIntegrityEvaluator {
                 issueMessage: nil
             )
         } catch {
-            qobuzLog.error(
-                "library.scan.track",
-                "Library audio file could not be inspected",
-                metadata: logMetadata.merging(["relativePath": relativePath]) { _, new in new },
-                error: error
-            )
-            return QobuzArchiveIntegrityEvaluation(
-                actualChecksum: nil,
-                byteCount: nil,
-                modificationDate: nil,
-                integrity: .unreadable,
-                reusedChecksum: false,
-                issueMessage: error.localizedDescription
-            )
+            return unreadable(error, relativePath: relativePath, logMetadata: logMetadata)
         }
+    }
+
+    private func unreadable(
+        _ error: Error,
+        relativePath: String,
+        logMetadata: [String: String]
+    ) -> QobuzArchiveIntegrityEvaluation {
+        qobuzLog.error(
+            "library.scan.track",
+            "Library audio file could not be inspected",
+            metadata: logMetadata.merging(["relativePath": relativePath]) { _, new in new },
+            error: error
+        )
+        return QobuzArchiveIntegrityEvaluation(
+            actualChecksum: nil,
+            byteCount: nil,
+            modificationDate: nil,
+            integrity: .unreadable,
+            reusedChecksum: false,
+            issueMessage: error.localizedDescription
+        )
     }
 
     private func canReuseIntegrity(

@@ -12,34 +12,39 @@ protocol QobuzPageItemDecoding {
 
     static func decodeItems(
         from container: KeyedDecodingContainer<QobuzPageCodingKeys>
-    ) throws -> [Item]
+    ) throws -> (items: [Item], rawCount: Int)
 }
 
 enum QobuzStrictPageItems<Item: Decodable>: QobuzPageItemDecoding {
     static func decodeItems(
         from container: KeyedDecodingContainer<QobuzPageCodingKeys>
-    ) throws -> [Item] {
-        try container.decode([Item].self, forKey: .items)
+    ) throws -> (items: [Item], rawCount: Int) {
+        let items = try container.decode([Item].self, forKey: .items)
+        return (items, items.count)
     }
 }
 
 enum QobuzLossyPageItems<Item: Decodable>: QobuzPageItemDecoding {
     static func decodeItems(
         from container: KeyedDecodingContainer<QobuzPageCodingKeys>
-    ) throws -> [Item] {
-        try container.decode(QobuzLossyArray<Item>.self, forKey: .items).elements
+    ) throws -> (items: [Item], rawCount: Int) {
+        let decoded = try container.decode(QobuzLossyArray<Item>.self, forKey: .items)
+        return (decoded.elements, decoded.consumedCount)
     }
 }
 
 struct QobuzDecodedPage<ItemDecoder: QobuzPageItemDecoding>: Decodable {
     let items: [ItemDecoder.Item]
+    let rawItemCount: Int
     let total: Int?
     let offset: Int?
     let limit: Int?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: QobuzPageCodingKeys.self)
-        items = try ItemDecoder.decodeItems(from: container)
+        let decodedItems = try ItemDecoder.decodeItems(from: container)
+        items = decodedItems.items
+        rawItemCount = decodedItems.rawCount
         total = container.qobuzTolerant(Int.self, forKey: .total)
         offset = container.qobuzTolerant(Int.self, forKey: .offset)
         limit = container.qobuzTolerant(Int.self, forKey: .limit)

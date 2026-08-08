@@ -3,6 +3,25 @@ import XCTest
 @testable import NativeQobuzCore
 
 final class ArchiveSnapshotValidationTests: XCTestCase {
+    func testDecodeRejectsSnapshotMissingCurrentProjectionFields() throws {
+        let encoded = try JSONEncoder().encode(
+            QobuzArchiveSnapshot(rootPath: "/Music", tracks: [], issues: [], collections: [])
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        for requiredKey in ["issues", "collections"] {
+            var incomplete = object
+            incomplete.removeValue(forKey: requiredKey)
+            XCTAssertThrowsError(
+                try JSONDecoder().decode(
+                    QobuzArchiveSnapshot.self,
+                    from: JSONSerialization.data(withJSONObject: incomplete)
+                ),
+                "Expected missing \(requiredKey) to reject the persisted archive snapshot."
+            )
+        }
+    }
+
     func testDecodeRejectsDuplicatePhysicalPathsWithoutProjectionCrash() throws {
         let first = track(path: "Artist/Album/01.flac", trackID: "one")
         let duplicate = track(path: first.relativePath, trackID: "two")
@@ -38,6 +57,25 @@ final class ArchiveSnapshotValidationTests: XCTestCase {
         }
     }
 
+    func testPlaylistMayReferenceTheSamePhysicalTrackAtMultiplePositions() throws {
+        let physical = track(path: "Artist/Album/01.flac", trackID: "one")
+        let playlist = QobuzLibraryCollectionRecord(
+            id: "playlist|mix",
+            kind: .playlist,
+            qobuzID: "mix",
+            title: "Mix",
+            subtitle: "Owner · 2 tracks",
+            relativePath: "Playlists/Mix [mix]",
+            trackPaths: [physical.relativePath, physical.relativePath],
+            sourceTrackCount: 2
+        )
+
+        let decoded = try roundTripDecode(snapshot(physical, collections: [playlist]))
+
+        XCTAssertEqual(decoded.collections.first?.trackPaths.count, 2)
+        XCTAssertEqual(decoded.library.entries.first?.tracks.count, 2)
+    }
+
     func testDecodeRejectsLinkToMissingPhysicalTrack() throws {
         let physical = track(path: "Artist/Album/01.flac", trackID: "one")
         let malformed = collection(
@@ -52,6 +90,33 @@ final class ArchiveSnapshotValidationTests: XCTestCase {
         }
     }
 
+    func testDecodeRejectsOverflowingAndNegativeTrackSizesWithoutProjectionTrap() throws {
+        let first = track(
+            path: "Artist/Album/01.flac",
+            trackID: "one",
+            byteCount: Int64.max
+        )
+        let second = track(
+            path: "Artist/Album/02.flac",
+            trackID: "two",
+            byteCount: Int64.max
+        )
+        let overflowing = QobuzArchiveSnapshot(rootPath: "/Music", tracks: [first, second])
+
+        XCTAssertThrowsError(try roundTripDecode(overflowing)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("overflowing file sizes"))
+        }
+        XCTAssertNil(overflowing.library.entries.first?.byteCount)
+
+        let negative = QobuzArchiveSnapshot(
+            rootPath: "/Music",
+            tracks: [track(path: "Artist/Album/03.flac", trackID: "three", byteCount: -1)]
+        )
+        XCTAssertThrowsError(try roundTripDecode(negative)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("negative file size"))
+        }
+    }
+
     private func roundTripDecode(_ snapshot: QobuzArchiveSnapshot) throws -> QobuzArchiveSnapshot {
         try JSONDecoder().decode(QobuzArchiveSnapshot.self, from: JSONEncoder().encode(snapshot))
     }
@@ -63,7 +128,11 @@ final class ArchiveSnapshotValidationTests: XCTestCase {
         QobuzArchiveSnapshot(rootPath: "/Music", tracks: [track], collections: collections)
     }
 
-    private func track(path: String, trackID: String) -> QobuzArchiveTrack {
+    private func track(
+        path: String,
+        trackID: String,
+        byteCount: Int64? = nil
+    ) -> QobuzArchiveTrack {
         QobuzArchiveTrack(
             relativePath: path,
             qobuzTrackID: trackID,
@@ -71,6 +140,7 @@ final class ArchiveSnapshotValidationTests: XCTestCase {
             formatID: 27,
             expectedSHA256: String(repeating: "a", count: 64),
             actualSHA256: String(repeating: "a", count: 64),
+            byteCount: byteCount,
             integrity: .verified,
             archiveKind: .album
         )

@@ -123,9 +123,23 @@ public final class LibraryFileSystem: @unchecked Sendable {
         truncate: Bool,
         createParents: Bool = true
     ) throws -> FileHandle {
-        try openHandle(
+        if truncate {
+            if createParents { try createDirectory(path.parent) }
+            if let metadata = try metadata(at: path) {
+                try Self.requireUnsharedRegularFile(metadata, path: path)
+                try removeFile(path)
+            }
+            return try openHandle(
+                at: path,
+                flags: O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                createParents: createParents,
+                creationMode: mode_t(0o600),
+                operation: "openat-truncate-replacement"
+            )
+        }
+        return try openHandle(
             at: path,
-            flags: O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (truncate ? O_TRUNC : 0),
+            flags: O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
             createParents: createParents,
             creationMode: mode_t(0o600),
             operation: "openat-write"
@@ -140,15 +154,30 @@ public final class LibraryFileSystem: @unchecked Sendable {
         operation: String
     ) throws -> FileHandle {
         try root.withParent(of: path, create: createParents) { parent, leaf in
-            let descriptor = leaf.withCString { name in
-                if let creationMode { openat(parent, name, flags, creationMode) }
-                else { openat(parent, name, flags) }
+            let existingMetadata = try metadata(named: leaf, in: parent, path: path)
+            if let metadata = existingMetadata {
+                try Self.requireUnsharedRegularFile(metadata, path: path)
+            } else if creationMode == nil {
+                throw LibraryFileSystemError.missing(path.rawValue)
+            }
+            let descriptor = leaf.withCString { name -> Int32 in
+                let nonblockingFlags = flags | O_NONBLOCK
+                if let creationMode {
+                    return openat(parent, name, nonblockingFlags, creationMode)
+                }
+                return openat(parent, name, nonblockingFlags)
             }
             guard descriptor >= 0 else {
                 throw mappedError(operation: operation, path: path.rawValue, code: errno)
             }
             do {
                 try Self.requireRegularFile(descriptor, path: path)
+                if existingMetadata == nil, flags & O_CREAT != 0 {
+                    try LibraryDirectoryDurability.synchronize(
+                        [(parent, path.parent.rawValue)],
+                        operation: "fsync-parent-after-file-creation"
+                    )
+                }
                 return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
             } catch {
                 close(descriptor)
@@ -159,7 +188,7 @@ public final class LibraryFileSystem: @unchecked Sendable {
 
     public func writeAtomically(_ data: Data, to path: LibraryRelativePath) throws {
         try root.withParent(of: path, create: true) { parent, leaf in
-            try rejectSymbolicLink(named: leaf, in: parent, path: path)
+            try requireSafeReplacement(named: leaf, in: parent, path: path)
             let temporary = ".\(leaf).\(UUID().uuidString).partial"
             let descriptor = temporary.withCString {
                 openat(parent, $0, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600))
@@ -183,71 +212,10 @@ public final class LibraryFileSystem: @unchecked Sendable {
                 throw mappedError(operation: "renameat", path: path.rawValue, code: errno)
             }
             shouldRemove = false
-        }
-    }
-
-    public func removeFile(_ path: LibraryRelativePath, ifPresent: Bool = false) throws {
-        try root.withParent(of: path) { parent, leaf in
-            guard let metadata = try metadata(named: leaf, in: parent, path: path) else {
-                if ifPresent { return }
-                throw LibraryFileSystemError.missing(path.rawValue)
-            }
-            if metadata.kind == .symbolicLink { throw LibraryFileSystemError.symbolicLink(path.rawValue) }
-            guard metadata.kind == .regularFile else {
-                throw LibraryFileSystemError.notRegularFile(path.rawValue)
-            }
-            let result = leaf.withCString { unlinkat(parent, $0, 0) }
-            guard result == 0 else {
-                throw mappedError(operation: "unlinkat", path: path.rawValue, code: errno)
-            }
-        }
-    }
-
-    public func replaceItem(at destination: LibraryRelativePath, with source: LibraryRelativePath) throws {
-        try root.withParent(of: source) { sourceParent, sourceLeaf in
-            guard let sourceMetadata = try metadata(named: sourceLeaf, in: sourceParent, path: source) else {
-                throw LibraryFileSystemError.missing(source.rawValue)
-            }
-            if sourceMetadata.kind == .symbolicLink { throw LibraryFileSystemError.symbolicLink(source.rawValue) }
-            guard sourceMetadata.kind == .regularFile else {
-                throw LibraryFileSystemError.notRegularFile(source.rawValue)
-            }
-            try root.withParent(of: destination, create: true) { destinationParent, destinationLeaf in
-                try rejectSymbolicLink(named: destinationLeaf, in: destinationParent, path: destination)
-                let result = sourceLeaf.withCString { sourceName in
-                    destinationLeaf.withCString { destinationName in
-                        renameat(sourceParent, sourceName, destinationParent, destinationName)
-                    }
-                }
-                guard result == 0 else {
-                    throw mappedError(operation: "renameat-replace", path: destination.rawValue, code: errno)
-                }
-            }
-        }
-    }
-
-    public func moveItem(at source: LibraryRelativePath, to destination: LibraryRelativePath) throws {
-        try root.withParent(of: source) { sourceParent, sourceLeaf in
-            guard try metadata(named: sourceLeaf, in: sourceParent, path: source) != nil else {
-                throw LibraryFileSystemError.missing(source.rawValue)
-            }
-            try root.withParent(of: destination, create: true) { destinationParent, destinationLeaf in
-                guard try metadata(named: destinationLeaf, in: destinationParent, path: destination) == nil else {
-                    throw LibraryFileSystemError.system(
-                        operation: "renameat-existing-destination",
-                        path: destination.rawValue,
-                        code: EEXIST
-                    )
-                }
-                let result = sourceLeaf.withCString { sourceName in
-                    destinationLeaf.withCString { destinationName in
-                        renameat(sourceParent, sourceName, destinationParent, destinationName)
-                    }
-                }
-                guard result == 0 else {
-                    throw mappedError(operation: "renameat-move", path: source.rawValue, code: errno)
-                }
-            }
+            try LibraryDirectoryDurability.synchronize(
+                [(parent, path.parent.rawValue)],
+                operation: "fsync-parent-after-atomic-write"
+            )
         }
     }
 
@@ -262,7 +230,7 @@ public final class LibraryFileSystem: @unchecked Sendable {
     static func metadata(from status: stat) -> LibraryFileMetadata {
         let kind: LibraryFileKind
         switch status.st_mode & S_IFMT {
-        case S_IFREG: kind = .regularFile
+        case S_IFREG: kind = status.st_nlink > 1 ? .hardLink : .regularFile
         case S_IFDIR: kind = .directory
         case S_IFLNK: kind = .symbolicLink
         default: kind = .other
@@ -276,7 +244,7 @@ public final class LibraryFileSystem: @unchecked Sendable {
         )
     }
 
-    private func metadata(
+    func metadata(
         named leaf: String,
         in parent: Int32,
         path: LibraryRelativePath
@@ -290,14 +258,13 @@ public final class LibraryFileSystem: @unchecked Sendable {
         return Self.metadata(from: status)
     }
 
-    private func rejectSymbolicLink(
+    func requireSafeReplacement(
         named leaf: String,
         in parent: Int32,
         path: LibraryRelativePath
     ) throws {
-        if try metadata(named: leaf, in: parent, path: path)?.kind == .symbolicLink {
-            throw LibraryFileSystemError.symbolicLink(path.rawValue)
-        }
+        guard let metadata = try metadata(named: leaf, in: parent, path: path) else { return }
+        try Self.requireUnsharedRegularFile(metadata, path: path)
     }
 
     private static func requireRegularFile(_ descriptor: Int32, path: LibraryRelativePath) throws {
@@ -312,10 +279,25 @@ public final class LibraryFileSystem: @unchecked Sendable {
         guard fstat(descriptor, &status) == 0 else {
             throw mappedError(operation: "fstat", path: path.rawValue, code: errno)
         }
-        guard status.st_mode & S_IFMT == S_IFREG else {
+        let metadata = metadata(from: status)
+        try requireUnsharedRegularFile(metadata, path: path)
+        return metadata
+    }
+
+    private static func requireUnsharedRegularFile(
+        _ metadata: LibraryFileMetadata,
+        path: LibraryRelativePath
+    ) throws {
+        switch metadata.kind {
+        case .regularFile:
+            return
+        case .symbolicLink:
+            throw LibraryFileSystemError.symbolicLink(path.rawValue)
+        case .hardLink:
+            throw LibraryFileSystemError.hardLink(path.rawValue)
+        case .directory, .other:
             throw LibraryFileSystemError.notRegularFile(path.rawValue)
         }
-        return metadata(from: status)
     }
 
     private static func writeAll(_ data: Data, to descriptor: Int32, path: LibraryRelativePath) throws {

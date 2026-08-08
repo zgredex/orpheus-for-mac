@@ -12,15 +12,45 @@ extension CredentialDraft {
     )
 }
 
-struct MemoryCredentialStore: NativeCredentialStoring {
-    var credentials: CredentialDraft?
+final class MemoryConfigurationStore: NativeConfigurationStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: NativeConfiguration
+    private var failSave = false
+    private var writes = 0
 
-    init(credentials: CredentialDraft? = nil) {
-        self.credentials = credentials
+    init(
+        paths: NativePaths,
+        credentials: CredentialDraft? = nil,
+        settings: NativeSettings? = nil
+    ) {
+        stored = NativeConfiguration(
+            settings: settings ?? NativeSettings(
+                downloadPath: paths.defaultDownloadRoot.path,
+                quality: .hiRes
+            ),
+            credentials: credentials ?? CredentialDraft()
+        )
     }
 
-    func load() throws -> CredentialDraft? { credentials }
-    func save(_ credentials: CredentialDraft) throws {}
+    var configuration: NativeConfiguration { lock.withLock { stored } }
+    var saveCount: Int { lock.withLock { writes } }
+
+    func failNextSave() {
+        lock.withLock { failSave = true }
+    }
+
+    func load() throws -> NativeConfiguration { configuration }
+
+    func save(_ configuration: NativeConfiguration) throws {
+        try lock.withLock {
+            if failSave {
+                failSave = false
+                throw MemoryStoreFailure.injected
+            }
+            stored = configuration
+            writes += 1
+        }
+    }
 }
 
 @MainActor
@@ -64,6 +94,8 @@ final class FakePowerActivityManager: NativePowerActivityManaging {
 final class MemoryArchiveStore: NativeArchiveIndexStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var stored: QobuzArchiveSnapshot?
+    private var failSave = false
+    private var failRemoval = false
 
     init(snapshot: QobuzArchiveSnapshot? = nil) {
         stored = snapshot
@@ -73,13 +105,41 @@ final class MemoryArchiveStore: NativeArchiveIndexStoring, @unchecked Sendable {
         lock.withLock { stored }
     }
 
+    func failNextSave() {
+        lock.withLock { failSave = true }
+    }
+
+    func failNextRemoval() {
+        lock.withLock { failRemoval = true }
+    }
+
     func load() throws -> NativeArchiveIndexLoadResult {
         lock.withLock { stored.map(NativeArchiveIndexLoadResult.restored) ?? .missing }
     }
 
     func save(_ snapshot: QobuzArchiveSnapshot) throws {
-        lock.withLock { stored = snapshot }
+        try lock.withLock {
+            if failSave {
+                failSave = false
+                throw MemoryStoreFailure.injected
+            }
+            stored = snapshot
+        }
     }
+
+    func remove() throws {
+        try lock.withLock {
+            if failRemoval {
+                failRemoval = false
+                throw MemoryStoreFailure.injected
+            }
+            stored = nil
+        }
+    }
+}
+
+enum MemoryStoreFailure: Error {
+    case injected
 }
 
 final class MemorySessionStore: NativeSessionStoring, @unchecked Sendable {
@@ -100,6 +160,10 @@ final class MemorySessionStore: NativeSessionStoring, @unchecked Sendable {
 
     func save(_ snapshot: NativeSessionSnapshot) throws {
         lock.withLock { stored = snapshot }
+    }
+
+    func rejectLoadedSnapshot(cause: Error) throws {
+        lock.withLock { stored = nil }
     }
 }
 

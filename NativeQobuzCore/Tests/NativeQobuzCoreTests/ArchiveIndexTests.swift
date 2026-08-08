@@ -125,6 +125,14 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertFalse(coverage.isComplete)
     }
 
+    func testAutomaticRepairNeverReplacesUnreadableFilesystemObjects() {
+        XCTAssertTrue(archiveTrack(trackID: "missing", integrity: .missing).isAutomaticallyRepairable)
+        XCTAssertTrue(archiveTrack(trackID: "changed", integrity: .checksumMismatch).isAutomaticallyRepairable)
+        XCTAssertTrue(archiveTrack(trackID: "conflict", integrity: .metadataConflict).isAutomaticallyRepairable)
+        XCTAssertFalse(archiveTrack(trackID: "unreadable", integrity: .unreadable).isAutomaticallyRepairable)
+        XCTAssertFalse(archiveTrack(trackID: "verified", integrity: .verified).isAutomaticallyRepairable)
+    }
+
     func testProblemCountDoesNotDoubleCountATrackDiagnostic() {
         let unreadable = archiveTrack(
             relativePath: "Album/unreadable.flac",
@@ -261,7 +269,7 @@ final class ArchiveIndexTests: XCTestCase {
         XCTAssertEqual(library.entries.first?.tracks.map(\.relativePath), [track.relativePath])
     }
 
-    func testProvenanceRoundTripPersistsArchiveKindAndUnclassifiedDataRemainsReadable() throws {
+    func testProvenanceRoundTripPersistsRequiredOwnershipClassification() throws {
         let value = provenance(
             trackID: "single",
             albumID: "album",
@@ -273,7 +281,29 @@ final class ArchiveIndexTests: XCTestCase {
             from: JSONEncoder().encode(value)
         )
         XCTAssertEqual(decoded.archiveKind, .track)
+        XCTAssertFalse(decoded.isLibraryManaged)
+    }
 
+    func testProvenanceRejectsMissingCurrentOwnershipSchema() throws {
+        let encoded = try JSONEncoder().encode(provenance(
+            trackID: "single",
+            albumID: "album",
+            hash: String(repeating: "a", count: 64),
+            collection: .track
+        ))
+
+        for requiredKey in ["archiveKind", "isLibraryManaged"] {
+            XCTAssertThrowsError(
+                try JSONDecoder().decode(
+                    QobuzFileProvenance.self,
+                    from: try jsonData(encoded, removing: requiredKey)
+                ),
+                "Expected missing \(requiredKey) to reject persisted provenance."
+            )
+        }
+    }
+
+    func testExplicitUnclassifiedProvenanceRemainsValid() throws {
         let unclassified = Data("""
         {
           "qobuzTrackID": "unclassified-track",
@@ -281,16 +311,35 @@ final class ArchiveIndexTests: XCTestCase {
           "formatID": 27,
           "bitDepth": 24,
           "samplingRate": 96,
-          "sha256": "\(String(repeating: "b", count: 64))"
+          "sha256": "\(String(repeating: "b", count: 64))",
+          "archiveKind": "unclassified",
+          "isLibraryManaged": false
         }
         """.utf8)
-        XCTAssertEqual(
-            try JSONDecoder().decode(QobuzFileProvenance.self, from: unclassified).archiveKind,
-            .unclassified
-        )
+        let decoded = try JSONDecoder().decode(QobuzFileProvenance.self, from: unclassified)
+        XCTAssertEqual(decoded.archiveKind, .unclassified)
+        XCTAssertFalse(decoded.isLibraryManaged)
     }
 
-    func testArchiveCacheDecodesAnUnclassifiedTrack() throws {
+    func testArchiveTrackRejectsMissingCurrentOwnershipSchema() throws {
+        let encoded = try JSONEncoder().encode(archiveTrack(
+            trackID: "track",
+            integrity: .verified,
+            archiveKind: .unclassified
+        ))
+
+        for requiredKey in ["archiveKind", "isLibraryManaged"] {
+            XCTAssertThrowsError(
+                try JSONDecoder().decode(
+                    QobuzArchiveTrack.self,
+                    from: try jsonData(encoded, removing: requiredKey)
+                ),
+                "Expected missing \(requiredKey) to reject a persisted archive track."
+            )
+        }
+    }
+
+    func testArchiveCacheDecodesAnExplicitUnclassifiedTrack() throws {
         let unclassified = Data("""
         {
           "relativePath": "Artist/Album/01. Track.flac",
@@ -302,7 +351,9 @@ final class ArchiveIndexTests: XCTestCase {
           "expectedSHA256": "\(String(repeating: "c", count: 64))",
           "actualSHA256": "\(String(repeating: "c", count: 64))",
           "byteCount": 1234,
-          "integrity": "verified"
+          "integrity": "verified",
+          "archiveKind": "unclassified",
+          "isLibraryManaged": false
         }
         """.utf8)
 
@@ -605,7 +656,7 @@ final class ArchiveIndexTests: XCTestCase {
     private func archiveTrack(
         relativePath: String = "track.flac",
         trackID: String,
-        albumID: String,
+        albumID: String = "album",
         integrity: QobuzArchiveIntegrity,
         archiveKind: QobuzArchiveKind = .album,
         isLibraryManaged: Bool = false
@@ -642,7 +693,9 @@ final class ArchiveIndexTests: XCTestCase {
               "formatID": 27,
               "bitDepth": 24,
               "samplingRate": 96,
-              "sha256": "\(hash)"
+              "sha256": "\(hash)",
+              "archiveKind": "unclassified",
+              "isLibraryManaged": false
             }
           }
         }
@@ -651,6 +704,12 @@ final class ArchiveIndexTests: XCTestCase {
         try Data("\(hash)  \(filename)\n".utf8).write(
             to: folder.appendingPathComponent("checksums.sha256")
         )
+    }
+
+    private func jsonData(_ data: Data, removing key: String) throws -> Data {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: key)
+        return try JSONSerialization.data(withJSONObject: object)
     }
 
     private func writeManifest(

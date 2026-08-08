@@ -29,8 +29,6 @@ struct QobuzDownloadFinalizer: Sendable {
         try Task.checkCancellation()
         writeDescriptions(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
-        writePlaylist(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
-        try Task.checkCancellation()
         writeChecksums(state: state, fileSystem: fileSystem, continuation: continuation)
         try Task.checkCancellation()
         try await writePlaylistMetadata(plan: plan, fileSystem: fileSystem, continuation: continuation)
@@ -39,8 +37,12 @@ struct QobuzDownloadFinalizer: Sendable {
             return
         }
         try Task.checkCancellation()
+        try await updateLibrary(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
+        // This checkpoint is a durable receipt: every Qobuz/core finalization
+        // step, including the Library manifest transaction, has committed.
+        // The app may now resume its archive projection without resolving the
+        // catalog or downloading audio again.
         continuation.yield(.checkpoint(QobuzDownloadCheckpoint(phase: .indexingLibrary)))
-        try updateLibrary(plan: plan, fileSystem: fileSystem, state: state, continuation: continuation)
     }
 
     private func writeBooklets(
@@ -84,27 +86,6 @@ struct QobuzDownloadFinalizer: Sendable {
         } catch {
             qobuzLog.warning("download.asset", "Album description could not be written", error: error)
             continuation.yield(.warning("Album description: \(error.localizedDescription)"))
-        }
-    }
-
-    private func writePlaylist(
-        plan: QobuzDownloadPlan,
-        fileSystem: LibraryFileSystem,
-        state: QobuzDownloadOperationState,
-        continuation: QobuzDownloadContinuation
-    ) {
-        do {
-            if let playlist = try assetWriter.writePlaylist(
-                plan: plan,
-                outputs: state.outputTuples,
-                fileSystem: fileSystem
-            ) {
-                qobuzLog.info("download.asset", "Playlist file written", metadata: ["assetPath": playlist.path])
-                continuation.yield(.assetCreated(playlist))
-            }
-        } catch {
-            qobuzLog.warning("download.asset", "Playlist file could not be written", error: error)
-            continuation.yield(.warning("Playlist: \(error.localizedDescription)"))
         }
     }
 
@@ -161,21 +142,24 @@ struct QobuzDownloadFinalizer: Sendable {
         fileSystem: LibraryFileSystem,
         state: QobuzDownloadOperationState,
         continuation: QobuzDownloadContinuation
-    ) throws {
-        let manifest = try assetWriter.recordLibraryCollections(
+    ) async throws {
+        let assets = try await assetWriter.updateLibraryCollections(
             plan: plan,
             outputs: state.outputTuples,
-            fileSystem: fileSystem
-        )
-        try assetWriter.markLibraryManaged(
-            state.outputs.map(\.audioURL),
             fileSystem: fileSystem
         )
         qobuzLog.notice(
             "download.library",
             "Library manifest transaction committed",
-            metadata: ["manifestPath": manifest.path, "outputCount": String(state.outputs.count)]
+            metadata: [
+                "manifestPath": assets.manifestURL.path,
+                "playlistPath": assets.playlistURL?.path ?? "none",
+                "outputCount": String(state.outputs.count)
+            ]
         )
-        continuation.yield(.assetCreated(manifest))
+        if let playlistURL = assets.playlistURL {
+            continuation.yield(.assetCreated(playlistURL))
+        }
+        continuation.yield(.assetCreated(assets.manifestURL))
     }
 }

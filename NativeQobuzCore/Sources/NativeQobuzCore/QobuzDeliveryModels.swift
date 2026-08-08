@@ -103,22 +103,30 @@ public struct QobuzResolvedTrack: Equatable, Sendable {
     }
 }
 
+public enum QobuzDownloadSelectionScope: Equatable, Sendable {
+    case complete
+    case subset
+}
+
 public struct QobuzDownloadPlan: Equatable, Sendable {
     public let request: QobuzRequest
     public let title: String
     public let tracks: [QobuzResolvedTrack]
     public let source: QobuzDownloadSource?
+    public let selectionScope: QobuzDownloadSelectionScope
 
     public init(
         request: QobuzRequest,
         title: String,
         tracks: [QobuzResolvedTrack],
-        source: QobuzDownloadSource? = nil
+        source: QobuzDownloadSource? = nil,
+        selectionScope: QobuzDownloadSelectionScope = .complete
     ) {
         self.request = request
         self.title = title
         self.tracks = tracks
         self.source = source
+        self.selectionScope = selectionScope
     }
 
     /// Returns this plan restricted to the requested Qobuz track identities.
@@ -143,7 +151,10 @@ public struct QobuzDownloadPlan: Equatable, Sendable {
             request: request,
             title: title,
             tracks: reindexed,
-            source: source
+            source: source,
+            selectionScope: selectionScope == .subset || selected.count != tracks.count
+                ? .subset
+                : .complete
         )
     }
 }

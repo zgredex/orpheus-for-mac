@@ -6,6 +6,7 @@ final class NativeDownloadItemRunner {
     private let ledger: NativeDownloadLedger
     private let connectivity: NativeConnectivityController
     private let powerActivityManager: any NativePowerActivityManaging
+    private let libraryIndexRunner: NativeLibraryIndexRecoveryRunner
 
     init(
         ledger: NativeDownloadLedger,
@@ -15,11 +16,12 @@ final class NativeDownloadItemRunner {
         self.ledger = ledger
         self.connectivity = connectivity
         self.powerActivityManager = powerActivityManager
+        libraryIndexRunner = NativeLibraryIndexRecoveryRunner(ledger: ledger)
     }
 
     func run(
         item: NativeQueueItem,
-        engine: NativeQobuzDownloadEngine,
+        engine: NativeQobuzDownloadEngine?,
         quality: QobuzQuality,
         root: URL,
         indexLibrary: @escaping @MainActor (URL, [URL]) async throws -> Void,
@@ -27,12 +29,17 @@ final class NativeDownloadItemRunner {
         checkpoint: @escaping @MainActor () -> Void
     ) async {
         let repairFormat = item.repairTarget?.audioFormat
-        let activityID = ledger.prepareActivity(
-            for: item,
-            quality: quality,
-            repairFormat: repairFormat,
-            root: root
-        )
+        let resumesLibraryIndex = ledger.hasLibraryIndexReceipt(for: item.id)
+        let activityID = if resumesLibraryIndex {
+            ledger.operation(for: item.id)?.activityID ?? item.id
+        } else {
+            ledger.prepareActivity(
+                for: item,
+                quality: quality,
+                repairFormat: repairFormat,
+                root: root
+            )
+        }
         let operationMetadata = [
             "queueID": item.id.uuidString,
             "activityID": activityID.uuidString,
@@ -47,7 +54,9 @@ final class NativeDownloadItemRunner {
         let startedAt = Date()
         qobuzLog.notice(
             "download.item",
-            "Queue item download started",
+            resumesLibraryIndex
+                ? "Queue item resumed at the local Library-index barrier"
+                : "Queue item download started",
             metadata: operationMetadata.merging([
                 "partialResumeBytes": ledger.partialRegardlessOfStatus(for: activityID)
                     .map { String($0.bytes) } ?? "0"
@@ -56,6 +65,20 @@ final class NativeDownloadItemRunner {
         checkpoint()
 
         await QobuzLogScope.withValue(operationMetadata) {
+            if resumesLibraryIndex {
+                _ = await libraryIndexRunner.run(
+                    queueID: item.id,
+                    resumed: true,
+                    indexLibrary: indexLibrary,
+                    isTerminating: isTerminating,
+                    checkpoint: checkpoint
+                )
+                return
+            }
+            guard let engine else {
+                failUnavailableEngine(queueID: item.id, activityID: activityID, checkpoint: checkpoint)
+                return
+            }
             @MainActor func pause(_ error: NativeQobuzError) {
                 pauseAfterResumableFailure(
                     error,
@@ -90,22 +113,20 @@ final class NativeDownloadItemRunner {
                             if case .checkpoint = event { checkpoint() }
                         }
                     }
-                    let changedAudioURLs = ledger.activity(id: activityID)?.operation.outputURLs ?? []
-                    ledger.transition(queueID: item.id, activityID: activityID, to: .indexingLibrary)
-                    ledger.updateActivity(activityID) {
-                        $0.recordCheckpoint(QobuzDownloadCheckpoint(phase: .indexingLibrary))
-                        $0.phase = "Indexing Library"
-                        $0.bytesPerSecond = nil
-                    }
-                    checkpoint()
-                    try await indexLibrary(root, changedAudioURLs)
-                    ledger.markLibraryIndexed(queueID: item.id, activityID: activityID)
-                    checkpoint()
-                    qobuzLog.notice(
-                        "download.item",
-                        "Queue item download completed",
-                        metadata: ["durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))]
+                    let outcome = await libraryIndexRunner.run(
+                        queueID: item.id,
+                        resumed: false,
+                        indexLibrary: indexLibrary,
+                        isTerminating: isTerminating,
+                        checkpoint: checkpoint
                     )
+                    if case .completed = outcome {
+                        qobuzLog.notice(
+                            "download.item",
+                            "Queue item download completed",
+                            metadata: ["durationMs": String(Int(Date().timeIntervalSince(startedAt) * 1_000))]
+                        )
+                    }
                     return
                 } catch let error where error.isQobuzCancellation {
                     finishCancellation(
@@ -122,7 +143,7 @@ final class NativeDownloadItemRunner {
                         pause(error)
                         return
                     }
-                    let partialExists = ledger.refreshPartial(for: activityID, root: root) != nil
+                    let partialExists = ledger.refreshPartial(for: activityID) != nil
                     qobuzLog.warning(
                         "download.recovery.url",
                         "Expired audio URL detected; reacquiring a fresh signed Qobuz URL",
@@ -142,7 +163,7 @@ final class NativeDownloadItemRunner {
                     continue
                 } catch let error as NativeQobuzError where error.isConnectivityLoss {
                     let generationAtFailure = connectivity.generation
-                    let partial = ledger.refreshPartial(for: activityID, root: root)
+                    let partial = ledger.refreshPartial(for: activityID)
                     qobuzLog.warning(
                         "download.recovery.network",
                         "Queue item is waiting for network recovery",
@@ -205,7 +226,7 @@ final class NativeDownloadItemRunner {
                     pause(error)
                     return
                 } catch {
-                    _ = ledger.refreshPartial(for: activityID, root: root)
+                    _ = ledger.refreshPartial(for: activityID)
                     qobuzLog.error(
                         "download.item",
                         "Queue item download failed",
@@ -236,6 +257,25 @@ final class NativeDownloadItemRunner {
         }
     }
 
+    private func failUnavailableEngine(
+        queueID: UUID,
+        activityID: UUID,
+        checkpoint: @MainActor () -> Void
+    ) {
+        let message = "Qobuz is not configured for this download."
+        ledger.transition(queueID: queueID, activityID: activityID, to: .failed(message))
+        ledger.updateActivity(activityID) {
+            $0.phase = message
+            $0.errorMessage = message
+        }
+        checkpoint()
+        qobuzLog.error(
+            "download.item",
+            "Transfer work was scheduled without a Qobuz client",
+            metadata: ["queueID": queueID.uuidString, "activityID": activityID.uuidString]
+        )
+    }
+
     private func pauseAfterResumableFailure(
         _ error: NativeQobuzError,
         queueID: UUID,
@@ -244,7 +284,7 @@ final class NativeDownloadItemRunner {
         root: URL,
         checkpoint: @MainActor () -> Void
     ) {
-        let partial = ledger.refreshPartial(for: activityID, root: root)
+        let partial = ledger.refreshPartial(for: activityID)
         qobuzLog.warning(
             "download.item",
             "Queue item download paused after a resumable failure",
@@ -270,7 +310,7 @@ final class NativeDownloadItemRunner {
         isTerminating: Bool,
         root: URL
     ) {
-        _ = ledger.refreshPartial(for: activityID, root: root)
+        _ = ledger.refreshPartial(for: activityID)
         qobuzLog.notice(
             "download.item",
             isTerminating ? "Queue item paused for app termination" : "Queue item download cancelled",

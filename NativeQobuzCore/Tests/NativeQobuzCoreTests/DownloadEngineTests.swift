@@ -5,14 +5,26 @@ import XCTest
 final class DownloadEngineTests: XCTestCase {
     func testDownloadArtifactsExposeTheResumablePartialPath() {
         let destination = URL(fileURLWithPath: "/downloads/Artist/Album/01. Track.flac")
+        let albumID = QobuzID("album")
+        let trackID = QobuzID("one")
 
         XCTAssertEqual(
-            QobuzDownloadArtifacts.processingURL(for: destination, formatID: 27).path,
-            "/downloads/Artist/Album/.01. Track.qobuz-27.processing.flac"
+            QobuzDownloadArtifacts.processingURL(
+                for: destination,
+                formatID: 27,
+                albumID: albumID,
+                trackID: trackID
+            ).path,
+            "/downloads/Artist/Album/.01. Track.qobuz-27-3b47ba8e55574459.processing.flac"
         )
         XCTAssertEqual(
-            QobuzDownloadArtifacts.partialURL(for: destination, formatID: 27).path,
-            "/downloads/Artist/Album/.01. Track.qobuz-27.processing.flac.partial"
+            QobuzDownloadArtifacts.partialURL(
+                for: destination,
+                formatID: 27,
+                albumID: albumID,
+                trackID: trackID
+            ).path,
+            "/downloads/Artist/Album/.01. Track.qobuz-27-3b47ba8e55574459.processing.flac.partial"
         )
     }
 
@@ -24,7 +36,9 @@ final class DownloadEngineTests: XCTestCase {
         let destination = root.appendingPathComponent("Artist/Album/01. One.flac")
         let staging = QobuzDownloadArtifacts.processingURL(
             for: destination,
-            formatID: QobuzAudioFormat.hiRes.formatID
+            formatID: QobuzAudioFormat.hiRes.formatID,
+            albumID: album.id,
+            trackID: QobuzID("one")
         )
         try FileManager.default.createDirectory(
             at: staging.deletingLastPathComponent(),
@@ -50,6 +64,7 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertTrue(events.contains(.checkpoint(QobuzDownloadCheckpoint(
             phase: .writingTags,
             trackID: QobuzID("one"),
+            albumID: album.id,
             outputURL: staging
         ))))
         XCTAssertTrue(events.contains { event in
@@ -85,6 +100,10 @@ final class DownloadEngineTests: XCTestCase {
         } catch {}
 
         XCTAssertFalse(firstEvents.contains { if case .completed = $0 { true } else { false } })
+        XCTAssertFalse(firstEvents.contains { event in
+            guard case .checkpoint(let checkpoint) = event else { return false }
+            return checkpoint.phase == .indexingLibrary
+        })
         let firstTransferCount = await recorder.sources.count
         XCTAssertEqual(firstTransferCount, 1)
         let destination = root.appendingPathComponent("Artist/Album/01. One.flac")
@@ -98,6 +117,10 @@ final class DownloadEngineTests: XCTestCase {
 
         let retryTransferCount = await recorder.sources.count
         XCTAssertEqual(retryTransferCount, 1)
+        XCTAssertTrue(retryEvents.contains { event in
+            guard case .checkpoint(let checkpoint) = event else { return false }
+            return checkpoint.phase == .indexingLibrary
+        })
         XCTAssertTrue(retryEvents.contains(.completed(title: "Album", downloaded: 0, skipped: 1)))
         XCTAssertEqual(try QobuzLibraryManifestIO.load(at: root).collections.count, 1)
     }
@@ -359,7 +382,7 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertEqual(started.map(\.total), [2, 2])
         let signedURLCheckpoints = events.compactMap { event -> QobuzID? in
             guard case .checkpoint(let checkpoint) = event,
-                  checkpoint.phase == .transferringAudio,
+                  checkpoint.phase == .resolvingAudio,
                   checkpoint.outputURL == nil else { return nil }
             return checkpoint.trackID
         }
@@ -597,6 +620,86 @@ final class DownloadEngineTests: XCTestCase {
         XCTAssertEqual(provenance.formatID, QobuzQuality.hiRes.maximumFormat.formatID)
         let sourceCount = await recorder.sources.count
         XCTAssertEqual(sourceCount, 1)
+    }
+
+    func testMaximumQualityFallbackDoesNotDowngradeBetterExistingAudio() async throws {
+        let album = makeAlbum(id: "album", trackIDs: ["one"])
+        let recorder = TransferRecorder()
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("Artist/Album/01. One.flac")
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let existingData = Data("existing hi-res audio".utf8)
+        try existingData.write(to: destination)
+        let existingInfo = QobuzFileInfo(
+            url: URL(string: "https://media.example/existing.flac")!,
+            format: .hiRes,
+            bitDepth: 24,
+            samplingRate: 192
+        )
+        let assetWriter = QobuzCollectionAssetWriter()
+        try assetWriter.recordProvenance(
+            QobuzFileProvenance(
+                item: resolvedItem(for: album),
+                delivery: try QobuzDeliveryPolicy().validate(
+                    fileInfo: existingInfo,
+                    media: AudioStreamProperties(
+                        container: .flac,
+                        codec: .flac,
+                        bitDepth: 24,
+                        samplingRate: 192
+                    )
+                ),
+                sha256: try MusicFileIntegrity.sha256(of: destination)
+            ),
+            for: destination,
+            fileSystem: LibraryFileSystem(rootURL: root)
+        )
+        let fallback = QobuzFileInfo(
+            url: URL(string: "https://media.example/fallback.flac")!,
+            format: .lossless,
+            bitDepth: 16,
+            samplingRate: 44.1
+        )
+        let engine = NativeQobuzDownloadEngine(
+            service: FakeQobuzService(
+                albums: [album.id: album],
+                fileInfos: [QobuzID("one"): fallback]
+            ),
+            transfer: FakeTransferClient(recorder: recorder),
+            validator: AcceptingValidator(properties: AudioStreamProperties(
+                container: .flac,
+                codec: .flac,
+                bitDepth: 24,
+                samplingRate: 192
+            )),
+            metadataWriter: RecordingMetadataWriter(),
+            assetWriter: assetWriter
+        )
+
+        var events: [QobuzDownloadEvent] = []
+        for try await event in engine.events(
+            for: .album(album.id),
+            quality: .hiRes,
+            downloadRoot: root
+        ) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: destination), existingData)
+        let transferredSources = await recorder.sources
+        XCTAssertEqual(transferredSources.count, 0)
+        XCTAssertTrue(events.contains(.completed(title: "Album", downloaded: 0, skipped: 1)))
+        XCTAssertEqual(
+            try assetWriter.provenance(
+                for: destination,
+                fileSystem: LibraryFileSystem(rootURL: root)
+            )?.formatID,
+            QobuzAudioFormat.hiRes.formatID
+        )
     }
 
     func testBookletFailureWarnsButKeepsCompletedAudio() async throws {

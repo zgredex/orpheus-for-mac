@@ -28,6 +28,29 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: cover), image)
     }
 
+    func testStandaloneTrackRecordOwnsArtworkInItsAlbumFolder() async throws {
+        let trackID = QobuzID("track")
+        let item = makeItem(collection: .track)
+        let plan = QobuzDownloadPlan(request: .track(trackID), title: "Song", tracks: [item])
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
+        let audioPath = try LibraryRelativePath("Primary/Album/01. Song.flac")
+        try fileSystem.writeAtomically(Data("audio".utf8), to: audioPath)
+        try fileSystem.writeAtomically(Data("cover".utf8), to: audioPath.parent.appending("cover.jpg"))
+        try seedProvenance(for: item, audioPath: audioPath, fileSystem: fileSystem)
+
+        _ = try await QobuzCollectionAssetWriter().updateLibraryCollections(
+            plan: plan,
+            outputs: [(item, fileSystem.displayURL(for: audioPath))],
+            fileSystem: fileSystem
+        )
+
+        let record = try XCTUnwrap(QobuzLibraryManifestIO.load(in: fileSystem).collections.first)
+        XCTAssertEqual(record.relativePath, audioPath.rawValue)
+        XCTAssertEqual(record.artworkRelativePath, "Primary/Album/cover.jpg")
+    }
+
     func testBookletRequiresPDFAndWritesOncePerAlbum() async throws {
         let bookletURL = URL(string: "https://static.qobuz.com/booklet.pdf")!
         let item = makeItem(
@@ -89,7 +112,42 @@ final class CollectionAssetTests: XCTestCase {
         ).isEmpty)
     }
 
-    func testPlaylistWritesExtendedRelativeM3U() throws {
+    func testPlaylistDoesNotClaimAlbumFolderArtworkOrBookletSidecars() async throws {
+        let bookletURL = URL(string: "https://static.qobuz.com/booklet.pdf")!
+        let item = makeItem(
+            collection: .playlist(id: QobuzID("playlist"), title: "Mix"),
+            bookletURL: bookletURL
+        )
+        let artwork = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        let embedded = try EmbeddedArtwork.validated(data: artwork, mimeType: "image/png")
+        let writer = QobuzCollectionAssetWriter(
+            fetcher: FixtureAssetFetcher(responses: [
+                bookletURL: .init(data: Data("%PDF-1.7\ntest".utf8), mimeType: "application/pdf")
+            ])
+        )
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
+        let audio = root.appendingPathComponent("Primary/Album/01. Song.flac")
+
+        XCTAssertNil(try writer.saveExternalArtwork(
+            embedded,
+            for: item,
+            audioURL: audio,
+            fileSystem: fileSystem
+        ))
+        let booklets = try await writer.downloadBooklets(
+            for: [(item, audio)],
+            fileSystem: fileSystem
+        )
+        XCTAssertTrue(booklets.isEmpty)
+        XCTAssertNil(try fileSystem.metadata(at: LibraryRelativePath("Primary/Album/cover.png")))
+        XCTAssertNil(try fileSystem.metadata(at: LibraryRelativePath("Primary/Album/Booklet.pdf")))
+    }
+
+    func testPlaylistWritesExtendedRelativeM3U() async throws {
         let item = makeItem(collection: .playlist(id: QobuzID("playlist"), title: "Road Trip"))
         let plan = QobuzDownloadPlan(request: .playlist(QobuzID("playlist")), title: "Road Trip", tracks: [item])
         let root = temporaryDirectory()
@@ -97,13 +155,18 @@ final class CollectionAssetTests: XCTestCase {
         let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Road Trip/01. Primary - Song.mp3")
 
-        let playlist = try XCTUnwrap(
-            QobuzCollectionAssetWriter().writePlaylist(
-                plan: plan,
-                outputs: [(item, audio)],
-                fileSystem: fileSystem
-            )
+        try fileSystem.writeAtomically(Data("audio".utf8), to: fileSystem.relativePath(for: audio))
+        try seedProvenance(
+            for: item,
+            audioPath: fileSystem.relativePath(for: audio),
+            fileSystem: fileSystem
         )
+        let assets = try await QobuzCollectionAssetWriter().updateLibraryCollections(
+            plan: plan,
+            outputs: [(item, audio)],
+            fileSystem: fileSystem
+        )
+        let playlist = try XCTUnwrap(assets.playlistURL)
         let contents = try String(contentsOf: playlist, encoding: .utf8)
 
         XCTAssertEqual(playlist.lastPathComponent, "Road Trip.m3u")
@@ -113,7 +176,7 @@ final class CollectionAssetTests: XCTestCase {
         XCTAssertFalse(contents.contains(root.path))
     }
 
-    func testLibraryManifestKeepsRichPlaylistMetadataAndPortableTrackPaths() throws {
+    func testLibraryManifestKeepsRichPlaylistMetadataAndPortableTrackPaths() async throws {
         let item = makeItem(collection: .playlist(id: QobuzID("playlist"), title: "Road Trip"))
         let playlist = QobuzPlaylist(
             id: QobuzID("playlist"),
@@ -137,17 +200,22 @@ final class CollectionAssetTests: XCTestCase {
         let fileSystem = try LibraryFileSystem(rootURL: root)
         let audio = root.appendingPathComponent("Primary/Album/01. Song.mp3")
         let writer = QobuzCollectionAssetWriter()
-
-        let m3u = try XCTUnwrap(writer.writePlaylist(
-            plan: plan,
-            outputs: [(item, audio)],
+        try fileSystem.writeAtomically(
+            Data("audio".utf8),
+            to: fileSystem.relativePath(for: audio)
+        )
+        try seedProvenance(
+            for: item,
+            audioPath: fileSystem.relativePath(for: audio),
             fileSystem: fileSystem
-        ))
-        _ = try writer.recordLibraryCollections(
+        )
+
+        let assets = try await writer.updateLibraryCollections(
             plan: plan,
             outputs: [(item, audio)],
             fileSystem: fileSystem
         )
+        let m3u = try XCTUnwrap(assets.playlistURL)
         let manifest = try QobuzLibraryManifestIO.load(at: root)
 
         let record = try XCTUnwrap(manifest.collections.first)
@@ -193,6 +261,37 @@ final class CollectionAssetTests: XCTestCase {
         )
         try Data("changed".utf8).write(to: audio)
         XCTAssertFalse(try MusicFileIntegrity.verify(audio, expectedSHA256: checksum))
+    }
+
+    func testChecksumWriterPreservesMalformedExistingManifest() throws {
+        let item = makeItem(collection: .album(id: QobuzID("album"), title: "Album"))
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
+        let firstAudioPath = try LibraryRelativePath("Artist/Album-A/01. Song.flac")
+        try fileSystem.writeAtomically(Data("first audio".utf8), to: firstAudioPath)
+        let firstManifestPath = try firstAudioPath.parent.appending(QobuzChecksumManifest.filename)
+        let originalFirstManifest = QobuzChecksumManifest.encode([
+            "older.flac": String(repeating: "b", count: 64)
+        ])
+        try fileSystem.writeAtomically(originalFirstManifest, to: firstManifestPath)
+        let audioPath = try LibraryRelativePath("Artist/Album-Z/01. Song.flac")
+        try fileSystem.writeAtomically(Data("audio".utf8), to: audioPath)
+        let manifestPath = try audioPath.parent.appending(QobuzChecksumManifest.filename)
+        let malformed = Data("this is not a checksum manifest\n".utf8)
+        try fileSystem.writeAtomically(malformed, to: manifestPath)
+
+        XCTAssertThrowsError(
+            try QobuzCollectionAssetWriter().writeChecksumManifests(
+                for: [
+                    (item, fileSystem.displayURL(for: firstAudioPath), String(repeating: "c", count: 64)),
+                    (item, fileSystem.displayURL(for: audioPath), String(repeating: "a", count: 64))
+                ],
+                fileSystem: fileSystem
+            )
+        )
+        XCTAssertEqual(try fileSystem.read(firstManifestPath), originalFirstManifest)
+        XCTAssertEqual(try fileSystem.read(manifestPath), malformed)
     }
 
     func testProvenanceRoundTripRecordsIdentityQualityAndIntegrity() throws {
@@ -242,6 +341,38 @@ final class CollectionAssetTests: XCTestCase {
         )
     }
 
+    func testProvenanceWriterPreservesMalformedExistingManifest() throws {
+        let item = makeItem(collection: .album(id: QobuzID("album"), title: "Album"))
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileSystem = try LibraryFileSystem(rootURL: root)
+        let audioPath = try LibraryRelativePath("Artist/Album/01. Song.flac")
+        try fileSystem.writeAtomically(Data("audio".utf8), to: audioPath)
+        let manifestPath = try audioPath.parent.appending(QobuzProvenanceManifestIO.filename)
+        let malformed = Data("{not-json".utf8)
+        try fileSystem.writeAtomically(malformed, to: manifestPath)
+        let delivery = try validatedTestDelivery(for: QobuzFileInfo(
+            url: URL(string: "https://media.example/song.flac")!,
+            format: .hiRes,
+            bitDepth: 24,
+            samplingRate: 96
+        ))
+        let provenance = QobuzFileProvenance(
+            item: item,
+            delivery: delivery,
+            sha256: try MusicFileIntegrity.sha256(of: audioPath, in: fileSystem)
+        )
+
+        XCTAssertThrowsError(
+            try QobuzCollectionAssetWriter().recordProvenance(
+                provenance,
+                for: fileSystem.displayURL(for: audioPath),
+                fileSystem: fileSystem
+            )
+        )
+        XCTAssertEqual(try fileSystem.read(manifestPath), malformed)
+    }
+
     private func makeItem(
         collection: QobuzCollection,
         bookletURL: URL? = nil,
@@ -271,6 +402,31 @@ final class CollectionAssetTests: XCTestCase {
             bookletURL: bookletURL
         )
         return QobuzResolvedTrack(track: track, album: album, collection: collection, position: 1, total: 1)
+    }
+
+    private func seedProvenance(
+        for item: QobuzResolvedTrack,
+        audioPath: LibraryRelativePath,
+        fileSystem: LibraryFileSystem
+    ) throws {
+        let format: QobuzAudioFormat = audioPath.lastComponent?.hasSuffix(".mp3") == true
+            ? .mp3
+            : .hiRes
+        let fileInfo = QobuzFileInfo(
+            url: URL(string: "https://media.example/audio")!,
+            format: format,
+            bitDepth: format == .mp3 ? nil : 24,
+            samplingRate: format == .mp3 ? 44.1 : 96
+        )
+        try QobuzCollectionAssetWriter().recordProvenance(
+            QobuzFileProvenance(
+                item: item,
+                delivery: try validatedTestDelivery(for: fileInfo),
+                sha256: try MusicFileIntegrity.sha256(of: audioPath, in: fileSystem)
+            ),
+            for: fileSystem.displayURL(for: audioPath),
+            fileSystem: fileSystem
+        )
     }
 
     private func temporaryDirectory() -> URL {

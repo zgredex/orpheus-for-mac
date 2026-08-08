@@ -32,6 +32,19 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
 
     public var id: String { relativePath }
     public var audioFormat: QobuzAudioFormat? { QobuzAudioFormat(formatID: formatID) }
+    /// Automatic repair is deliberately limited to files that are absent or
+    /// whose recorded contents conflict. An unreadable filesystem object may
+    /// be a symlink, directory, or permission boundary and must never be
+    /// replaced without explicit manual intervention.
+    public var isAutomaticallyRepairable: Bool {
+        guard audioFormat != nil else { return false }
+        return switch integrity {
+        case .missing, .checksumMismatch, .metadataConflict:
+            true
+        case .verified, .unreadable:
+            false
+        }
+    }
 
     public init(
         relativePath: String,
@@ -63,28 +76,6 @@ public struct QobuzArchiveTrack: Codable, Equatable, Identifiable, Sendable {
         self.isLibraryManaged = isLibraryManaged
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case relativePath, qobuzTrackID, qobuzAlbumID, formatID, bitDepth, samplingRate
-        case expectedSHA256, actualSHA256, byteCount, modificationDate, integrity
-        case archiveKind, isLibraryManaged
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        relativePath = try container.decode(String.self, forKey: .relativePath)
-        qobuzTrackID = try container.decode(String.self, forKey: .qobuzTrackID)
-        qobuzAlbumID = try container.decode(String.self, forKey: .qobuzAlbumID)
-        formatID = try container.decode(Int.self, forKey: .formatID)
-        bitDepth = try container.decodeIfPresent(Int.self, forKey: .bitDepth)
-        samplingRate = try container.decodeIfPresent(Double.self, forKey: .samplingRate)
-        expectedSHA256 = try container.decode(String.self, forKey: .expectedSHA256)
-        actualSHA256 = try container.decodeIfPresent(String.self, forKey: .actualSHA256)
-        byteCount = try container.decodeIfPresent(Int64.self, forKey: .byteCount)
-        modificationDate = try container.decodeIfPresent(Date.self, forKey: .modificationDate)
-        integrity = try container.decode(QobuzArchiveIntegrity.self, forKey: .integrity)
-        archiveKind = try container.decodeIfPresent(QobuzArchiveKind.self, forKey: .archiveKind) ?? .unclassified
-        isLibraryManaged = try container.decodeIfPresent(Bool.self, forKey: .isLibraryManaged) ?? false
-    }
 }
 
 public struct QobuzArchiveIssue: Codable, Equatable, Sendable {
@@ -129,7 +120,15 @@ public struct QobuzArchiveEntry: Equatable, Identifiable, Sendable {
     public var byteCount: Int64? {
         let unique = Dictionary(grouping: tracks, by: \.relativePath).compactMap { $0.value.first }
         let sizes = unique.compactMap(\.byteCount)
-        return sizes.count == unique.count ? sizes.reduce(0, +) : nil
+        guard sizes.count == unique.count else { return nil }
+        var total: Int64 = 0
+        for size in sizes {
+            guard size >= 0 else { return nil }
+            let (updated, overflow) = total.addingReportingOverflow(size)
+            guard !overflow else { return nil }
+            total = updated
+        }
+        return total
     }
 
     public init(

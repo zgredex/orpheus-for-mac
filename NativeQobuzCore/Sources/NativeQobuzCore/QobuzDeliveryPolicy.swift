@@ -106,6 +106,60 @@ public struct QobuzDeliveryPolicy: Sendable {
         return QobuzValidatedAudioDelivery(format: fileInfo.format, media: media)
     }
 
+    /// Validates an already archived file against its own immutable delivery
+    /// record and decides whether it is safe to keep for the current request.
+    /// A normal maximum-quality request may keep an equal or higher exact
+    /// delivery below its ceiling; an exact repair may only keep the requested
+    /// format. This prevents a temporary Qobuz fallback from downgrading a
+    /// better file that is already in the Library.
+    func validateExistingForReuse(
+        provenance: QobuzFileProvenance,
+        item: QobuzResolvedTrack,
+        requestedMaximum: QobuzQuality?,
+        offered fileInfo: QobuzFileInfo,
+        media: AudioStreamProperties
+    ) throws -> QobuzValidatedAudioDelivery {
+        guard provenance.belongs(to: item),
+              let archivedFormat = QobuzAudioFormat(formatID: provenance.formatID) else {
+            throw NativeQobuzError.invalidResponse(
+                "Existing file identity or archived Qobuz format is invalid."
+            )
+        }
+        if let requestedMaximum {
+            guard archivedFormat.deliveryContract.rank
+                    <= requestedMaximum.maximumFormat.deliveryContract.rank else {
+                throw NativeQobuzError.invalidResponse(
+                    "Existing file is above the configured quality ceiling."
+                )
+            }
+            guard archivedFormat.deliveryContract.rank >= fileInfo.format.deliveryContract.rank else {
+                throw NativeQobuzError.invalidResponse(
+                    "Qobuz currently offers a higher quality than the existing file."
+                )
+            }
+        } else {
+            guard archivedFormat == fileInfo.format else {
+                throw NativeQobuzError.invalidResponse(
+                    "Existing file does not match the exact repair format."
+                )
+            }
+        }
+
+        let archivedFileInfo = QobuzFileInfo(
+            url: fileInfo.url,
+            format: archivedFormat,
+            bitDepth: provenance.bitDepth,
+            samplingRate: provenance.samplingRate
+        )
+        let delivery = try validate(fileInfo: archivedFileInfo, media: media)
+        guard provenance.matches(item: item, delivery: delivery) else {
+            throw NativeQobuzError.invalidResponse(
+                "Existing file properties do not match its archive provenance."
+            )
+        }
+        return delivery
+    }
+
     func notice(
         for item: QobuzResolvedTrack,
         requestedMaximum: QobuzQuality,

@@ -4,11 +4,14 @@ import Foundation
 /// server value to invalidate an otherwise usable release or track.
 struct QobuzLossyArray<Element: Decodable>: Decodable {
     let elements: [Element]
+    let consumedCount: Int
 
     init(from decoder: Decoder) throws {
         var container = try decoder.unkeyedContainer()
         var values: [Element] = []
+        var consumed = 0
         while !container.isAtEnd {
+            consumed += 1
             if let value = try? container.decode(Element.self) {
                 values.append(value)
             } else {
@@ -16,6 +19,7 @@ struct QobuzLossyArray<Element: Decodable>: Decodable {
             }
         }
         elements = values
+        consumedCount = consumed
     }
 }
 

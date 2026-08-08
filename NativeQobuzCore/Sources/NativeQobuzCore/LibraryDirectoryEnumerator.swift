@@ -45,6 +45,13 @@ struct LibraryDirectoryEnumerator {
                 ))
                 return
             }
+            if entry.metadata.kind == .hardLink {
+                issues.append(LibraryTraversalIssue(
+                    path: entry.path,
+                    message: "Hard-linked file ignored; shared inode contents were not opened."
+                ))
+                return
+            }
             guard entry.metadata.kind == .directory else { return }
             let child = name.withCString {
                 openat(descriptor, $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)

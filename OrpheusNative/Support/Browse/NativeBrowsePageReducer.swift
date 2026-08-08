@@ -6,26 +6,29 @@ import NativeQobuzCore
 enum NativeBrowsePageReducer {
     static func pagination(
         for content: BrowsePageContent,
-        pageSize: Int
-    ) -> NativeBrowsePagePagination? {
+        pageSize: Int,
+        requestedOffset: Int = 0
+    ) throws -> NativeBrowsePagePagination? {
         guard let page = pageInfo(content) else { return nil }
-        guard page.count > 0 else {
-            return NativeBrowsePagePagination(nextOffset: nil, total: page.total)
-        }
-        let candidate = page.offset + page.count
-        let next: Int?
-        if let total = page.total {
-            next = candidate < total ? candidate : nil
-        } else {
-            next = page.count >= max(page.limit ?? pageSize, 1) ? candidate : nil
-        }
+        _ = try QobuzPageCursor.validatedOffset(
+            reportedOffset: page.offset,
+            requestedOffset: requestedOffset
+        )
+        let next = QobuzPageCursor.nextOffset(
+            reportedOffset: page.offset,
+            requestedOffset: requestedOffset,
+            rawItemCount: page.count,
+            total: page.total,
+            requestedLimit: max(page.limit ?? pageSize, 1)
+        )
         return NativeBrowsePagePagination(nextOffset: next, total: page.total)
     }
 
     static func append(
         _ next: BrowsePageContent,
         to current: BrowsePageContent,
-        pageSize: Int
+        pageSize: Int,
+        requestedOffset: Int
     ) throws -> NativeBrowsePageLoad {
         let merged: BrowsePageContent
         switch (current, next) {
@@ -42,8 +45,9 @@ enum NativeBrowsePageReducer {
                 albumsLimit: page.albumsLimit ?? pageSize
             ))
         case (.playlist(let first), .playlist(let page)):
-            var known = Set(first.tracks.map(\.id))
-            let tracks = first.tracks + page.tracks.filter { known.insert($0.id).inserted }
+            // Playlist positions are semantic. The same Qobuz track may occur
+            // more than once and every occurrence must remain visible.
+            let tracks = first.tracks + page.tracks
             merged = .playlist(QobuzPlaylist(
                 id: first.id,
                 name: first.name,
@@ -77,20 +81,24 @@ enum NativeBrowsePageReducer {
         }
         return NativeBrowsePageLoad(
             content: merged,
-            pagination: pagination(for: next, pageSize: pageSize)
+            pagination: try pagination(
+                for: next,
+                pageSize: pageSize,
+                requestedOffset: requestedOffset
+            )
         )
     }
 
     private static func pageInfo(
         _ content: BrowsePageContent
-    ) -> (offset: Int, count: Int, total: Int?, limit: Int?)? {
+    ) -> (offset: Int?, count: Int, total: Int?, limit: Int?)? {
         switch content {
         case .artist(let value):
-            (value.albumsOffset ?? 0, value.albums.count, value.albumsTotal, value.albumsLimit)
+            (value.albumsOffset, value.albums.count, value.albumsTotal, value.albumsLimit)
         case .playlist(let value):
-            (value.tracksOffset ?? 0, value.tracks.count, value.tracksTotal, value.tracksLimit)
+            (value.tracksOffset, value.tracks.count, value.tracksTotal, value.tracksLimit)
         case .label(let value):
-            (value.albumsOffset ?? 0, value.albums.count, value.albumsTotal, value.albumsLimit)
+            (value.albumsOffset, value.albums.count, value.albumsTotal, value.albumsLimit)
         case .loading, .album, .track, .error:
             nil
         }

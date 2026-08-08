@@ -82,21 +82,11 @@ final class APITests: XCTestCase {
     }
 
     func testAccountValidationUsesApplicationIDAndNeverSendsUserID() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubURLProtocol.self]
-        let session = URLSession(configuration: configuration)
         let requestBox = LockedBox<URLRequest?>(nil)
-        StubURLProtocol.handler = { request in
-            requestBox.set(request)
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let body = #"{"id":"account-user","country":"FR","credential":{"parameters":{"lossless":true}}}"#
-            return (response, Data(body.utf8))
-        }
-        let client = QobuzAPIClient(
+        let client = accountValidationClient(
+            responseBody: #"{"id":"account-user","country":"FR","credential":{"parameters":{"lossless":true}}}"#,
             credentials: QobuzCredentials(appID: "application-id", appSecret: "secret", authToken: "account-token"),
-            session: session,
-            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
-            timestamp: { 1_700_000_000 }
+            capturedRequest: requestBox
         )
 
         let region = try await client.validateAccount()
@@ -109,28 +99,38 @@ final class APITests: XCTestCase {
     }
 
     func testAccountRegionPrefersJSONCountry() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        StubURLProtocol.handler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["X-Store": "US-en"]
-            )!
-            let body = #"{"country":"FR","credential":{"parameters":{"lossless":true}}}"#
-            return (response, Data(body.utf8))
-        }
-        let client = QobuzAPIClient(
-            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
-            session: session,
-            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
-            timestamp: { 1_700_000_000 }
+        let client = accountValidationClient(
+            responseBody: #"{"country":"FR","credential":{"parameters":{"lossless":true}}}"#,
+            headerFields: ["X-Store": "US-en"]
         )
 
         let region = try await client.validateAccount()
         XCTAssertEqual(region, "FR")
+    }
+
+    func testAccountRegionToleratesMalformedCountryAndUsesHeaderFallback() async throws {
+        let client = accountValidationClient(
+            responseBody: #"{"country":123,"credential":{"parameters":{"lossless":true}}}"#,
+            headerFields: ["X-Store": "FR-fr"]
+        )
+
+        let region = try await client.validateAccount()
+
+        XCTAssertEqual(region, "FR")
+    }
+
+    func testAccountValidationRejectsMalformedCredentialPayload() async throws {
+        let client = accountValidationClient(
+            responseBody: #"{"country":123,"credential":"malformed"}"#,
+            headerFields: ["X-Store": "FR-fr"]
+        )
+
+        do {
+            _ = try await client.validateAccount()
+            XCTFail("Malformed credential data must not be treated as a valid account response")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
     }
 
     func testSearchReturnsTypedCategoryAndUsesAccountHeaders() async throws {
@@ -282,6 +282,53 @@ final class APITests: XCTestCase {
         XCTAssertEqual(artist.albums.map(\.id.rawValue), ["one", "two", "three"])
         XCTAssertEqual(artist.albumsTotal, 3)
         XCTAssertEqual(offsets.value, ["0", "2"])
+    }
+
+    func testExhaustivePaginationContinuesUntilAShortPageWhenTotalIsMissing() async throws {
+        let requestedOffsets = LockedBox<[Int]>([])
+
+        let values = try await qobuzAllPages(
+            firstItems: [0, 1],
+            firstOffset: 0,
+            firstReportedLimit: nil,
+            total: nil,
+            pageSize: 2
+        ) { offset, _ in
+            requestedOffsets.set(requestedOffsets.value + [offset])
+            let items: [Int] = switch offset {
+            case 2: [2, 3]
+            case 4: [4]
+            default: []
+            }
+            return QobuzPaginationPage(items: items, reportedLimit: nil)
+        }
+
+        XCTAssertEqual(values, [0, 1, 2, 3, 4])
+        XCTAssertEqual(requestedOffsets.value, [2, 4])
+    }
+
+    func testExhaustivePaginationUsesCappedReportedLimitWhenTotalIsMissing() async throws {
+        let requestedOffsets = LockedBox<[Int]>([])
+
+        let values = try await qobuzAllPages(
+            firstItems: [0, 1],
+            firstOffset: 0,
+            firstReportedLimit: 2,
+            total: nil,
+            pageSize: 500
+        ) { offset, requestedLimit in
+            XCTAssertEqual(requestedLimit, 500)
+            requestedOffsets.set(requestedOffsets.value + [offset])
+            let items: [Int] = switch offset {
+            case 2: [2, 3]
+            case 4: [4]
+            default: []
+            }
+            return QobuzPaginationPage(items: items, reportedLimit: 2)
+        }
+
+        XCTAssertEqual(values, [0, 1, 2, 3, 4])
+        XCTAssertEqual(requestedOffsets.value, [2, 4])
     }
 
     func testAlbumDecodesEveryMainArtistAndStructuredLabel() async throws {
@@ -510,17 +557,8 @@ final class APITests: XCTestCase {
     }
 
     func testSearchToleratesMalformedCursorMetadataAndPresentationItems() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubURLProtocol.self]
-        StubURLProtocol.handler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let body = #"{"tracks":{"items":[{"id":"usable","title":"Usable"},{"id":"missing-title"},42],"total":"many","offset":"start","limit":{"wrong":true}}}"#
-            return (response, Data(body.utf8))
-        }
-        let client = QobuzAPIClient(
-            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
-            session: URLSession(configuration: configuration),
-            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        let client = catalogClient(
+            responseBody: #"{"tracks":{"items":[{"id":"usable","title":"Usable"},{"id":"missing-title"},42],"total":"many","offset":"start","limit":{"wrong":true}}}"#
         )
 
         let results = try await client.search("usable", category: .tracks, limit: 30)
@@ -529,6 +567,79 @@ final class APITests: XCTestCase {
         XCTAssertEqual(results.offset, 0)
         XCTAssertNil(results.total)
         XCTAssertNil(results.nextOffset)
+    }
+
+    func testSearchCursorAdvancesByRawItemsThatTolerantDecodingConsumed() async throws {
+        let client = catalogClient(
+            responseBody: #"{"tracks":{"items":[{"id":"one","title":"One"},{"id":"broken"},{"id":"three","title":"Three"}],"total":4,"offset":0,"limit":3}}"#
+        )
+
+        let results = try await client.search("tracks", category: .tracks, limit: 3)
+
+        XCTAssertEqual(results.tracks.map(\.id.rawValue), ["one", "three"])
+        XCTAssertEqual(results.nextOffset, 3)
+    }
+
+    func testPageCursorRejectsOverflowNegativeAndMismatchedMetadata() {
+        XCTAssertNil(QobuzPageCursor.nextOffset(
+            reportedOffset: Int.max,
+            requestedOffset: Int.max,
+            rawItemCount: 1,
+            total: nil,
+            requestedLimit: 1
+        ))
+        XCTAssertNil(QobuzPageCursor.nextOffset(
+            reportedOffset: -1,
+            requestedOffset: -1,
+            rawItemCount: 1,
+            total: 10,
+            requestedLimit: 1
+        ))
+        XCTAssertNil(QobuzPageCursor.nextOffset(
+            reportedOffset: 0,
+            requestedOffset: 30,
+            rawItemCount: 30,
+            total: 100,
+            requestedLimit: 30
+        ))
+        XCTAssertThrowsError(try QobuzPageCursor.validatedOffset(
+            reportedOffset: 60,
+            requestedOffset: 30
+        ))
+    }
+
+    func testSearchRejectsAConcreteOffsetDifferentFromTheRequest() async throws {
+        let client = catalogClient(
+            responseBody: #"{"tracks":{"items":[{"id":"wrong","title":"Wrong page"}],"total":100,"offset":60,"limit":30}}"#
+        )
+
+        do {
+            _ = try await client.search("wrong", category: .tracks, limit: 30, offset: 30)
+            XCTFail("A mismatched search page offset must be rejected")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
+    }
+
+    func testCollectionPageRejectsAConcreteOffsetDifferentFromTheRequest() async throws {
+        let client = catalogClient(
+            responseBody: #"{"id":"artist","name":"Artist","albums":{"items":[],"total":100,"offset":0,"limit":30}}"#
+        )
+
+        do {
+            _ = try await client.artistPage(id: QobuzID("artist"), offset: 30, limit: 30)
+            XCTFail("A mismatched collection page offset must be rejected")
+        } catch {
+            XCTAssertFalse(error is CancellationError)
+        }
+    }
+
+    private func catalogClient(responseBody: String) -> QobuzAPIClient {
+        return QobuzAPIClient(
+            credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
+            session: stubSession(responseBody: responseBody),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero)
+        )
     }
 
     func testCollectionPageKeepsStrictItemsWhenOptionalCursorMetadataIsMalformed() async throws {
@@ -596,24 +707,58 @@ final class APITests: XCTestCase {
         responseBody: String,
         capturedRequest: LockedBox<URLRequest?>
     ) -> QobuzAPIClient {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubURLProtocol.self]
-        StubURLProtocol.handler = { request in
-            capturedRequest.set(request)
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (response, Data(responseBody.utf8))
-        }
         return QobuzAPIClient(
             credentials: QobuzCredentials(appID: "app", appSecret: "secret", authToken: "token"),
-            session: URLSession(configuration: configuration),
+            session: stubSession(
+                responseBody: responseBody,
+                capturedRequest: capturedRequest
+            ),
             retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
             timestamp: { 1_700_000_000 }
         )
+    }
+
+    private func accountValidationClient(
+        responseBody: String,
+        headerFields: [String: String]? = nil,
+        credentials: QobuzCredentials = QobuzCredentials(
+            appID: "app",
+            appSecret: "secret",
+            authToken: "token"
+        ),
+        capturedRequest: LockedBox<URLRequest?>? = nil
+    ) -> QobuzAPIClient {
+        return QobuzAPIClient(
+            credentials: credentials,
+            session: stubSession(
+                responseBody: responseBody,
+                headerFields: headerFields,
+                capturedRequest: capturedRequest
+            ),
+            retryPolicy: QobuzRetryPolicy(maxAttempts: 1, baseDelay: .zero),
+            timestamp: { 1_700_000_000 }
+        )
+    }
+
+    private func stubSession(
+        responseBody: String,
+        headerFields: [String: String]? = nil,
+        capturedRequest: LockedBox<URLRequest?>? = nil
+    ) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        StubURLProtocol.handler = { request in
+            capturedRequest?.set(request)
+            let requestURL = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: requestURL,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: headerFields
+            ))
+            return (response, Data(responseBody.utf8))
+        }
+        return URLSession(configuration: configuration)
     }
 }
 

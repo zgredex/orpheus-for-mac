@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public struct QobuzDownloadProgress: Equatable, Sendable {
@@ -46,6 +47,7 @@ public struct QobuzDownloadProgress: Equatable, Sendable {
 
 public enum QobuzDownloadCheckpointPhase: String, Codable, Equatable, Sendable {
     case resolvingCatalog
+    case resolvingAudio
     case transferringAudio
     case writingTags
     case validatingAudio
@@ -60,15 +62,18 @@ public enum QobuzDownloadCheckpointPhase: String, Codable, Equatable, Sendable {
 public struct QobuzDownloadCheckpoint: Codable, Equatable, Sendable {
     public let phase: QobuzDownloadCheckpointPhase
     public let trackID: QobuzID?
+    public let albumID: QobuzID?
     public let outputURL: URL?
 
     public init(
         phase: QobuzDownloadCheckpointPhase,
         trackID: QobuzID? = nil,
+        albumID: QobuzID? = nil,
         outputURL: URL? = nil
     ) {
         self.phase = phase
         self.trackID = trackID
+        self.albumID = albumID
         self.outputURL = outputURL
     }
 }
@@ -91,19 +96,42 @@ public enum QobuzDownloadEvent: Equatable, Sendable {
 }
 
 public enum QobuzDownloadArtifacts {
-    public static func processingURL(for destination: URL, formatID: Int) -> URL {
+    public static func processingURL(
+        for destination: URL,
+        formatID: Int,
+        albumID: QobuzID,
+        trackID: QobuzID
+    ) -> URL {
+        let identity = identityToken(albumID: albumID, trackID: trackID)
         let filename = QobuzFilenameComponent.make(
             prefix: ".",
             stem: destination.deletingPathExtension().lastPathComponent,
-            suffix: ".qobuz-\(formatID).processing",
+            suffix: ".qobuz-\(formatID)-\(identity).processing",
             pathExtension: destination.pathExtension,
             maximumBytes: QobuzFilenameComponent.maximumBytes - ".partial".utf8.count
         )
         return destination.deletingLastPathComponent().appendingPathComponent(filename)
     }
 
-    public static func partialURL(for destination: URL, formatID: Int) -> URL {
-        processingURL(for: destination, formatID: formatID).appendingPathExtension("partial")
+    public static func partialURL(
+        for destination: URL,
+        formatID: Int,
+        albumID: QobuzID,
+        trackID: QobuzID
+    ) -> URL {
+        processingURL(
+            for: destination,
+            formatID: formatID,
+            albumID: albumID,
+            trackID: trackID
+        ).appendingPathExtension("partial")
+    }
+
+    private static func identityToken(albumID: QobuzID, trackID: QobuzID) -> String {
+        SHA256.hash(data: Data("\(albumID.rawValue)\u{0}\(trackID.rawValue)".utf8))
+            .prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
 

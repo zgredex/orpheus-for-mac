@@ -28,6 +28,11 @@ public final class QobuzReusableAudioIndex: @unchecked Sendable {
         withLock { valuesByRoot[rootKey, default: [:]][reuseKey] = url }
     }
 
+    public func remove(reuseKey: String, root: URL) {
+        let rootKey = root.standardizedFileURL.path
+        withLock { valuesByRoot[rootKey]?[reuseKey] = nil }
+    }
+
     public func invalidate(root: URL) {
         let key = root.standardizedFileURL.path
         withLock { valuesByRoot[key] = nil }

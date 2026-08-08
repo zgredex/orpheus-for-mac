@@ -21,7 +21,7 @@ The app bundle is immutable. Mutable state is stored in:
 - Application Support: `~/Library/Application Support/Orpheus for Mac`
 - Default downloads: `~/Music/Orpheus for Mac`
 
-Credentials are stored in an owner-only `credentials.json` file. It contains the Qobuz App ID, App Secret, and auth token. A Qobuz account user ID is neither stored nor sent as an App ID.
+Settings and credentials are committed atomically in one owner-only `configuration.json` file. Its credential section contains the Qobuz App ID, App Secret, and auth token. A Qobuz account user ID is neither stored nor sent as an App ID.
 
 ## Diagnostics
 
@@ -73,7 +73,7 @@ CI rejects Rosetta and selects the runner's exact native architecture. Apple Sil
 The release harness runs app and core tests, the live French-account matrix, packaging, a moved-bundle launch, clean-account evidence, and notarization validation. It writes redacted logs and JSON reports under `Build/Acceptance`.
 
 ```sh
-QOBUZ_CREDENTIALS_FILE="$HOME/Library/Application Support/Orpheus for Mac/credentials.json" \
+QOBUZ_CREDENTIALS_FILE="$HOME/Library/Application Support/Orpheus for Mac/configuration.json" \
 scripts/run_native_release_qualification.sh
 ```
 
